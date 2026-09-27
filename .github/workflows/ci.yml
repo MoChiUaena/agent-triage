@@ -30,7 +30,9 @@ jobs:
         if: runner.os == 'Windows'
         run: .\mvnw.cmd -B -ntp verify
       - name: Check browser script syntax
-        run: node --check src/main/resources/static/app.js
+        run: |
+          node --check src/main/resources/static/app.js
+          node --check src/main/resources/static/settings.js
   postgres:
     name: PostgreSQL HTTP integration
     runs-on: ubuntu-latest
