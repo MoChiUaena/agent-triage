@@ -41,7 +41,7 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 | HTTP 冒烟脚本 | 超时、正常、无关问题、缺失规则 4 个案例通过 |
 | 浏览器操作 | 场景切换、历史查看、引用展开正常 |
 | H2 重启 | 原执行状态、9 个事件和 4 条证据保留 |
-| GitHub Actions | Windows、Ubuntu、PostgreSQL 已通过；本次增加跨服务 HTTP 集成作业 |
+| GitHub Actions | Windows、Ubuntu、PostgreSQL、跨服务 HTTP 集成[全部通过](https://github.com/MoChiUaena/agent-triage/actions/runs/36308598815) |
 | 本地模型协议冒烟 | 正常 / 超时各执行 2 轮模型请求、3 次工具调用；缺失 usage 保持 null |
 | 设置页面本地验收 | 新增、测试、编辑时 Key 留空、启用模型、完成排查、切回演示模式和删除确认窗口 |
 | 本地真实请求链路 | 三个独立 JVM；空窗口证据不足；5 次正常请求和 5 次库存超时请求均可排查；Micrometer 指标与 JSON 错误日志可核对；页面流量控制可用 |
