@@ -22,14 +22,14 @@ public class DemoReasoner {
         String requiredDoc = timeout ? "DOC-DOWNSTREAM-TIMEOUT#v1" : "DOC-HEALTHY-BASELINE#v1";
         boolean hasRule = evidence.stream().anyMatch(e -> e.id().equals(requiredDoc));
         var causes = hasRule ? List.of(new Finding(timeout
-            ? "库存下游读取超时可能拖慢同步订单查询；目前支持故障路径判断，不能确定下游超时的最终原因。"
-            : "本次窗口指标接近合成基线，未发现下游超时证据。",
+            ? "订单查询可能受库存服务的读取超时影响，需要进一步检查库存服务和网络。"
+            : "当前指标接近基线，未发现下游超时证据。",
             List.of(metrics.id(), logs.id(), requiredDoc))) : List.<Finding>of();
         return new Diagnosis(observations, causes,
-            timeout ? List.of("核对相同窗口内 inventory-service 的延迟、错误率及资源使用。",
-                "用 synthetic-trace-1 对照调用链；真实环境需换成真实 traceId。", "确认客户端 2000ms 读取超时配置，区分网络、连接池与下游处理耗时。")
-                : List.of("提供具体慢请求的时间和 traceId，再对照对应窗口。", "补充数据库和其他依赖耗时，避免仅凭无错误日志排除故障。"),
-            hasRule ? "全部观测来自合成适配器；未采集数据库、网络和下游资源指标，不能据此确定生产根因。"
-                : "未检索到支持该判断的排障规则，保留观测但不输出原因。所有观测均为合成数据。");
+            timeout ? List.of("查看同一时间段内 inventory-service 的延迟、错误率和资源使用情况。",
+                "用日志中的 traceId 对照订单与库存服务的调用耗时。", "核对客户端的 2000ms 读取超时设置，检查连接池等待和网络延迟。")
+                : List.of("找到具体慢请求的时间和 traceId，缩小查询范围。", "补充数据库和其他依赖的调用耗时。"),
+            hasRule ? "尚未采集数据库、网络和库存服务的资源指标，无法进一步判断原因。"
+                : "已获取观测数据，但没有检索到对应的排障文档，暂时无法判断原因。");
     }
 }
