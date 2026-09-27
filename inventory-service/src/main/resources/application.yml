@@ -1,0 +1,11 @@
+server:
+  address: 127.0.0.1
+  port: ${INVENTORY_PORT:18084}
+spring:
+  application:
+    name: triage-inventory-service
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
