@@ -25,4 +25,22 @@ class LiveModelOutputTest {
             .isInstanceOfSatisfying(RunFailure.class, failure ->
                 org.assertj.core.api.Assertions.assertThat(failure.code()).isEqualTo("MODEL_NO_OBSERVATIONS"));
     }
+
+    @Test void successCannotCiteATimeoutRuleForANormalWindow() throws Exception {
+        var json = JsonMapper.builder().findAndAddModules().build();
+        var evidence = List.of(
+            new Evidence("DOC-DOWNSTREAM-TIMEOUT#v2", "search_runbooks", "超时规则", "规则", Map.of()),
+            new Evidence("METRICS-LIVE", "read_service_metrics", "指标", "有请求且无超时",
+                Map.of("requestCount", 5, "downstreamTimeoutRate", 0.0)),
+            new Evidence("LOGS-LIVE", "query_error_logs", "日志", "无错误", Map.of()));
+        var diagnosis = new Diagnosis(
+            List.of(new Finding("当前无超时。", List.of("METRICS-LIVE")), new Finding("日志为空。", List.of("LOGS-LIVE"))),
+            List.of(new Finding("本次窗口正常。", List.of("DOC-DOWNSTREAM-TIMEOUT#v2", "METRICS-LIVE"))),
+            List.of("继续观察。"), "缺少其他依赖数据。");
+        String answer = json.writeValueAsString(Map.of("status", "SUCCEEDED", "diagnosis", diagnosis));
+        var output = new ModelOutput(json);
+        assertThatThrownBy(() -> output.parse(answer, evidence))
+            .isInstanceOfSatisfying(RunFailure.class, failure ->
+                org.assertj.core.api.Assertions.assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT"));
+    }
 }

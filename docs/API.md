@@ -54,6 +54,8 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 
 若模型调用工具后得到的窗口请求数为 0，应用记录 `EVIDENCE_GATE` 事件并直接返回 `INSUFFICIENT_EVIDENCE`，不再发起最终一轮模型请求。结果中的不确定性会说明结论由应用证据门槛生成。
 
+若已有请求指标且检索到了文档，但没有与当前超时/正常观测相符的规则，应用同样记录 `EVIDENCE_GATE`，返回证据不足；模型不能用错误场景的文档支持成功结论。
+
 明显超出订单与库存排障范围的问题由应用记录 `SCOPE_GATE` 并返回 `INSUFFICIENT_EVIDENCE`，不发起模型请求；该门槛只筛掉明确无关的问题，不能代替模型的语义判断。
 
 ## 工具
@@ -79,6 +81,8 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 `POST /api/evaluation/document-only` 仅供本机同源评测，写请求需要 `X-Triage-Settings: 1`。请求体为 `{"question":"订单查询接口为什么变慢了？","scenario":"DOWNSTREAM_TIMEOUT","expectedSelection":"..."}`；`expectedSelection` 取自当前 `/api/config`。服务只按问题检索至多三篇排障文档，不读取实时指标和日志，也不向模型开放工具。场景只用于文档工具上下文，不作为实时事实提供给模型。
 
 接口对当前选中的模型发起一次请求，返回 `status`、`answer`、文档 `citations`、`uncertainty`、检索到的文档 ID、模型信息、完整 usage（若服务端提供）和耗时；无效输出返回 `FAILED` 与安全的 `failureCode`，不返回原始模型消息或 API Key。该评测不写执行历史，结果由 `scripts/compare_live_methods.py` 保存在本机 `target/live-comparison/`。
+
+明显无关的问题在仅文档入口也由应用范围门槛结束，返回 `applicationScopeGate=true`、`modelCalls=0`；正常模型调用返回 `applicationScopeGate=false`、`modelCalls=1`。两种方法的范围门槛一致，避免把这类拒绝误记成模型能力。
 
 ## 结果结构
 

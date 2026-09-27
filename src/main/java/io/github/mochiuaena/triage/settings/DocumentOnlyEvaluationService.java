@@ -6,6 +6,7 @@ import io.github.mochiuaena.triage.domain.TriageModel.ModelSource;
 import io.github.mochiuaena.triage.domain.TriageModel.Scenario;
 import io.github.mochiuaena.triage.domain.TriageModel.TokenUsage;
 import io.github.mochiuaena.triage.execution.RunFailure;
+import io.github.mochiuaena.triage.execution.QuestionScope;
 import io.github.mochiuaena.triage.model.ModelConfiguration;
 import io.github.mochiuaena.triage.model.ModelSettings;
 import io.github.mochiuaena.triage.tools.RunbookSearchTool;
@@ -40,7 +41,8 @@ public class DocumentOnlyEvaluationService {
                                     Duration timeout, String selectionToken) {}
     public record Result(String status, String answer, List<String> citations, String uncertainty,
                          List<String> retrievedDocumentIds, String configuredModel, String responseModel,
-                         ModelSource provider, TokenUsage usage, long elapsedMs, String failureCode) {}
+                         ModelSource provider, TokenUsage usage, long elapsedMs, String failureCode,
+                         boolean applicationScopeGate, int modelCalls) {}
 
     private final ProviderRegistry providers;
     private final RunbookSearchTool runbooks;
@@ -62,6 +64,10 @@ public class DocumentOnlyEvaluationService {
         BaselineProvider provider = selectedProvider();
         if (expectedSelection == null || !expectedSelection.equals(provider.selectionToken()))
             throw new ResponseStatusException(CONFLICT, "模型配置已变化，请刷新后重试评测。");
+        if (!QuestionScope.supports(question))
+            return new Result("OUT_OF_SCOPE", "该问题不属于订单与库存排障范围。", List.of(),
+                "应用范围门槛提前结束；没有请求模型，也没有检索文档。", List.of(),
+                provider.model(), null, provider.source(), null, 0, null, true, 0);
         var evidence = runbooks.execute(new ToolContext("order-service", 15, scenario, Instant.now()), question);
         List<String> ids = evidence.stream().map(item -> item.id()).toList();
         var excerpts = evidence.stream().map(item -> new Excerpt(item.id(), item.title(), item.summary())).toList();
@@ -86,7 +92,7 @@ public class DocumentOnlyEvaluationService {
             if (answer == null) return failed("INVALID_BASELINE_OUTPUT", ids, provider, started);
             return new Result(answer.outcome().name(), answer.answer(), answer.citations(), answer.uncertainty(),
                 ids, provider.model(), safeModel(response.getMetadata().getModel()),
-                provider.source(), usage(response), elapsed(started), null);
+                provider.source(), usage(response), elapsed(started), null, false, 1);
         } catch (TimeoutException e) {
             pending.cancel(true);
             return failed("BASELINE_MODEL_TIMEOUT", ids, provider, started);
@@ -136,7 +142,7 @@ public class DocumentOnlyEvaluationService {
 
     private Result failed(String code, List<String> ids, BaselineProvider provider, long started) {
         return new Result("FAILED", null, List.of(), "文档对照请求未生成有效结果。", ids,
-            provider.model(), null, provider.source(), null, elapsed(started), code);
+            provider.model(), null, provider.source(), null, elapsed(started), code, false, 1);
     }
 
     private TokenUsage usage(ChatResponse response) {

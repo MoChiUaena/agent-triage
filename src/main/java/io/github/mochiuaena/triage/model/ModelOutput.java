@@ -71,6 +71,8 @@ final class ModelOutput {
         Evidence metrics = evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElseThrow();
         if (!(metrics.data().get("requestCount") instanceof Number count) || count.intValue() <= 0)
             throw new IllegalArgumentException();
+        if (!(metrics.data().get("downstreamTimeoutRate") instanceof Number rate)) throw new IllegalArgumentException();
+        String requiredRule = rate.doubleValue() > 0 ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
         Map<String, Evidence> byId = evidence.stream().collect(Collectors.toMap(Evidence::id, e -> e));
         Set<String> citedSources = new HashSet<>();
         for (Finding finding : diagnosis.observations()) {
@@ -82,6 +84,7 @@ final class ModelOutput {
             Set<String> sources = sources(finding, byId);
             if (!sources.contains("search_runbooks") || Collections.disjoint(sources, Set.of("read_service_metrics", "query_error_logs")))
                 throw new IllegalArgumentException();
+            if (finding.evidenceIds().stream().noneMatch(id -> id.startsWith(requiredRule))) throw new IllegalArgumentException();
             citedSources.addAll(sources);
         }
         if (!citedSources.containsAll(Set.of("search_runbooks", "read_service_metrics", "query_error_logs")))

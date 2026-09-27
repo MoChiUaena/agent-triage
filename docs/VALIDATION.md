@@ -19,7 +19,7 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 | `RunApiTest` | 7 | HTTP 请求、参数校验、历史查询、SSE 重放、页面和模式信息 |
 | `TriageApplicationTest` | 1 | 无模型凭据时启动应用 |
 | `ModelIntegrationTest` | 30 | Spring AI HTTP 协议、多轮工具调用、参数与引用校验、范围门槛、截断、超时、错误脱敏和 usage |
-| `LiveModelOutputTest` | 1 | 空请求窗口即使有三类证据也不能被模型判为成功 |
+| `LiveModelOutputTest` | 2 | 空请求窗口不能被判为成功；正常窗口不能引用超时规则当作成功结论 |
 | `ModelSettingsTest` | 9 | 必填配置、地址限制、凭据脱敏和配置上限 |
 | `EnvironmentSettingsTest` | 1 | 文档中的环境变量能覆盖默认配置 |
 | `CredentialCipherTest` | 3 | 非重复密文、重启后可解密、跨服务不能复用密文、丢失密钥时不会重建 |
@@ -28,7 +28,7 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 工具失败测试会注入一个抛出异常的工具，检查结果是否为 `FAILED / TOOL_ERROR`，且诊断为空。调用次数测试将上限设为 2，确认第三个工具没有执行。超时测试检查中断是否发出，以及迟到结果是否被忽略。
 
-主项目合计 91 项，独立订单和库存样例服务各有 1 项 HTTP 集成测试。模型模拟服务返回预设响应，用于验证协议和执行边界；真实百炼的小样本人工检查另见下文，尚不能作为通用效果评测。
+主项目合计 92 项，独立订单和库存样例服务各有 1 项 HTTP 集成测试。模型模拟服务返回预设响应，用于验证协议和执行边界；真实百炼的小样本人工检查另见下文，尚不能作为通用效果评测。
 
 ## 2026-09-27 运行结果
 
@@ -36,7 +36,7 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 | 检查 | 结果 |
 |---|---|
-| Maven verify | 主项目 91 项、订单服务 1 项、库存服务 1 项通过 |
+| Maven verify | 主项目 92 项、订单服务 1 项、库存服务 1 项通过 |
 | 环境变量隔离 | 预设 MODEL 模式和不可达模型地址后，旧的演示测试仍使用 DEMO 模式；模型测试只访问本机模拟服务 |
 | PostgreSQL 16.10 | 7 项 HTTP 集成测试通过，首次迁移成功 |
 | HTTP 冒烟脚本 | 超时、正常、无关问题、缺失规则 4 个案例通过 |

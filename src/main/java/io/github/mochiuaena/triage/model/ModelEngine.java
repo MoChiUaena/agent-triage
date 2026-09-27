@@ -68,6 +68,11 @@ public final class ModelEngine implements TriageEngine {
                 session.recordNoDataGate();
                 return noData;
             }
+            Decision ruleGap = ruleGapDecision(session);
+            if (ruleGap != null) {
+                session.recordRuleGapGate();
+                return ruleGap;
+            }
         }
     }
 
@@ -81,6 +86,24 @@ public final class ModelEngine implements TriageEngine {
                     List.of("先让订单服务处理一些请求，再重新排查同一时间窗口。"),
                     "应用根据无请求证据门槛返回证据不足；模型只参与了工具选择，没有生成最终结论。")))
             .orElse(null);
+    }
+
+    private Decision ruleGapDecision(ExecutionSession session) {
+        List<Evidence> evidence = session.evidence();
+        Evidence metrics = evidence.stream().filter(item -> item.source().equals("read_service_metrics"))
+            .findFirst().orElse(null);
+        if (metrics == null || !(metrics.data().get("requestCount") instanceof Number count) || count.intValue() <= 0
+            || !(metrics.data().get("downstreamTimeoutRate") instanceof Number rate)) return null;
+        List<Evidence> documents = evidence.stream().filter(item -> item.source().equals("search_runbooks")).toList();
+        if (documents.isEmpty()) return null; // The model may still search for a rule in a later round.
+        boolean timeout = rate.doubleValue() > 0;
+        String required = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
+        if (documents.stream().anyMatch(item -> item.id().startsWith(required))) return null;
+        String missing = timeout ? "下游超时排障规则" : "正常状态对照规则";
+        return new Decision(Status.INSUFFICIENT_EVIDENCE,
+            new Diagnosis(List.of(new Finding(metrics.summary(), List.of(metrics.id()))), List.of(),
+                List.of("检索或补充与本次观测匹配的" + missing + "后再判断。"),
+                "本次窗口已有请求观测，但没有检索到对应的" + missing + "；应用未请求模型生成最终结论。"));
     }
 
     private void recordUsage(ExecutionSession session, ChatResponse response) {

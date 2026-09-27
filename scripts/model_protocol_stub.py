@@ -90,8 +90,10 @@ class Handler(BaseHTTPRequestHandler):
                 if "实际请求" not in tools or "合成观测" in tools:
                     raise ValueError("LIVE tool descriptions are missing")
                 arguments = {"service": "order-service", "windowMinutes": 15}
+                user = next((message.get("content", "") for message in messages if message.get("role") == "user"), "")
+                query = "延迟" if "接口延迟原因" in str(user) else "订单 超时 正常"
                 calls = [
-                    tool_call("docs", "search_runbooks", {**arguments, "query": "订单 超时 正常"}),
+                    tool_call("docs", "search_runbooks", {**arguments, "query": query}),
                     tool_call("metrics", "read_service_metrics", arguments),
                     tool_call("logs", "query_error_logs", arguments),
                 ]

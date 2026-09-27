@@ -80,12 +80,15 @@ def summarize(case, baseline, run, agent_ms):
             "citationsValid": set(baseline["citations"]) <= baseline_ids,
             "usage": baseline.get("usage"), "wallTimeMs": baseline["elapsedMs"],
             "failureCode": baseline.get("failureCode"),
+            "applicationScopeGate": baseline.get("applicationScopeGate", False),
+            "modelCalls": baseline.get("modelCalls"),
         },
         "agent": {
             "status": run["status"], "runId": run["id"], "synthetic": run["synthetic"],
             "tools": [event["tool"] for event in run["events"] if event["type"] == "TOOL_STARTED"],
             "toolCalls": run["toolCalls"], "citationsValid": valid,
             "applicationScopeGate": any(event["type"] == "SCOPE_GATE" for event in run["events"]),
+            "applicationEvidenceGate": any(event["type"] == "EVIDENCE_GATE" for event in run["events"]),
             "citedSources": cited_sources,
             "observations": (run.get("diagnosis") or {}).get("observations"),
             "possibleCauses": (run.get("diagnosis") or {}).get("possibleCauses"),
@@ -165,8 +168,13 @@ def main():
             json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         result = summarize(case, baseline, run, agent_ms)
         if args.mock_provider and case["id"] == "D07" and (
-                run["status"] != "INSUFFICIENT_EVIDENCE" or not result["agent"]["applicationScopeGate"]):
-            raise AssertionError("The unrelated-question scope gate did not run")
+                run["status"] != "INSUFFICIENT_EVIDENCE" or not result["agent"]["applicationScopeGate"]
+                or not result["documentOnly"]["applicationScopeGate"]):
+            raise AssertionError("Both unrelated-question scope gates must run")
+        if args.mock_provider and case["id"] == "D10" and (
+                run["status"] != "INSUFFICIENT_EVIDENCE" or not result["agent"]["applicationEvidenceGate"]
+                or result["agent"]["modelCalls"] != 1):
+            raise AssertionError("The missing-rule evidence gate did not run")
         results.append(result)
         print(f"{case['id']}: docs={baseline['status']} | agent={run['status']} |"
               f" tools={run['toolCalls']} | review pending")

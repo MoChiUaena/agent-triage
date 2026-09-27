@@ -90,3 +90,4 @@ jobs:
           done
           python3 scripts/live_model_eval.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085
+          python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085 --ids D10
