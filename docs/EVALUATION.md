@@ -25,3 +25,17 @@ python scripts/evaluate_demo.py --split dev
 ## 后续比较
 
 下一步固定仅检索文档的对照方法，并对同一案例记录工具选择、引用、结果状态、耗时和失败样例。真实模型评测需单独配置服务，记录具体模型与参数；模型返回完整 usage 时才统计 token。普通 CI 不调用付费模型。
+
+## LIVE 数据源与模型模式
+
+`scripts/live_model_eval.py` 使用独立订单、库存服务产生的请求，依次检查空窗口、正常和超时三种情况。它要求排障助手同时处于 `MODEL` 模式和 `LIVE` 数据源，运行时需显式传入 `--allow-model-calls`。脚本保存每次执行的工具顺序、引用来源、状态、耗时、模型轮次和服务端 usage；它只自动检查状态与引用结构，结论文字仍需人工核对。
+
+本地接口模拟器用于验证协议，不具备模型选择能力。运行方法：先启动库存和订单服务，再启动 `python scripts/model_protocol_stub.py`，让一个独立排障助手实例使用 `TRIAGE_MODE=MODEL`、`TRIAGE_OBSERVATION_SOURCE=LIVE`、`TRIAGE_MODEL_BASE_URL=http://127.0.0.1:18100`、`TRIAGE_MODEL_API_KEY=test-only-local` 和 `TRIAGE_MODEL_NAME=triage-stub`。运行 `python scripts/live_model_eval.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085`。 [本地协议结果](validation/2026-09-27-live-model-stub.json)为 3/3 通过，明确标记 `mockProvider=true`、`modelQualityEvaluated=false`。
+
+真实模型验收时，在[模型设置页](http://127.0.0.1:18080/settings.html)自行配置并启用服务，确认首页仍为 LIVE 数据源，再运行：
+
+```powershell
+python scripts/live_model_eval.py --allow-model-calls
+```
+
+这会提交三个排查任务，每个任务可能多轮调用模型，费用取决于提供商。先用 `--case timeout` 可以只检查一条故障链路。脚本不会保存 API Key 或原始模型对话；完整排查记录和摘要写入 `target/live-model-eval/`。目前本机没有配置模型服务，因此尚无真实提供商结果。三案例只是链路验收，20 案例留出集与仅检索对照仍待执行。

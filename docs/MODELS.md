@@ -94,12 +94,14 @@ DeepSeek 和 Kimi K2.6 预设发送 `thinking.type=disabled`。百炼、GLM、LM
 .\mvnw.cmd '-Dtest=ModelIntegrationTest,ModelSettingsTest' test
 ```
 
-配置好真实模型并启动应用后，可执行两种场景的冒烟检查：
+配置好真实模型并以默认合成数据源启动应用后，可执行两种场景的冒烟检查：
 
 ```powershell
 python scripts/model_smoke.py --allow-model-calls
 ```
 
 脚本将结果写入 `target/model-smoke/`，失败的执行也会保留。它只检查调用链路，不替代后续的独立评测。
+
+如果使用 `TRIAGE_OBSERVATION_SOURCE=LIVE` 和本地订单、库存服务，先在设置页启用模型，再运行 `python scripts/live_model_eval.py --allow-model-calls --case timeout` 检查一条故障链路；去掉 `--case` 会运行空窗口、正常、超时三个任务。每个任务可能进行多轮模型调用，费用取决于提供商。工具顺序、引用、用量和失败结果保存在 `target/live-model-eval/`，具体说明见[小规模评测](EVALUATION.md#live-数据源与模型模式)。
 
 接口依据：[DeepSeek 工具调用](https://api-docs.deepseek.com/guides/tool_calls/)、[百炼兼容地址](https://github.com/alibaba/open-code-review/blob/486022daaf14f7142275eddb9b3cacc3cc5dadfa/pages/src/content/docs/zh/configuration.md)、[百炼模型示例](https://github.com/alibaba/spring-ai-alibaba/blob/f82da0b50f35744c13968191be2b1cd2452ef550/examples/documentation/src/main/resources/application.yml)、[GLM API 指引](https://docs.bigmodel.cn/cn/api/introduction)、[Kimi K2.6](https://platform.kimi.com/docs/guide/kimi-k2-6-quickstart)、[Spring AI 工具执行](https://github.com/spring-projects/spring-ai/blob/v1.1.8/spring-ai-docs/src/main/antora/modules/ROOT/pages/api/tools.adoc)。页面的服务管理交互参考了 [interview-guide](https://github.com/Snailclimb/interview-guide/tree/969e2af8550f680688f5b50f0d895186a661a319)。

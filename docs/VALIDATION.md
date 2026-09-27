@@ -19,6 +19,7 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 | `RunApiTest` | 7 | HTTP 请求、参数校验、历史查询、SSE 重放、页面和模式信息 |
 | `TriageApplicationTest` | 1 | 无模型凭据时启动应用 |
 | `ModelIntegrationTest` | 29 | Spring AI HTTP 协议、多轮工具调用、参数与引用校验、截断、超时、错误脱敏和 usage |
+| `LiveModelOutputTest` | 1 | 空请求窗口即使有三类证据也不能被模型判为成功 |
 | `ModelSettingsTest` | 9 | 必填配置、地址限制、凭据脱敏和配置上限 |
 | `EnvironmentSettingsTest` | 1 | 文档中的环境变量能覆盖默认配置 |
 | `CredentialCipherTest` | 3 | 非重复密文、重启后可解密、跨服务不能复用密文、丢失密钥时不会重建 |
@@ -27,7 +28,7 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 工具失败测试会注入一个抛出异常的工具，检查结果是否为 `FAILED / TOOL_ERROR`，且诊断为空。调用次数测试将上限设为 2，确认第三个工具没有执行。超时测试检查中断是否发出，以及迟到结果是否被忽略。
 
-主项目合计 89 项，独立订单样例服务另有 1 项 HTTP 集成测试。模型服务返回预设响应，用于验证协议和执行边界；模型实际选择工具的能力和结论质量尚未评测。
+主项目合计 90 项，独立订单和库存样例服务各有 1 项 HTTP 集成测试。模型服务返回预设响应，用于验证协议和执行边界；模型实际选择工具的能力和结论质量尚未评测。
 
 ## 2026-09-27 运行结果
 
@@ -35,7 +36,7 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 | 检查 | 结果 |
 |---|---|
-| Maven verify | 主项目 89 项、订单服务 1 项、库存服务 1 项通过 |
+| Maven verify | 主项目 90 项、订单服务 1 项、库存服务 1 项通过 |
 | 环境变量隔离 | 预设 MODEL 模式和不可达模型地址后，旧的演示测试仍使用 DEMO 模式；模型测试只访问本机模拟服务 |
 | PostgreSQL 16.10 | 7 项 HTTP 集成测试通过，首次迁移成功 |
 | HTTP 冒烟脚本 | 超时、正常、无关问题、缺失规则 4 个案例通过 |
@@ -46,10 +47,13 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 | 设置页面本地验收 | 新增、测试、编辑时 Key 留空、启用模型、完成排查、切回演示模式和删除确认窗口 |
 | 本地真实请求链路 | 三个独立 JVM；空窗口证据不足；5 次正常请求和 5 次库存超时请求均可排查；Micrometer 指标与 JSON 错误日志可核对；页面流量控制可用 |
 | LIVE 页面 | 桌面与 390px 窄屏可生成请求并查看结果，无横向溢出 |
+| LIVE + 模型协议模拟器 | 空窗口、正常和超时三条链路通过；每条 3 次工具调用、2 轮接口交互；不代表真实模型效果 |
 
 [CI 运行列表](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml) · [早期演示冒烟结果](validation/2026-09-27-demo-smoke.json) · [演示超时场景记录](examples/timeout-run.json)
 
 [本地真实请求复查结果](validation/2026-09-27-live-smoke.json)来自订单与库存两个独立样例进程，`synthetic=false`。它验证样例请求到排障结论的链路；不代表生产流量或真实模型效果。
+
+[LIVE 模型协议结果](validation/2026-09-27-live-model-stub.json)来自固定响应的本地接口模拟器，未产生真实模型费用。
 
 冒烟结果中的 `wallTimeMs` 包含客户端请求和轮询等待，是单次运行耗时。
 

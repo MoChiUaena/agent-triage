@@ -29,6 +29,8 @@ def main():
     config = request("/api/config")
     if config.get("mode") != "MODEL":
         parser.error("The application must be running in MODEL mode.")
+    if config.get("synthetic") is not True:
+        parser.error("Use scripts/live_model_eval.py for LIVE observations.")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output = Path(args.output) / timestamp
     output.mkdir(parents=True, exist_ok=False)

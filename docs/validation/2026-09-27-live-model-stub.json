@@ -1,0 +1,117 @@
+{
+  "kind": "live-model-protocol-check",
+  "mockProvider": true,
+  "modelQualityEvaluated": false,
+  "syntheticObservations": false,
+  "ranAt": "2026-09-27T09:31:22.403477+00:00",
+  "configuredModel": "triage-stub",
+  "provider": null,
+  "accepted": 3,
+  "total": 3,
+  "cases": [
+    {
+      "case": "empty",
+      "question": "当前订单查询有足够证据判断健康状态吗？",
+      "expectedStatus": "INSUFFICIENT_EVIDENCE",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "statusMatch": true,
+      "accepted": true,
+      "runId": "5a3f90dc-1c55-4d70-ae0b-3b07e1e2cce6",
+      "scenario": "NORMAL",
+      "toolCalls": 3,
+      "tools": [
+        "search_runbooks",
+        "read_service_metrics",
+        "query_error_logs"
+      ],
+      "evidenceCount": 4,
+      "citationsValid": true,
+      "citedSources": [],
+      "unsafeSuccess": false,
+      "requestCount": 0,
+      "downstreamTimeoutRate": 0.0,
+      "configuredModel": "triage-stub",
+      "responseModel": "triage-stub-v1",
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 240,
+        "outputTokens": 60,
+        "totalTokens": 300
+      },
+      "failureCode": null,
+      "wallTimeMs": 313
+    },
+    {
+      "case": "normal",
+      "question": "当前订单查询是否出现库存下游超时？请给出证据。",
+      "expectedStatus": "SUCCEEDED",
+      "status": "SUCCEEDED",
+      "statusMatch": true,
+      "accepted": true,
+      "runId": "72ddccc3-c6c6-4426-8f27-ad45e79af815",
+      "scenario": "NORMAL",
+      "toolCalls": 3,
+      "tools": [
+        "search_runbooks",
+        "read_service_metrics",
+        "query_error_logs"
+      ],
+      "evidenceCount": 4,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ],
+      "unsafeSuccess": false,
+      "requestCount": 5,
+      "downstreamTimeoutRate": 0.0,
+      "configuredModel": "triage-stub",
+      "responseModel": "triage-stub-v1",
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 240,
+        "outputTokens": 60,
+        "totalTokens": 300
+      },
+      "failureCode": null,
+      "wallTimeMs": 313
+    },
+    {
+      "case": "timeout",
+      "question": "订单查询接口为什么变慢了？请结合当前请求给出证据和检查建议。",
+      "expectedStatus": "SUCCEEDED",
+      "status": "SUCCEEDED",
+      "statusMatch": true,
+      "accepted": true,
+      "runId": "5a36aa14-1478-40fb-aa24-cee22e3b4f54",
+      "scenario": "DOWNSTREAM_TIMEOUT",
+      "toolCalls": 3,
+      "tools": [
+        "search_runbooks",
+        "read_service_metrics",
+        "query_error_logs"
+      ],
+      "evidenceCount": 4,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ],
+      "unsafeSuccess": false,
+      "requestCount": 5,
+      "downstreamTimeoutRate": 1.0,
+      "configuredModel": "triage-stub",
+      "responseModel": "triage-stub-v1",
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 240,
+        "outputTokens": 60,
+        "totalTokens": 300
+      },
+      "failureCode": null,
+      "wallTimeMs": 297
+    }
+  ]
+}

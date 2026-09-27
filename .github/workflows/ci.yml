@@ -60,7 +60,7 @@ jobs:
           TRIAGE_TEST_DB_USER: triage
           TRIAGE_TEST_DB_PASSWORD: triage-ci
   live-lab:
-    name: Live sample HTTP integration
+    name: Live sample and model protocol integration
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -82,3 +82,10 @@ jobs:
             sleep 1
           done
           python3 scripts/live_smoke.py
+          python3 scripts/model_protocol_stub.py --port 18100 > model-stub.log 2>&1 &
+          java -jar target/agent-triage-0.1.0-SNAPSHOT.jar --server.port=18085 '--spring.datasource.url=jdbc:h2:mem:live-model;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/ci-live-model-key --triage.observation.source=LIVE --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18100 --triage.model.api-key=test-only-local --triage.model.name=triage-stub --triage.model.timeout=5s > model-agent.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:18085/api/config > /dev/null; then break; fi
+            sleep 1
+          done
+          python3 scripts/live_model_eval.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085
