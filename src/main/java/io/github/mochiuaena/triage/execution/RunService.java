@@ -18,20 +18,26 @@ import java.util.concurrent.*;
 public class RunService {
     private final RunRepository repository;
     private final ExecutionLimits limits;
-    private final DemoReasoner reasoner;
+    private final TriageEngine engine;
     private final List<ReadOnlyTool> tools;
     private final ThreadPoolExecutor coordinators = pool("triage-run-", 4, 16);
     private final ThreadPoolExecutor toolWorkers = pool("triage-tool-", 4, 16);
 
     @Autowired
-    public RunService(RunRepository repository, ExecutionLimits limits, DemoReasoner reasoner,
+    public RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
                       RunbookSearchTool runbooks, MetricsTool metrics, ErrorLogsTool logs) {
-        this(repository, limits, reasoner, List.of(runbooks, metrics, logs));
+        this(repository, limits, engine, List.of(runbooks, metrics, logs));
     }
 
-    // Package-visible seam for deterministic deadline and failure tests.
     RunService(RunRepository repository, ExecutionLimits limits, DemoReasoner reasoner, List<ReadOnlyTool> tools) {
-        this.repository = repository; this.limits = limits; this.reasoner = reasoner; this.tools = List.copyOf(tools);
+        this(repository, limits, new DemoEngine(reasoner), tools);
+    }
+
+    RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine, List<ReadOnlyTool> tools) {
+        this.repository = repository;
+        this.limits = limits;
+        this.engine = engine;
+        this.tools = List.copyOf(tools);
     }
 
     private static ThreadPoolExecutor pool(String prefix, int workers, int queue) {
@@ -40,15 +46,14 @@ public class RunService {
     }
 
     public Run submit(String question, ToolContext context) {
-        Run run = new Run(UUID.randomUUID(), question, context.service(), context.windowMinutes(), context.scenario(),
-            "DEMO", true, Status.QUEUED, context.endTime(), null, 0,
-            List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "已排队；使用确定性规则和合成数据。", List.of())), List.of(), null, null);
-        repository.insert(run);
         long deadline = System.nanoTime() + limits.runTimeout().toNanos();
+        Run run = new Run(UUID.randomUUID(), question, context.service(), context.windowMinutes(), context.scenario(),
+            engine.mode(), true, Status.QUEUED, context.endTime(), null, 0,
+            List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "任务已创建。", List.of())), List.of(), null, null);
+        repository.insert(run);
         try { coordinators.execute(() -> execute(run, context, deadline)); }
         catch (RejectedExecutionException e) {
-            MutableExecution state = stateFrom(run);
-            fail(state, "RUN_QUEUE_FULL", "执行队列已满，请稍后再试。");
+            fail(stateFrom(run), "RUN_QUEUE_FULL", "执行队列已满，请稍后再试。");
             throw new CapacityExceededException();
         }
         return run;
@@ -62,73 +67,31 @@ public class RunService {
 
     private void execute(Run run, ToolContext context, long deadline) {
         MutableExecution state = stateFrom(run);
+        ExecutionSession session = new ExecutionSession(run.question(), context, state, repository, limits, deadline, toolWorkers, tools);
         try {
-            checkDeadline(deadline);
+            session.checkDeadline();
             state.status = Status.RUNNING;
-            publish(state, "RUN_STARTED", null, "开始收集证据。", List.of());
-            if (!reasoner.supports(run.question())) {
-                state.diagnosis = new Diagnosis(List.of(), List.of(), List.of("请询问 order-service 的订单延迟、健康状态或下游超时。"),
-                    "当前演示只覆盖订单查询和库存下游超时，该问题没有可用证据。");
-                finish(state, Status.INSUFFICIENT_EVIDENCE);
-                return;
-            }
-            for (ReadOnlyTool tool : tools) {
-                checkDeadline(deadline);
-                if (state.toolCalls >= limits.maxToolCalls()) throw new RunFailure("TOOL_CALL_LIMIT", "已达到工具调用次数上限。");
-                state.toolCalls++;
-                publish(state, "TOOL_STARTED", tool.name(), "工具调用开始。", List.of());
-                Future<List<Evidence>> future = toolWorkers.submit(() -> tool.execute(context, run.question()));
-                long remaining = deadline - System.nanoTime();
-                boolean runBudgetFirst = remaining <= limits.toolTimeout().toNanos();
-                try {
-                    List<Evidence> evidence = future.get(Math.max(1, Math.min(remaining, limits.toolTimeout().toNanos())), TimeUnit.NANOSECONDS);
-                    checkDeadline(deadline);
-                    if (evidence.size() > 5) throw new RunFailure("TOOL_OUTPUT_LIMIT", "工具返回超过允许的证据数量。");
-                    state.evidence.addAll(evidence);
-                    publish(state, "TOOL_COMPLETED", tool.name(), "工具返回 " + evidence.size() + " 条证据。",
-                        evidence.stream().map(Evidence::id).toList());
-                } catch (TimeoutException e) {
-                    future.cancel(true);
-                    publish(state, "TOOL_FAILED", tool.name(), "工具等待超时，已请求取消。", List.of());
-                    throw new RunFailure(runBudgetFirst ? "RUN_TIMEOUT" : "TOOL_TIMEOUT", "执行超过时间预算。");
-                } catch (ExecutionException e) {
-                    publish(state, "TOOL_FAILED", tool.name(), "工具执行失败。", List.of());
-                    throw new RunFailure("TOOL_ERROR", "工具执行失败；没有生成排障结论。");
-                } catch (InterruptedException e) {
-                    future.cancel(true);
-                    throw e;
-                }
-            }
-            checkDeadline(deadline);
-            state.diagnosis = reasoner.diagnose(state.evidence);
-            EvidenceValidator.validate(state.diagnosis, state.evidence);
-            checkDeadline(deadline);
-            finish(state, state.diagnosis.possibleCauses().isEmpty() ? Status.INSUFFICIENT_EVIDENCE : Status.SUCCEEDED);
+            publish(state, "RUN_STARTED", "开始收集证据。");
+            TriageEngine.Decision decision = engine.investigate(session);
+            session.checkDeadline();
+            if (decision == null || (decision.status() != Status.SUCCEEDED && decision.status() != Status.INSUFFICIENT_EVIDENCE))
+                throw new RunFailure("INVALID_RESULT", "排查没有返回有效结果。");
+            EvidenceValidator.validate(decision.diagnosis(), state.evidence);
+            state.diagnosis = decision.diagnosis();
+            session.checkDeadline();
+            state.status = decision.status();
+            state.finishedAt = Instant.now();
+            publish(state, "RUN_COMPLETED", state.status == Status.SUCCEEDED ? "排查完成。" : "证据不足，无法支持完整判断。");
         } catch (RunFailure e) {
-            fail(state, e.code, e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            fail(state, "RUN_INTERRUPTED", "执行已中断。");
-        } catch (RejectedExecutionException e) {
-            fail(state, "TOOL_CAPACITY", "工具工作队列已满。");
+            fail(state, e.code(), e.getMessage());
         } catch (Exception e) {
             fail(state, "EXECUTION_ERROR", "执行失败；请检查本地配置和持久化存储。");
         }
     }
 
-    private void checkDeadline(long deadline) {
-        if (System.nanoTime() >= deadline) throw new RunFailure("RUN_TIMEOUT", "已达到整体执行时长上限。");
-    }
-
-    private void publish(MutableExecution state, String type, String tool, String message, List<String> ids) {
-        state.event(type, tool, message, ids);
+    private void publish(MutableExecution state, String type, String message) {
+        state.event(type, null, message, List.of());
         repository.save(state.snapshot());
-    }
-
-    private void finish(MutableExecution state, Status status) {
-        state.status = status;
-        state.finishedAt = Instant.now();
-        publish(state, "RUN_COMPLETED", null, status == Status.SUCCEEDED ? "排障完成，请核查证据。" : "证据不足，无法支持完整判断。", List.of());
     }
 
     private void fail(MutableExecution state, String code, String message) {
@@ -136,7 +99,7 @@ public class RunService {
         state.finishedAt = Instant.now();
         state.diagnosis = null;
         state.failure = new Failure(code, message);
-        publish(state, "RUN_FAILED", null, message, List.of());
+        publish(state, "RUN_FAILED", message);
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -153,11 +116,6 @@ public class RunService {
     @PreDestroy public void close() {
         coordinators.shutdownNow();
         toolWorkers.shutdownNow();
-    }
-
-    private static class RunFailure extends RuntimeException {
-        private final String code;
-        RunFailure(String code, String message) { super(message); this.code = code; }
     }
 
     public static class CapacityExceededException extends RuntimeException {}

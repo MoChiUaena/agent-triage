@@ -139,6 +139,56 @@ class RunServiceTest {
         assertThatThrownBy(() -> EvidenceValidator.validate(diagnosis, List.of(evidence, evidence))).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test void repeatedToolRequestStopsBeforeExecutingAgain() {
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        service = customEngine(session -> {
+            session.callTool("test_tool", "same query");
+            session.callTool("test_tool", " SAME QUERY ");
+            return insufficient();
+        }, List.of(tool(() -> { calls.incrementAndGet(); return List.of(); })));
+        Run run = execute("订单查询", Scenario.NORMAL);
+        assertThat(run.failure().code()).isEqualTo("DUPLICATE_TOOL_CALL");
+        assertThat(run.toolCalls()).isEqualTo(1);
+        assertThat(calls).hasValue(1);
+    }
+
+    @Test void overlappingSearchResultsAreCollectedOnceAndEngineModeIsPreserved() {
+        var evidence = new Evidence("same", "test_tool", "title", "summary", java.util.Map.of());
+        service = customEngine(session -> {
+            session.callTool("test_tool", "first query");
+            session.callTool("test_tool", "second query");
+            return insufficient();
+        }, List.of(tool(() -> List.of(evidence))));
+        Run run = execute("订单查询", Scenario.NORMAL);
+        assertThat(run.status()).isEqualTo(Status.INSUFFICIENT_EVIDENCE);
+        assertThat(run.mode()).isEqualTo("MODEL");
+        assertThat(run.evidence()).hasSize(1);
+        assertThat(run.toolCalls()).isEqualTo(2);
+    }
+
+    @Test void unknownToolCannotBeExecuted() {
+        service = customEngine(session -> {
+            session.callTool("execute_shell", "any input");
+            return insufficient();
+        }, List.of());
+        Run run = execute("订单查询", Scenario.NORMAL);
+        assertThat(run.failure().code()).isEqualTo("TOOL_NOT_ALLOWED");
+        assertThat(run.toolCalls()).isZero();
+    }
+
+    private TriageEngine.Decision insufficient() {
+        return new TriageEngine.Decision(Status.INSUFFICIENT_EVIDENCE,
+            new Diagnosis(List.of(), List.of(), List.of("补充观测。"), "证据不足。"));
+    }
+
+    private RunService customEngine(java.util.function.Function<ExecutionSession, TriageEngine.Decision> action, List<ReadOnlyTool> tools) {
+        TriageEngine engine = new TriageEngine() {
+            public String mode() { return "MODEL"; }
+            public Decision investigate(ExecutionSession session) { return action.apply(session); }
+        };
+        return new RunService(repository, new ExecutionLimits(3, Duration.ofSeconds(2), Duration.ofSeconds(10)), engine, tools);
+    }
+
     private ReadOnlyTool tool(java.util.function.Supplier<List<Evidence>> action) {
         return new ReadOnlyTool() {
             public String name() { return "test_tool"; }
