@@ -100,7 +100,7 @@ $env:SPRING_PROFILES_ACTIVE = 'postgres'
 
 打开[模型设置页](http://127.0.0.1:18080/settings.html)，选择 DeepSeek、阿里云百炼、智谱 GLM、Kimi、LM Studio 或自定义兼容接口，再填写 API Key。保存后可测试连接并设为当前模型。配置方法、调用限制和费用说明见[模型配置](docs/MODELS.md)。
 
-模型链路已通过本地模拟接口测试，真实模型服务调用待配置凭据后验证。在 LIVE 数据源下，模型将收到本地样例服务的请求观测。
+模型链路已通过本地模拟接口测试，也已用百炼模型在 LIVE 数据源下检查空窗口、正常与库存超时三条链路。调用状态和证据引用通过，但超时结论仍有需要人工修订的措辞；结果见[百炼 LIVE 检查记录](docs/validation/2026-09-27-bailian-live.md)。
 
 配置模型并启用 LIVE 数据源后，可用 `python scripts/live_model_eval.py --allow-model-calls` 检查空窗口、正常与库存超时三条链路。脚本保存工具顺序、证据引用、模型轮次和用量；服务端可能计费。运行方法和模拟接口结果见[小规模评测](docs/EVALUATION.md#live-数据源与模型模式)。
 

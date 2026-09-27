@@ -24,7 +24,7 @@ python scripts/evaluate_demo.py --split dev
 
 ## 后续比较
 
-下一步固定仅检索文档的对照方法，并对同一案例记录工具选择、引用、结果状态、耗时和失败样例。真实模型评测需单独配置服务，记录具体模型与参数；模型返回完整 usage 时才统计 token。普通 CI 不调用付费模型。
+下一步固定仅检索文档的对照方法，并对同一案例记录工具选择、引用、结果状态、耗时和失败样例。扩大真实模型评测时需记录具体模型与参数；模型返回完整 usage 时才统计 token。普通 CI 不调用付费模型。
 
 ## LIVE 数据源与模型模式
 
@@ -38,4 +38,4 @@ python scripts/evaluate_demo.py --split dev
 python scripts/live_model_eval.py --allow-model-calls
 ```
 
-这会提交三个排查任务，每个任务可能多轮调用模型，费用取决于提供商。先用 `--case timeout` 可以只检查一条故障链路。脚本不会保存 API Key 或原始模型对话；完整排查记录和摘要写入 `target/live-model-eval/`。上述协议验收时尚未配置真实模型，因此尚无提供商结果。三案例只是链路验收，20 案例留出集与仅检索对照仍待执行。
+这会提交三个排查任务，每个任务可能多轮调用模型，费用取决于提供商。先用 `--case timeout` 可以只检查一条故障链路。脚本不会保存 API Key 或原始模型对话；完整排查记录和摘要写入 `target/live-model-eval/`。[百炼 LIVE 检查记录](validation/2026-09-27-bailian-live.md)保留了通过的链路、失败尝试和人工审阅发现的措辞问题。三案例只是链路验收，20 案例留出集与仅检索对照仍待执行。

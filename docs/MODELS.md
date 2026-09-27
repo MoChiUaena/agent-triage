@@ -2,7 +2,7 @@
 
 默认使用 `DEMO` 模式，按固定规则运行。`MODEL` 模式通过 Spring AI 调用页面中选择的模型服务，由模型选择工具并生成结论。观测数据源单独配置：默认查询合成数据；设置 `TRIAGE_OBSERVATION_SOURCE=LIVE` 后查询本地订单样例服务实际处理的请求。
 
-模型链路已通过本地模拟服务测试。真实 DeepSeek 调用仍待配置凭据后验证，当前没有模型效果评测结果。
+模型链路已通过本地模拟服务测试，也已用百炼模型在 LIVE 样例上运行三条链路；[人工检查](validation/2026-09-27-bailian-live.md)发现超时归因仍有措辞问题。DeepSeek 等其他服务尚未实测，20 案例质量评测未完成。
 
 ## 在页面中配置
 
@@ -66,7 +66,7 @@ $env:TRIAGE_MODEL_API_KEY = [System.Net.NetworkCredential]::new('', (Read-Host '
 
 也可用启动参数 `--triage.model.max-rounds=4`、`--triage.model.max-tokens=1600` 设置。
 
-DeepSeek 和 Kimi K2.6 预设发送 `thinking.type=disabled`。百炼、GLM、LM Studio 和通用兼容接口不发送此参数。温度可在页面设置，环境变量模式默认为 0。不启用服务端 beta strict 模式，参数和输出由应用校验。各预设走 Chat Completions 接口，真实模型调用仍需用户凭据验证。
+DeepSeek 和 Kimi K2.6 预设发送 `thinking.type=disabled`。百炼、GLM、LM Studio 和通用兼容接口不发送此参数。温度可在页面设置，环境变量模式默认为 0。不启用服务端 beta strict 模式，参数和输出由应用校验。各预设走 Chat Completions 接口；除已运行的百炼配置外，其他服务仍需实际凭据验证。
 
 服务地址必须使用 HTTPS，本机服务可使用回环 HTTP 地址。地址不能携带用户名、密码或查询参数；HTTP 重定向不会被自动跟随。
 
