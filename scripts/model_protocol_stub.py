@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import re
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
@@ -70,7 +71,17 @@ class Handler(BaseHTTPRequestHandler):
             request = json.loads(self.rfile.read(size))
             messages = request["messages"]
             has_tools = any(message.get("role") == "tool" for message in messages)
-            if has_tools:
+            if not request.get("tools"):
+                user = next((message.get("content", "") for message in messages if message.get("role") == "user"), "")
+                ids = list(dict.fromkeys(re.findall(r"DOC-[A-Z-]+#v\d+", str(user))))
+                answer = {
+                    "outcome": "INSUFFICIENT_EVIDENCE" if ids else "OUT_OF_SCOPE",
+                    "answer": "只有排障文档，无法判断当前请求状态。" if ids else "该问题不在订单故障排查范围内。",
+                    "citations": ids[:1],
+                    "uncertainty": "缺少当前指标和错误日志。" if ids else "没有适用的订单排障文档。",
+                }
+                payload = response({"role": "assistant", "content": json.dumps(answer, ensure_ascii=False)}, "stop")
+            elif has_tools:
                 evidence = tool_results(messages)
                 answer = json.dumps(final_answer(evidence), ensure_ascii=False)
                 payload = response({"role": "assistant", "content": answer}, "stop")

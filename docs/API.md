@@ -72,6 +72,12 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 
 仅当 `TRIAGE_OBSERVATION_SOURCE=LIVE` 时提供 `POST /api/live-lab/traffic`。同源本地页面发送 `X-Triage-Lab: 1`，请求体为 `{"scenario":"NORMAL","count":5}` 或 `{"scenario":"DOWNSTREAM_TIMEOUT","count":5}`。`count` 范围 1–10。接口先清空样例观测、设置场景，再向样例订单接口发出指定数量的请求，返回实际请求数、超时次数和 p95。它是显式实验控制，不属于 Agent 的只读工具。
 
+## 仅文档对照评测
+
+`POST /api/evaluation/document-only` 仅供本机同源评测，写请求需要 `X-Triage-Settings: 1`。请求体为 `{"question":"订单查询接口为什么变慢了？","scenario":"DOWNSTREAM_TIMEOUT","expectedSelection":"..."}`；`expectedSelection` 取自当前 `/api/config`。服务只按问题检索至多三篇排障文档，不读取实时指标和日志，也不向模型开放工具。场景只用于文档工具上下文，不作为实时事实提供给模型。
+
+接口对当前选中的模型发起一次请求，返回 `status`、`answer`、文档 `citations`、`uncertainty`、检索到的文档 ID、模型信息、完整 usage（若服务端提供）和耗时；无效输出返回 `FAILED` 与安全的 `failureCode`，不返回原始模型消息或 API Key。该评测不写执行历史，结果由 `scripts/compare_live_methods.py` 保存在本机 `target/live-comparison/`。
+
 ## 结果结构
 
 `diagnosis` 包含以下字段：

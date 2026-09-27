@@ -208,8 +208,12 @@ class ProviderSettingsTest {
 
     @Test void crossOriginAndHeaderlessWritesAreRejected() {
         assertThat(http.postForEntity("/api/settings/providers", input("test-provider-secret", 0), String.class).getStatusCode().value()).isEqualTo(403);
+        var evaluation = Map.of("question", "订单查询为什么慢？", "scenario", "NORMAL", "expectedSelection", "test");
+        assertThat(http.postForEntity("/api/evaluation/document-only", evaluation, String.class).getStatusCode().value()).isEqualTo(403);
         HttpHeaders headers = new HttpHeaders(); headers.set("X-Triage-Settings", "1"); headers.setOrigin("https://unrelated.example");
         assertThat(http.exchange("/api/settings/providers", HttpMethod.POST, new HttpEntity<>(input("test-provider-secret", 0), headers), String.class)
+            .getStatusCode().value()).isEqualTo(403);
+        assertThat(http.exchange("/api/evaluation/document-only", HttpMethod.POST, new HttpEntity<>(evaluation, headers), String.class)
             .getStatusCode().value()).isEqualTo(403);
         assertThat(registry.list()).isEmpty();
     }

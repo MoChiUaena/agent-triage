@@ -104,6 +104,8 @@ $env:SPRING_PROFILES_ACTIVE = 'postgres'
 
 配置模型并启用 LIVE 数据源后，可用 `python scripts/live_model_eval.py --allow-model-calls` 检查空窗口、正常与库存超时三条链路。脚本保存工具顺序、证据引用、模型轮次和用量；服务端可能计费。运行方法和模拟接口结果见[小规模评测](docs/EVALUATION.md#live-数据源与模型模式)。
 
+要比较“仅检索文档”和 Agent 的实际回答，可运行 `python scripts/compare_live_methods.py --allow-model-calls`。默认先跑四个调试案例，结果写入 `target/live-comparison/`；评审方法和留出集约束见[小规模评测](docs/EVALUATION.md#后续比较)。
+
 ## 测试
 
 ```powershell

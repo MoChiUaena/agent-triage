@@ -23,7 +23,7 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 | `ModelSettingsTest` | 9 | 必填配置、地址限制、凭据脱敏和配置上限 |
 | `EnvironmentSettingsTest` | 1 | 文档中的环境变量能覆盖默认配置 |
 | `CredentialCipherTest` | 3 | 非重复密文、重启后可解密、跨服务不能复用密文、丢失密钥时不会重建 |
-| `ProviderSettingsTest` | 18 | 页面配置存取、Key 脱敏、编辑留空保留、切换快照、百炼/GLM/Kimi 参数、兼容接口路径、连接测试和跨站写入拒绝 |
+| `ProviderSettingsTest` | 18 | 页面配置存取、Key 脱敏、编辑留空保留、切换快照、百炼/GLM/Kimi 参数、兼容接口路径、连接测试、设置和评测端点的跨站写入拒绝 |
 | `UnconfiguredModelStartupTest` | 1 | 环境变量没有模型 Key 时，仍可进入设置页完成配置 |
 
 工具失败测试会注入一个抛出异常的工具，检查结果是否为 `FAILED / TOOL_ERROR`，且诊断为空。调用次数测试将上限设为 2，确认第三个工具没有执行。超时测试检查中断是否发出，以及迟到结果是否被忽略。

@@ -13,7 +13,10 @@ import java.util.Set;
 @Component
 @Order(0)
 public class SettingsAccessFilter extends OncePerRequestFilter {
-    @Override protected boolean shouldNotFilter(HttpServletRequest request) { return !request.getServletPath().startsWith("/api/settings"); }
+    @Override protected boolean shouldNotFilter(HttpServletRequest request) {
+        return !(request.getServletPath().startsWith("/api/settings")
+            || request.getServletPath().startsWith("/api/evaluation"));
+    }
 
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {
         String host = request.getServerName();
@@ -35,7 +38,7 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
             response.setStatus(403);
             response.setContentType("application/problem+json");
             response.setCharacterEncoding("UTF-8");
-            response.getWriter().write("{\"status\":403,\"detail\":\"模型设置仅允许通过本机同源页面访问。\"}");
+            response.getWriter().write("{\"status\":403,\"detail\":\"模型设置与评测仅允许从本机同源页面访问。\"}");
             return;
         }
         response.setHeader("Cache-Control", "no-store");

@@ -26,6 +26,14 @@ python scripts/evaluate_demo.py --split dev
 
 下一步固定仅检索文档的对照方法，并对同一案例记录工具选择、引用、结果状态、耗时和失败样例。扩大真实模型评测时需记录具体模型与参数；模型返回完整 usage 时才统计 token。普通 CI 不调用付费模型。
 
+现在可以运行 `scripts/compare_live_methods.py` 做小批量对照。脚本对同一问题和同一组本地请求，先调用仅文档入口，再运行可查询指标、错误日志和文档的 Agent；两条结果及模型 usage 分开保存。仅文档入口不会拿到当前请求数、p95、超时率或 traceId。默认选择调试集中的 D01、D04、D07、D09 四例，先检查流程与人工审阅标准：
+
+```powershell
+python scripts/compare_live_methods.py --allow-model-calls
+```
+
+`--all-dev` 才运行全部 10 个调试案例。留出集需要显式 `--split holdout --allow-holdout`，应等调试集的评审标准固定后再首次使用。每例调用同一个已启用模型：仅文档一次，Agent 可能多轮，因此会产生服务商费用。脚本只验证请求和引用结构，输出中的 `manualReview: pending` 必须根据文本和观测单独评审，不能把状态相同当作诊断正确。
+
 ## LIVE 数据源与模型模式
 
 `scripts/live_model_eval.py` 使用独立订单、库存服务产生的请求，依次检查空窗口、正常和超时三种情况。它要求排障助手同时处于 `MODEL` 模式和 `LIVE` 数据源，运行时需显式传入 `--allow-model-calls`。脚本保存每次执行的工具顺序、引用来源、状态、耗时、模型轮次和服务端 usage；它只自动检查状态与引用结构，结论文字仍需人工核对。
