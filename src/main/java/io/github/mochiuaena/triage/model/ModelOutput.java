@@ -7,9 +7,12 @@ import io.github.mochiuaena.triage.domain.TriageModel.*;
 import io.github.mochiuaena.triage.execution.*;
 import org.springframework.ai.converter.BeanOutputConverter;
 import java.util.*;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 final class ModelOutput {
+    private static final Pattern TRACE_CANDIDATE = Pattern.compile(
+        "(?i)\\b[0-9a-f]{7,8}(?:-[0-9a-f]{4}){2,3}-[0-9a-f]{12}\\b");
     enum Outcome { SUCCEEDED, INSUFFICIENT_EVIDENCE }
     record Response(Outcome status, Diagnosis diagnosis) {}
 
@@ -49,6 +52,7 @@ final class ModelOutput {
             if (response.status() == Outcome.SUCCEEDED) rejectEmptyWindow(evidence);
             EvidenceValidator.validate(response.diagnosis(), evidence);
             Diagnosis diagnosis = response.diagnosis();
+            validateTraceIds(diagnosis, evidence);
             if (response.status() == Outcome.SUCCEEDED) validateSuccess(diagnosis, evidence);
             else if (!diagnosis.possibleCauses().isEmpty()) throw new IllegalArgumentException();
             return new TriageEngine.Decision(Status.valueOf(response.status().name()), diagnosis);
@@ -56,6 +60,30 @@ final class ModelOutput {
             throw e;
         } catch (Exception e) {
             throw new RunFailure("INVALID_MODEL_OUTPUT", "模型结论的格式或证据引用无效，未保存为排查结果。");
+        }
+    }
+
+    private void validateTraceIds(Diagnosis diagnosis, List<Evidence> evidence) {
+        Set<String> known = new HashSet<>();
+        for (Evidence item : evidence) {
+            if (!"query_error_logs".equals(item.source())) continue;
+            if (!(item.data().get("entries") instanceof List<?> entries)) continue;
+            for (Object entry : entries) {
+                if (entry instanceof Map<?, ?> values && values.get("traceId") instanceof String id)
+                    known.add(id.toLowerCase(Locale.ROOT));
+            }
+        }
+        List<String> texts = new ArrayList<>();
+        diagnosis.observations().forEach(finding -> texts.add(finding.text()));
+        diagnosis.possibleCauses().forEach(finding -> texts.add(finding.text()));
+        texts.addAll(diagnosis.nextSteps());
+        texts.add(diagnosis.uncertainty());
+        for (String text : texts) {
+            var matches = TRACE_CANDIDATE.matcher(text);
+            while (matches.find()) {
+                if (!known.contains(matches.group().toLowerCase(Locale.ROOT)))
+                    throw new RunFailure("MODEL_UNSUPPORTED_TRACE_ID", "模型结论写入了本次日志中不存在的 traceId，已拒绝。");
+            }
         }
     }
 
