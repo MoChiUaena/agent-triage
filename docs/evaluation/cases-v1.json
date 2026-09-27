@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "description": "订单服务合成场景；dev 用于调试，holdout 留作独立运行。",
+  "cases": [
+    { "id": "D01", "split": "dev", "category": "timeout", "question": "订单查询接口为什么变慢了？", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "D02", "split": "dev", "category": "timeout", "question": "订单接口出现库存调用超时，应该先看什么？", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "D03", "split": "dev", "category": "timeout", "question": "order-service latency increased; what evidence is available?", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "D04", "split": "dev", "category": "normal", "question": "订单查询接口现在是否正常？", "scenario": "NORMAL", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "D05", "split": "dev", "category": "normal", "question": "order-service 的健康状态怎么样？", "scenario": "NORMAL", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "D06", "split": "dev", "category": "normal", "question": "最近订单请求有没有超时证据？", "scenario": "NORMAL", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "D07", "split": "dev", "category": "unrelated", "question": "写一首诗", "scenario": "NORMAL", "expectedDemoStatus": "INSUFFICIENT_EVIDENCE" },
+    { "id": "D08", "split": "dev", "category": "unrelated", "question": "解释 Java volatile 的作用", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "INSUFFICIENT_EVIDENCE" },
+    { "id": "D09", "split": "dev", "category": "missing-rule", "question": "查看健康状态", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "INSUFFICIENT_EVIDENCE" },
+    { "id": "D10", "split": "dev", "category": "missing-rule", "question": "接口延迟原因是什么？", "scenario": "NORMAL", "expectedDemoStatus": "INSUFFICIENT_EVIDENCE" },
+    { "id": "H01", "split": "holdout", "category": "timeout", "question": "订单查询延迟升高，请给出判断依据。", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "H02", "split": "holdout", "category": "timeout", "question": "order API is slow; check logs and metrics.", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "H03", "split": "holdout", "category": "timeout", "question": "库存读取超时会影响订单接口吗？", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "H04", "split": "holdout", "category": "normal", "question": "订单服务当前有异常吗？", "scenario": "NORMAL", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "H05", "split": "holdout", "category": "normal", "question": "Is order-service healthy right now?", "scenario": "NORMAL", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "H06", "split": "holdout", "category": "normal", "question": "正常情况下订单查询的延迟如何？", "scenario": "NORMAL", "expectedDemoStatus": "SUCCEEDED" },
+    { "id": "H07", "split": "holdout", "category": "unrelated", "question": "帮我规划周末旅行", "scenario": "NORMAL", "expectedDemoStatus": "INSUFFICIENT_EVIDENCE" },
+    { "id": "H08", "split": "holdout", "category": "unrelated", "question": "What is a Java record?", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "INSUFFICIENT_EVIDENCE" },
+    { "id": "H09", "split": "holdout", "category": "missing-rule", "question": "服务健康吗？", "scenario": "DOWNSTREAM_TIMEOUT", "expectedDemoStatus": "INSUFFICIENT_EVIDENCE" },
+    { "id": "H10", "split": "holdout", "category": "missing-rule", "question": "分析接口 latency", "scenario": "NORMAL", "expectedDemoStatus": "INSUFFICIENT_EVIDENCE" }
+  ]
+}

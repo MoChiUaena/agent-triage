@@ -103,6 +103,7 @@ CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具
 - [API](docs/API.md)
 - [模型配置](docs/MODELS.md)
 - [架构](docs/ARCHITECTURE.md)
+- [小规模评测](docs/EVALUATION.md)
 - [开发计划](docs/ROADMAP.md)
 - [贡献指南](CONTRIBUTING.md)
 
