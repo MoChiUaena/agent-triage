@@ -58,6 +58,9 @@ final class ModelOutput {
 
     private void validateSuccess(Diagnosis diagnosis, List<Evidence> evidence) {
         if (diagnosis.observations().isEmpty() || diagnosis.possibleCauses().isEmpty()) throw new IllegalArgumentException();
+        Evidence metrics = evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElseThrow();
+        if (!(metrics.data().get("requestCount") instanceof Number count) || count.intValue() <= 0)
+            throw new IllegalArgumentException();
         Map<String, Evidence> byId = evidence.stream().collect(Collectors.toMap(Evidence::id, e -> e));
         Set<String> citedSources = new HashSet<>();
         for (Finding finding : diagnosis.observations()) {
