@@ -1,0 +1,6 @@
+server:
+  address: 127.0.0.1
+  port: ${SAMPLE_PORT:18082}
+spring:
+  application:
+    name: triage-sample-service
