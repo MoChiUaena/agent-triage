@@ -38,4 +38,4 @@ python scripts/evaluate_demo.py --split dev
 python scripts/live_model_eval.py --allow-model-calls
 ```
 
-这会提交三个排查任务，每个任务可能多轮调用模型，费用取决于提供商。先用 `--case timeout` 可以只检查一条故障链路。脚本不会保存 API Key 或原始模型对话；完整排查记录和摘要写入 `target/live-model-eval/`。目前本机没有配置模型服务，因此尚无真实提供商结果。三案例只是链路验收，20 案例留出集与仅检索对照仍待执行。
+这会提交三个排查任务，每个任务可能多轮调用模型，费用取决于提供商。先用 `--case timeout` 可以只检查一条故障链路。脚本不会保存 API Key 或原始模型对话；完整排查记录和摘要写入 `target/live-model-eval/`。上述协议验收时尚未配置真实模型，因此尚无提供商结果。三案例只是链路验收，20 案例留出集与仅检索对照仍待执行。
