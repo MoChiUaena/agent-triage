@@ -1,0 +1,121 @@
+:root {
+  --ink: #193149;
+  --muted: #5b7187;
+  --subtle: #7489a0;
+  --line: #d9e5f0;
+  --sidebar: #eaf2fa;
+  --accent: #246bd6;
+  --accent-soft: #e5f0ff;
+  --success: #208161;
+  --danger: #b64f52;
+  color-scheme: light;
+  background: #f4f8fc;
+}
+
+body {
+  background: #f4f8fc;
+}
+
+.sidebar {
+  background: linear-gradient(165deg, #edf5ff 0%, #e5eff9 100%);
+}
+
+.topbar {
+  background: #fff;
+}
+
+.brand-mark {
+  background: #246bd6;
+  color: #fff;
+  border-radius: 9px;
+}
+
+.new-run,
+.history-search {
+  background: #fff;
+  border-color: #cdddec;
+}
+
+.history-item.selected,
+.settings-links a[aria-current] {
+  background: #d9eafd;
+  color: #1b4f91;
+}
+
+.history-item:hover,
+.settings-links a:hover {
+  background: #e0eefc;
+}
+
+.composer,
+.results,
+.current-mode,
+.provider-card {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px #214e760d;
+}
+
+.results {
+  padding: 22px 24px 28px;
+}
+
+.query-controls,
+.provider-actions,
+.evidence-item > summary {
+  background: #f5f9fe;
+}
+
+.context-sidebar {
+  padding: 22px;
+  background: #ecf5ff;
+  border: 1px solid #d7e8fa;
+  border-radius: 12px;
+}
+
+.primary {
+  background: var(--accent);
+  border-color: #246bd6;
+  box-shadow: 0 4px 14px #2967b52c;
+}
+
+.primary:hover {
+  background: #1e5cb7;
+}
+
+.tabs button[aria-selected="true"] {
+  border-bottom-color: var(--accent);
+  color: #235db0;
+}
+
+.citation {
+  color: #235fb5;
+}
+
+.active-tag {
+  color: #235db0;
+  background: #e5f0ff;
+}
+
+.provider-mark {
+  background: #e6f1ff;
+  color: #246bd6;
+}
+
+dialog {
+  border-radius: 12px;
+}
+
+@media (max-width: 960px) {
+  .investigation-grid {
+    gap: 22px;
+  }
+}
+
+@media (max-width: 720px) {
+  .results,
+  .context-sidebar {
+    padding: 18px;
+  }
+}

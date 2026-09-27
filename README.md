@@ -33,7 +33,7 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 打开 <http://127.0.0.1:18080>。默认使用 H2 文件数据库，记录保存在 `data/` 目录。按 `Ctrl+C` 停止服务。
 
-界面风格可在 <http://127.0.0.1:18080/style-preview.html> 并排查看，也可以在工作台右下角切换。三版共用相同功能，字体统一为微软雅黑。
+界面使用蓝白配色和微软雅黑字体，排查页与模型设置页保持一致。
 
 也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.1.0-SNAPSHOT.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
 
