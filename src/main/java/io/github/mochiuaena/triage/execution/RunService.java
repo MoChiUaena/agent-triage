@@ -22,6 +22,7 @@ public class RunService {
     private final List<ReadOnlyTool> tools;
     private final ThreadPoolExecutor coordinators = pool("triage-run-", 4, 16);
     private final ThreadPoolExecutor toolWorkers = pool("triage-tool-", 4, 16);
+    private final ThreadPoolExecutor modelWorkers = pool("triage-model-", 4, 16);
 
     @Autowired
     public RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
@@ -49,7 +50,8 @@ public class RunService {
         long deadline = System.nanoTime() + limits.runTimeout().toNanos();
         Run run = new Run(UUID.randomUUID(), question, context.service(), context.windowMinutes(), context.scenario(),
             engine.mode(), true, Status.QUEUED, context.endTime(), null, 0,
-            List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "任务已创建。", List.of())), List.of(), null, null);
+            List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "任务已创建。", List.of())), List.of(), null, null,
+            engine.modelName() == null ? null : new ModelExecution(engine.modelName(), null, 0, null));
         repository.insert(run);
         try { coordinators.execute(() -> execute(run, context, deadline)); }
         catch (RejectedExecutionException e) {
@@ -67,7 +69,7 @@ public class RunService {
 
     private void execute(Run run, ToolContext context, long deadline) {
         MutableExecution state = stateFrom(run);
-        ExecutionSession session = new ExecutionSession(run.question(), context, state, repository, limits, deadline, toolWorkers, tools);
+        ExecutionSession session = new ExecutionSession(run.question(), context, state, repository, limits, deadline, toolWorkers, modelWorkers, tools);
         try {
             session.checkDeadline();
             state.status = Status.RUNNING;
@@ -109,13 +111,14 @@ public class RunService {
             events.add(new Event(events.size() + 1, Instant.now(), "RUN_FAILED", null, "服务重启，之前的执行已中断。", List.of()));
             repository.save(new Run(run.id(), run.question(), run.service(), run.windowMinutes(), run.scenario(), run.mode(), run.synthetic(),
                 Status.FAILED, run.createdAt(), Instant.now(), run.toolCalls(), List.copyOf(events), run.evidence(), null,
-                new Failure("SERVER_RESTARTED", "服务重启；保留已收集证据，请重新执行。")));
+                new Failure("SERVER_RESTARTED", "服务重启；保留已收集证据，请重新执行。"), run.modelExecution()));
         }
     }
 
     @PreDestroy public void close() {
         coordinators.shutdownNow();
         toolWorkers.shutdownNow();
+        modelWorkers.shutdownNow();
     }
 
     public static class CapacityExceededException extends RuntimeException {}

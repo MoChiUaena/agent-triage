@@ -15,6 +15,18 @@ spring:
     async:
       request-timeout: 30000
 triage:
+  mode: ${TRIAGE_MODE:DEMO}
   max-tool-calls: 3
   tool-timeout: 2s
-  run-timeout: 10s
+  run-timeout: 60s
+  model:
+    base-url: ${TRIAGE_MODEL_BASE_URL:https://api.deepseek.com}
+    api-key: ${TRIAGE_MODEL_API_KEY:}
+    name: ${TRIAGE_MODEL_NAME:deepseek-flash}
+    timeout: 20s
+    max-rounds: 4
+    max-tokens: 1600
+# The SDK's warnings for empty responses include the full prompt.
+logging:
+  level:
+    org.springframework.ai.openai.OpenAiChatModel: ERROR

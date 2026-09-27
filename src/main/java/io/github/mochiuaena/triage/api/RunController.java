@@ -2,6 +2,7 @@ package io.github.mochiuaena.triage.api;
 
 import io.github.mochiuaena.triage.domain.TriageModel.*;
 import io.github.mochiuaena.triage.execution.RunService;
+import io.github.mochiuaena.triage.execution.TriageEngine;
 import io.github.mochiuaena.triage.store.RunRepository;
 import io.github.mochiuaena.triage.tools.ToolContext;
 import jakarta.validation.Valid;
@@ -25,7 +26,10 @@ public class RunController {
 
     private final RunService service;
     private final RunRepository repository;
-    public RunController(RunService service, RunRepository repository) { this.service = service; this.repository = repository; }
+    private final TriageEngine engine;
+    public RunController(RunService service, RunRepository repository, TriageEngine engine) {
+        this.service = service; this.repository = repository; this.engine = engine;
+    }
 
     @PostMapping("/runs")
     public ResponseEntity<Run> create(@Valid @RequestBody CreateRun request) {
@@ -38,15 +42,17 @@ public class RunController {
     public List<RunSummary> list(@RequestParam(defaultValue = "20") int limit) {
         if (limit < 1 || limit > 50) throw new ResponseStatusException(BAD_REQUEST, "limit 必须为 1–50。");
         return repository.recent(limit).stream().map(run -> new RunSummary(run.id(), run.question(), run.scenario(),
-            run.status(), run.createdAt(), run.toolCalls())).toList();
+            run.status(), run.createdAt(), run.toolCalls(), run.mode())).toList();
     }
 
     @GetMapping("/runs/{id}")
     public Run get(@PathVariable UUID id) { return repository.find(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "执行记录不存在。")); }
 
-    @GetMapping("/demo")
+    @GetMapping({"/demo", "/config"})
     public Map<String, Object> demo() {
-        return Map.of("mode", "DEMO", "synthetic", true, "service", "order-service",
-            "scenarios", Scenario.values(), "tools", List.of("search_runbooks", "read_service_metrics", "query_error_logs"));
+        Map<String, Object> config = new java.util.LinkedHashMap<>(Map.of("mode", engine.mode(), "synthetic", true, "service", "order-service",
+            "scenarios", Scenario.values(), "tools", List.of("search_runbooks", "read_service_metrics", "query_error_logs")));
+        if (engine.modelName() != null) config.put("model", engine.modelName());
+        return config;
     }
 }

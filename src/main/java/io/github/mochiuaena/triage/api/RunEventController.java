@@ -2,6 +2,7 @@ package io.github.mochiuaena.triage.api;
 
 import io.github.mochiuaena.triage.domain.TriageModel.Run;
 import io.github.mochiuaena.triage.execution.RunService.CapacityExceededException;
+import io.github.mochiuaena.triage.execution.ExecutionLimits;
 import io.github.mochiuaena.triage.store.RunRepository;
 import jakarta.annotation.PreDestroy;
 import org.springframework.http.MediaType;
@@ -18,12 +19,14 @@ import static org.springframework.http.HttpStatus.*;
 @RestController
 public class RunEventController {
     private final RunRepository repository;
+    private final long connectionTimeout;
     private final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(2,
         Thread.ofPlatform().daemon(true).name("triage-sse-", 0).factory());
     private final Semaphore connections = new Semaphore(64);
 
-    public RunEventController(RunRepository repository) {
+    public RunEventController(RunRepository repository, ExecutionLimits limits) {
         this.repository = repository;
+        this.connectionTimeout = limits.runTimeout().toMillis() + 5_000;
         scheduler.setRemoveOnCancelPolicy(true);
     }
 
@@ -33,7 +36,7 @@ public class RunEventController {
         Run initial = repository.find(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "执行记录不存在。"));
         if (lastEventId < 0 || lastEventId > initial.events().size()) throw new ResponseStatusException(BAD_REQUEST, "事件序号无效。");
         if (!connections.tryAcquire()) throw new CapacityExceededException();
-        SseEmitter emitter = new SseEmitter(25_000L);
+        SseEmitter emitter = new SseEmitter(connectionTimeout);
         AtomicInteger cursor = new AtomicInteger(lastEventId);
         AtomicBoolean closed = new AtomicBoolean();
         AtomicReference<ScheduledFuture<?>> scheduled = new AtomicReference<>();

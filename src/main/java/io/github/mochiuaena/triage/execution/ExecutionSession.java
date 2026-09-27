@@ -4,6 +4,7 @@ import io.github.mochiuaena.triage.domain.TriageModel.*;
 import io.github.mochiuaena.triage.store.RunRepository;
 import io.github.mochiuaena.triage.tools.*;
 import java.util.*;
+import java.time.Duration;
 import java.util.concurrent.*;
 
 /** Per-run gateway. Engines cannot write state or bypass tool budgets. */
@@ -15,11 +16,14 @@ public final class ExecutionSession {
     private final ExecutionLimits limits;
     private final long deadline;
     private final ExecutorService workers;
+    private final ExecutorService modelWorkers;
+    private TokenUsage totalUsage = new TokenUsage(0, 0, 0);
+    private boolean usageComplete = true;
     private final Map<String, ReadOnlyTool> tools = new LinkedHashMap<>();
     private final Set<String> requests = new HashSet<>();
 
     ExecutionSession(String question, ToolContext context, MutableExecution state, RunRepository repository,
-                     ExecutionLimits limits, long deadline, ExecutorService workers, List<ReadOnlyTool> tools) {
+                     ExecutionLimits limits, long deadline, ExecutorService workers, ExecutorService modelWorkers, List<ReadOnlyTool> tools) {
         this.question = question;
         this.context = context;
         this.state = state;
@@ -27,6 +31,7 @@ public final class ExecutionSession {
         this.limits = limits;
         this.deadline = deadline;
         this.workers = workers;
+        this.modelWorkers = modelWorkers;
         for (ReadOnlyTool tool : tools) {
             if (this.tools.putIfAbsent(tool.name(), tool) != null) throw new IllegalArgumentException("Duplicate tool registration");
         }
@@ -87,6 +92,53 @@ public final class ExecutionSession {
 
     private void publish(String type, String tool, String message, List<String> ids) {
         state.event(type, tool, message, ids);
+        repository.save(state.snapshot());
+    }
+
+    public <T> T callModel(Callable<T> action, Duration timeout, int maxRounds) {
+        checkDeadline();
+        ModelExecution previous = state.modelExecution;
+        if (previous == null) throw new RunFailure("MODEL_NOT_CONFIGURED", "没有配置模型。");
+        if (previous.calls() >= maxRounds) throw new RunFailure("MODEL_ROUND_LIMIT", "模型调用已达到轮次上限。");
+        state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls() + 1, null);
+        publish("MODEL_STARTED", null, "请求模型，第 " + state.modelExecution.calls() + " 轮。", List.of());
+        Future<T> future;
+        try { future = modelWorkers.submit(action); }
+        catch (RejectedExecutionException e) { throw new RunFailure("MODEL_CAPACITY", "模型工作队列已满。"); }
+        long remaining = deadline - System.nanoTime();
+        boolean overallFirst = remaining <= timeout.toNanos();
+        try {
+            T result = future.get(Math.max(1, Math.min(remaining, timeout.toNanos())), TimeUnit.NANOSECONDS);
+            checkDeadline();
+            publish("MODEL_COMPLETED", null, "模型已返回。", List.of());
+            return result;
+        } catch (TimeoutException e) {
+            future.cancel(true);
+            publish("MODEL_FAILED", null, "等待模型返回超时。", List.of());
+            throw new RunFailure(overallFirst ? "RUN_TIMEOUT" : "MODEL_TIMEOUT", "模型调用超过时间限制。");
+        } catch (ExecutionException e) {
+            publish("MODEL_FAILED", null, "模型请求失败。", List.of());
+            if (e.getCause() instanceof RunFailure failure) throw failure;
+            Throwable cause = e.getCause();
+            for (int depth = 0; cause != null && depth < 8; depth++, cause = cause.getCause()) {
+                if (cause instanceof java.net.http.HttpTimeoutException || cause instanceof java.net.SocketTimeoutException)
+                    throw new RunFailure("MODEL_TIMEOUT", "模型调用超过时间限制。");
+            }
+            throw new RunFailure("MODEL_ERROR", "模型请求失败，请检查服务地址、凭据和模型配置。");
+        } catch (InterruptedException e) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new RunFailure("RUN_INTERRUPTED", "执行已中断。");
+        }
+    }
+
+    public void recordModelUsage(String responseModel, TokenUsage usage) {
+        if (usage == null) usageComplete = false;
+        if (usageComplete) totalUsage = new TokenUsage(totalUsage.inputTokens() + usage.inputTokens(),
+            totalUsage.outputTokens() + usage.outputTokens(), totalUsage.totalTokens() + usage.totalTokens());
+        ModelExecution previous = state.modelExecution;
+        String reported = responseModel != null && responseModel.matches("[A-Za-z0-9._:/-]{1,120}") ? responseModel : null;
+        state.modelExecution = new ModelExecution(previous.configuredModel(), reported, previous.calls(), usageComplete ? totalUsage : null);
         repository.save(state.snapshot());
     }
 }

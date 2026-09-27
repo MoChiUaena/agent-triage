@@ -14,7 +14,7 @@ public record ExecutionLimits(@Min(1) @Max(10) int maxToolCalls,
     public ExecutionLimits {
         if (toolTimeout == null || toolTimeout.toMillis() < 1 || toolTimeout.compareTo(Duration.ofSeconds(10)) > 0)
             throw new IllegalArgumentException("Tool timeout must be 1ms..10s");
-        if (runTimeout == null || runTimeout.toMillis() < 1 || runTimeout.compareTo(Duration.ofSeconds(20)) > 0)
-            throw new IllegalArgumentException("Run timeout must be 1ms..20s");
+        if (runTimeout == null || runTimeout.toMillis() < 1 || runTimeout.compareTo(Duration.ofSeconds(120)) > 0)
+            throw new IllegalArgumentException("Run timeout must be 1ms..120s");
     }
 }

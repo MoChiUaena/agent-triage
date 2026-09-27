@@ -29,11 +29,22 @@ public final class TriageModel {
 
     public record Failure(String code, String message) {}
 
+    public record TokenUsage(long inputTokens, long outputTokens, long totalTokens) {}
+
+    public record ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage) {}
+
     public record Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
                       String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
                       int toolCalls, List<Event> events, List<Evidence> evidence,
-                      Diagnosis diagnosis, Failure failure) {}
+                      Diagnosis diagnosis, Failure failure, ModelExecution modelExecution) {
+        public Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
+                   String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
+                   int toolCalls, List<Event> events, List<Evidence> evidence, Diagnosis diagnosis, Failure failure) {
+            this(id, question, service, windowMinutes, scenario, mode, synthetic, status, createdAt, finishedAt,
+                toolCalls, events, evidence, diagnosis, failure, null);
+        }
+    }
 
     public record RunSummary(UUID id, String question, Scenario scenario, Status status,
-                             Instant createdAt, int toolCalls) {}
+                             Instant createdAt, int toolCalls, String mode) {}
 }
