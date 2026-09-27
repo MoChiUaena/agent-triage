@@ -111,7 +111,7 @@ function render() {
       : selected?.displayName || "环境变量配置";
   $("#current-description").textContent =
     current.mode === "DEMO"
-      ? "使用仓库提供的合成数据，不请求模型服务。"
+      ? "按固定规则生成结论，不请求模型服务；观测来源在排查页显示。"
       : selected
         ? selected.model + " · 新任务将使用此配置"
         : "模型由环境变量配置，可添加页面配置后切换。";

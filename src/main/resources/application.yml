@@ -16,6 +16,9 @@ spring:
       request-timeout: 30000
 triage:
   mode: ${TRIAGE_MODE:DEMO}
+  observation:
+    source: ${TRIAGE_OBSERVATION_SOURCE:SYNTHETIC}
+    base-url: ${TRIAGE_OBSERVATION_BASE_URL:http://127.0.0.1:18082}
   max-tool-calls: ${TRIAGE_MAX_TOOL_CALLS:3}
   tool-timeout: ${TRIAGE_TOOL_TIMEOUT:2s}
   run-timeout: ${TRIAGE_RUN_TIMEOUT:60s}

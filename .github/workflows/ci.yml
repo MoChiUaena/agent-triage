@@ -59,3 +59,24 @@ jobs:
           TRIAGE_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage
           TRIAGE_TEST_DB_USER: triage
           TRIAGE_TEST_DB_PASSWORD: triage-ci
+  live-lab:
+    name: Live sample HTTP integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Build and exercise actual order requests
+        run: |
+          ./mvnw -B -ntp -f sample-service/pom.xml verify
+          ./mvnw -B -ntp -DskipTests package
+          java -jar sample-service/target/triage-sample-service-0.1.0-SNAPSHOT.jar > sample.log 2>&1 &
+          java -jar target/agent-triage-0.1.0-SNAPSHOT.jar --server.port=18083 '--spring.datasource.url=jdbc:h2:mem:live;DB_CLOSE_DELAY=-1' --triage.observation.source=LIVE --triage.settings.key-file=target/ci-live-key > agent.log 2>&1 &
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:18082/lab/scenario > /dev/null && curl -fsS http://127.0.0.1:18083/api/config > /dev/null; then break; fi
+            sleep 1
+          done
+          python3 scripts/live_smoke.py

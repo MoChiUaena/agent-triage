@@ -104,6 +104,33 @@
             <p>查询日志、指标和文档，定位订单接口的问题。</p>
           </div>
         </div>
+        <section
+          class="live-lab"
+          id="live-lab"
+          aria-label="本地订单样例"
+          hidden
+        >
+          <div>
+            <strong>本地订单样例</strong>
+            <p>
+              订单接口会实际调用库存接口。先生成一组请求，再查看 Agent
+              读取的指标和错误事件。
+            </p>
+            <span id="live-lab-status" role="status">等待生成请求</span>
+          </div>
+          <div class="live-lab-actions">
+            <button class="secondary" type="button" data-lab-scenario="NORMAL">
+              生成正常请求
+            </button>
+            <button
+              class="primary"
+              type="button"
+              data-lab-scenario="DOWNSTREAM_TIMEOUT"
+            >
+              触发库存超时
+            </button>
+          </div>
+        </section>
         <form id="investigate-form" class="composer">
           <div class="query-controls">
             <div class="control">
@@ -127,7 +154,7 @@
               </select>
             </div>
             <div class="control">
-              <label for="scenario">场景</label>
+              <label for="scenario" id="scenario-label">场景</label>
               <select id="scenario">
                 <option value="DOWNSTREAM_TIMEOUT">下游超时</option>
                 <option value="NORMAL">正常对照</option>
@@ -282,7 +309,7 @@
                 </div>
               </dl>
             </section>
-            <p class="context-note">演示数据仅供本地测试。</p>
+            <p class="context-note" id="context-note">演示数据仅供本地测试。</p>
           </aside>
         </div>
       </main>

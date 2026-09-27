@@ -20,14 +20,15 @@ public class RunService {
     private final ExecutionLimits limits;
     private final TriageEngine engine;
     private final List<ReadOnlyTool> tools;
+    private final boolean synthetic;
     private final ThreadPoolExecutor coordinators = pool("triage-run-", 4, 16);
     private final ThreadPoolExecutor toolWorkers = pool("triage-tool-", 4, 16);
     private final ThreadPoolExecutor modelWorkers = pool("triage-model-", 4, 16);
 
     @Autowired
     public RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
-                      RunbookSearchTool runbooks, MetricsTool metrics, ErrorLogsTool logs) {
-        this(repository, limits, engine, List.of(runbooks, metrics, logs));
+                      List<ReadOnlyTool> tools, ObservationSource observation) {
+        this(repository, limits, engine, tools, observation.synthetic());
     }
 
     RunService(RunRepository repository, ExecutionLimits limits, DemoReasoner reasoner, List<ReadOnlyTool> tools) {
@@ -35,10 +36,16 @@ public class RunService {
     }
 
     RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine, List<ReadOnlyTool> tools) {
+        this(repository, limits, engine, tools, true);
+    }
+
+    private RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
+                       List<ReadOnlyTool> tools, boolean synthetic) {
         this.repository = repository;
         this.limits = limits;
         this.engine = engine;
         this.tools = List.copyOf(tools);
+        this.synthetic = synthetic;
     }
 
     private static ThreadPoolExecutor pool(String prefix, int workers, int queue) {
@@ -57,7 +64,7 @@ public class RunService {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
                 "运行模式或模型配置已变更，请刷新后重新提交。");
         Run run = new Run(UUID.randomUUID(), question, context.service(), context.windowMinutes(), context.scenario(),
-            selectedEngine.mode(), true, Status.QUEUED, context.endTime(), null, 0,
+            selectedEngine.mode(), synthetic, Status.QUEUED, context.endTime(), null, 0,
             List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "任务已创建。", List.of())), List.of(), null, null,
             selectedEngine.modelName() == null ? null : new ModelExecution(selectedEngine.modelName(), null, 0, null, selectedEngine.source()));
         repository.insert(run);

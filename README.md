@@ -4,11 +4,16 @@
 
 Agent Triage 是一个 Java 服务排障助手，通过查询日志、指标和排障文档，分析接口变慢的可能原因，并给出验证建议。
 
-目前支持订单服务的下游超时场景和正常状态对照。默认演示模式使用固定规则，无需模型密钥；也可以配置 Spring AI + DeepSeek，由模型选择工具并生成结论。两种模式都使用合成观测数据。
+仓库带有一个单独运行的订单样例服务。订单接口会通过 HTTP 调用库存接口；切换故障场景后，库存调用会实际超时，排障助手读取该服务刚产生的耗时指标和错误事件。默认启动仍使用合成数据，方便无需额外进程时查看页面。排障结论可以由固定规则生成，也可配置模型选择工具并生成结论。
+
+![本地订单请求发生库存调用超时后的排查页面](docs/assets/live-triage.png)
+
+图中指标来自 5 次实际处理的样例请求；数值随机器和运行次数变化。
 
 ## 功能
 
 - 查询服务指标、近期错误日志，检索 Markdown 排障文档。
+- 在页面生成正常请求或库存超时请求，排查真实的本地请求记录。
 - 通过 SSE 展示工具执行进度，点击结论中的引用可以查看证据原文。
 - 保存执行记录，支持历史查询和事件重放。
 - 概览、证据、执行记录分开查看，支持搜索历史记录。
@@ -37,9 +42,29 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.1.0-SNAPSHOT.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
 
+## 跑通本地真实请求
+
+先启动独立的[订单样例服务](sample-service/README.md)：
+
+```powershell
+.\mvnw.cmd -f sample-service/pom.xml verify
+java -jar sample-service/target/triage-sample-service-0.1.0-SNAPSHOT.jar
+```
+
+在第二个终端启动排障助手：
+
+```powershell
+$env:TRIAGE_OBSERVATION_SOURCE = 'LIVE'
+.\mvnw.cmd spring-boot:run
+```
+
+打开 <http://127.0.0.1:18080>，点击“生成正常请求”或“触发库存超时”，再点“开始排查”。页面会显示实际请求数、耗时、超时率和带 traceId 的错误事件。样例服务默认监听本机 `18082` 端口，重启后内存中的观测会清空；这条链路不接入生产系统。浏览器中的生成流量按钮与只读的 Agent 工具分开。
+
+也可以运行 `python scripts/live_smoke.py --agent-url http://127.0.0.1:18080`，复查空窗口、正常与超时三条链路。默认合成模式不需要启动样例服务。
+
 ## 试一下
 
-输入“订单查询接口为什么变慢了？”，分别运行以下两个场景：
+默认合成模式下，输入“订单查询接口为什么变慢了？”，分别运行以下两个场景：
 
 | 场景 | 订单查询 p95 | 库存调用 p95 | 库存调用超时率 |
 |---|---|---|---|
@@ -70,7 +95,7 @@ $env:SPRING_PROFILES_ACTIVE = 'postgres'
 
 打开[模型设置页](http://127.0.0.1:18080/settings.html)，选择 DeepSeek、阿里云百炼、智谱 GLM、Kimi、LM Studio 或自定义兼容接口，再填写 API Key。保存后可测试连接并设为当前模型。配置方法、调用限制和费用说明见[模型配置](docs/MODELS.md)。
 
-模型链路已通过本地模拟服务测试，真实服务调用待配置凭据后验证。
+模型链路已通过本地模拟接口测试，真实模型服务调用待配置凭据后验证。在 LIVE 数据源下，模型将收到本地样例服务的请求观测。
 
 ## 测试
 
@@ -103,6 +128,7 @@ CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具
 - [API](docs/API.md)
 - [模型配置](docs/MODELS.md)
 - [架构](docs/ARCHITECTURE.md)
+- [本地真实请求链路](docs/LIVE_LAB.md)
 - [小规模评测](docs/EVALUATION.md)
 - [开发计划](docs/ROADMAP.md)
 - [贡献指南](CONTRIBUTING.md)

@@ -29,20 +29,47 @@ async function loadConfiguration() {
     if (!["DEMO", "MODEL"].includes(config.mode))
       throw new Error("运行模式无效。");
     runtimeConfig = config;
+    const live = config.observationSource === "LIVE";
+    $("#live-lab").hidden = !live;
+    $("#scenario").disabled = live;
+    $("#scenario-label").textContent = live ? "当前场景" : "场景";
+    if (live && config.scenario) $("#scenario").value = config.scenario;
     $("#mode-label").textContent =
-      config.mode === "MODEL" ? "模型模式" : "演示模式";
-    $("#mode-description").textContent =
-      config.mode === "MODEL"
-        ? "问题和所选合成观测会发送给模型 " +
-          config.model +
-          "。费用以配置的模型服务为准。"
-        : "使用合成日志和指标，按固定规则生成结果，不调用模型服务。";
-    $("#composer-note").textContent =
-      config.mode === "MODEL"
-        ? config.model + " · 合成观测数据"
-        : "仅查询所选服务的演示数据";
-    $("#config-retry").hidden = true;
-    $("#submit-button").disabled = submitting;
+      config.mode === "MODEL" ? "模型模式" : live ? "实测演示" : "演示模式";
+    if (live) {
+      $("#mode-description").textContent = !config.observationAvailable
+        ? "本地订单样例服务未运行。请先启动 sample-service。"
+        : config.mode === "MODEL"
+          ? "读取本地订单服务的实际请求数据，并发送给模型 " +
+            config.model +
+            "。"
+          : "读取本地订单服务的实际请求数据，按固定规则生成结论。";
+      $("#composer-note").textContent = config.observationAvailable
+        ? "先生成请求，再排查实际观测"
+        : "请先启动本地订单样例服务";
+    } else {
+      $("#mode-description").textContent =
+        config.mode === "MODEL"
+          ? "问题和所选合成观测会发送给模型 " +
+            config.model +
+            "。费用以配置的模型服务为准。"
+          : "使用合成日志和指标，按固定规则生成结果，不调用模型服务。";
+      $("#composer-note").textContent =
+        config.mode === "MODEL"
+          ? config.model + " · 合成观测数据"
+          : "仅查询所选服务的演示数据";
+    }
+    $("#context-note").textContent = live
+      ? "指标和错误事件来自本地订单样例的实际请求。"
+      : "演示数据仅供本地测试。";
+    $("#config-retry").hidden = !live || config.observationAvailable;
+    document.querySelectorAll("[data-lab-scenario]").forEach((button) => {
+      button.disabled = !config.observationAvailable;
+    });
+    if (live && !config.observationAvailable)
+      $("#live-lab-status").textContent = "样例服务未连接";
+    $("#submit-button").disabled =
+      submitting || (live && !config.observationAvailable);
     $("#form-error").hidden = true;
   } catch (error) {
     runtimeConfig = null;
@@ -115,6 +142,34 @@ async function request(path, options) {
     throw new Error(problem.detail || "请求失败 (" + response.status + ")");
   }
   return response.json();
+}
+
+async function generateLabTraffic(scenario) {
+  if (submitting || !runtimeConfig?.observationAvailable) return;
+  const buttons = document.querySelectorAll("[data-lab-scenario]");
+  buttons.forEach((button) => (button.disabled = true));
+  $("#live-lab-status").textContent = "正在产生订单请求…";
+  try {
+    const result = await request("/api/live-lab/traffic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Triage-Lab": "1" },
+      body: JSON.stringify({ scenario, count: 5 }),
+    });
+    runtimeConfig.scenario = result.scenario;
+    $("#scenario").value = result.scenario;
+    $("#live-lab-status").textContent =
+      "已处理 " +
+      result.requestCount +
+      " 个订单请求，库存超时 " +
+      result.timeoutCount +
+      " 次。现在可以开始排查。";
+    $("#form-error").hidden = true;
+  } catch (error) {
+    $("#live-lab-status").textContent = "请求生成失败";
+    showError(error.message);
+  } finally {
+    buttons.forEach((button) => (button.disabled = false));
+  }
 }
 
 function showError(message) {
@@ -214,7 +269,10 @@ function newRun() {
   resetResult();
   $("#question").value = "订单查询接口为什么变慢了？";
   $("#window").value = "15";
-  $("#scenario").value = "DOWNSTREAM_TIMEOUT";
+  $("#scenario").value =
+    runtimeConfig?.observationSource === "LIVE"
+      ? runtimeConfig.scenario || "NORMAL"
+      : "DOWNSTREAM_TIMEOUT";
   $("#history-search").value = "";
   renderHistory();
   setSidebar(false);
@@ -282,18 +340,28 @@ function renderMetrics(run) {
   $("#metrics").hidden = !evidence;
   if (!evidence) return;
   const data = evidence.data;
+  const hasRequests = data.requestCount > 0;
+  const baseline = data.baselineOrderP95Ms;
   const values = [
     [
       "订单查询 p95",
-      data.orderP95Ms,
+      hasRequests ? data.orderP95Ms : null,
       "ms",
-      "基线 " + data.baselineOrderP95Ms + " ms",
-      data.orderP95Ms > data.baselineOrderP95Ms,
+      baseline == null ? "正常基线未采集" : "基线 " + baseline + " ms",
+      baseline != null && data.orderP95Ms > baseline,
     ],
-    ["库存调用 p95", data.downstreamP95Ms, "ms", "inventory-service", false],
+    [
+      "库存调用 p95",
+      hasRequests ? data.downstreamP95Ms : null,
+      "ms",
+      "inventory-service",
+      false,
+    ],
     [
       "下游超时率",
-      Number((data.downstreamTimeoutRate * 100).toFixed(2)),
+      hasRequests
+        ? Number((data.downstreamTimeoutRate * 100).toFixed(2))
+        : null,
       "%",
       "最近 " + run.windowMinutes + " 分钟",
       data.downstreamTimeoutRate > 0,
@@ -304,9 +372,9 @@ function renderMetrics(run) {
     const number = element(
       "div",
       "metric-value",
-      Number(value).toLocaleString("zh-CN"),
+      value == null ? "—" : Number(value).toLocaleString("zh-CN"),
     );
-    number.append(element("small", "", unit));
+    if (value != null) number.append(element("small", "", unit));
     item.append(
       element("div", "metric-label", label),
       number,
@@ -498,6 +566,7 @@ function renderRun(run) {
     : null;
   const info = [
     ["运行模式", run.mode === "MODEL" ? "模型" : "演示"],
+    ["数据来源", run.synthetic ? "合成演示" : "本地订单请求"],
     ["服务", run.service],
     ["时间窗口", "最近 " + run.windowMinutes + " 分钟"],
     ["场景", run.scenario === "NORMAL" ? "正常对照" : "下游超时"],
@@ -741,7 +810,9 @@ $("#investigate-form").addEventListener("submit", async (event) => {
     }
   } finally {
     submitting = false;
-    $("#submit-button").disabled = false;
+    $("#submit-button").disabled =
+      runtimeConfig?.observationSource === "LIVE" &&
+      !runtimeConfig.observationAvailable;
     $("#submit-button span").textContent = "开始排查";
   }
 });
@@ -778,6 +849,11 @@ $("#question").addEventListener("keydown", (event) => {
   }
 });
 $("#new-run").addEventListener("click", newRun);
+document.querySelectorAll("[data-lab-scenario]").forEach((button) => {
+  button.addEventListener("click", () =>
+    generateLabTraffic(button.dataset.labScenario),
+  );
+});
 $("#refresh-history").addEventListener("click", refreshHistory);
 $("#config-retry").addEventListener("click", loadConfiguration);
 $("#history-search").addEventListener("input", renderHistory);

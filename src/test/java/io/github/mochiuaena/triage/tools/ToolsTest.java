@@ -41,4 +41,21 @@ class ToolsTest {
         assertThat(search.execute(context(Scenario.NORMAL), "天气预报")).isEmpty();
         assertThatThrownBy(() -> search.execute(context(Scenario.NORMAL), "x".repeat(201))).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test void liveRunbooksUseTheirOwnVersionAndDoNotClaimSyntheticObservations() throws Exception {
+        RunbookSearchTool search = new RunbookSearchTool(new ObservationSource("LIVE", "http://127.0.0.1:18082"));
+        var evidence = search.execute(context(Scenario.DOWNSTREAM_TIMEOUT), "订单超时");
+        assertThat(evidence).extracting(item -> item.id()).contains("DOC-DOWNSTREAM-TIMEOUT#v2");
+        assertThat(evidence.getFirst().data()).containsEntry("synthetic", false);
+        assertThat(evidence.getFirst().summary()).contains("300ms").doesNotContain("2000ms");
+    }
+
+    @Test void observationSourceCannotTargetRemoteOrNonHttpUrls() {
+        assertThatThrownBy(() -> new ObservationSource("LIVE", "https://127.0.0.1:18082"))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ObservationSource("LIVE", "http://example.com:18082"))
+            .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ObservationSource("LIVE", "http://127.0.0.1:18082/path"))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
 }

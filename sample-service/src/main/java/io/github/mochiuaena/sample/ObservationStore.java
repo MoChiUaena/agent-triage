@@ -47,7 +47,7 @@ public class ObservationStore {
         List<RequestSample> failures = matching.stream().filter(RequestSample::timedOut).toList();
         List<ErrorEntry> errors = failures.reversed().stream().limit(3)
             .map(sample -> new ErrorEntry(sample.timestamp(), sample.traceId(), "ERROR",
-                "GET /internal/inventory/sku: java.net.http.HttpTimeoutException: read timeout after 300ms"))
+                "GET /internal/inventory/sku: java.net.http.HttpTimeoutException: request timeout after 300ms"))
             .toList();
         return new Snapshot("order-service", scenario, start, end, matching.size(), normals.size(), failures.size(),
             p95(matching.stream().map(RequestSample::orderMs).toList()),

@@ -45,7 +45,7 @@ public class OrderController {
             return ResponseEntity.ok(Map.of("orderId", orderId, "available", true, "traceId", traceId));
         } catch (HttpTimeoutException e) {
             timedOut = true;
-            log.error("inventory read timeout traceId={} orderId={} timeoutMs=300", traceId, orderId);
+            log.error("inventory request timeout traceId={} orderId={} timeoutMs=300", traceId, orderId);
             return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
                 .body(Map.of("error", "Inventory read timed out", "traceId", traceId));
         } catch (IOException e) {

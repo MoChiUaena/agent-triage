@@ -5,6 +5,8 @@ import io.github.mochiuaena.triage.execution.RunService;
 import io.github.mochiuaena.triage.execution.TriageEngine;
 import io.github.mochiuaena.triage.store.RunRepository;
 import io.github.mochiuaena.triage.tools.ToolContext;
+import io.github.mochiuaena.triage.tools.ObservationSource;
+import io.github.mochiuaena.triage.tools.LiveObservationClient;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.springframework.http.ResponseEntity;
@@ -28,14 +30,21 @@ public class RunController {
     private final RunService service;
     private final RunRepository repository;
     private final TriageEngine engine;
-    public RunController(RunService service, RunRepository repository, TriageEngine engine) {
+    private final ObservationSource observation;
+    private final LiveObservationClient live;
+    public RunController(RunService service, RunRepository repository, TriageEngine engine,
+                         ObservationSource observation, LiveObservationClient live) {
         this.service = service; this.repository = repository; this.engine = engine;
+        this.observation = observation; this.live = live;
     }
 
     @PostMapping("/runs")
     public ResponseEntity<Run> create(@Valid @RequestBody CreateRun request) {
+        Scenario scenario;
+        try { scenario = observation.synthetic() ? request.scenario() : live.scenario(); }
+        catch (RuntimeException e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, "本地订单样例服务不可用，请先启动样例服务。"); }
         Run run = service.submit(request.question().strip(),
-            new ToolContext(request.service(), request.windowMinutes(), request.scenario(), Instant.now()),
+            new ToolContext(request.service(), request.windowMinutes(), scenario, Instant.now()),
             request.expectedSelection());
         return ResponseEntity.accepted().location(URI.create("/api/runs/" + run.id())).body(run);
     }
@@ -53,8 +62,13 @@ public class RunController {
     @GetMapping({"/demo", "/config"})
     public Map<String, Object> demo() {
         TriageEngine current = engine.snapshot();
-        Map<String, Object> config = new java.util.LinkedHashMap<>(Map.of("mode", current.mode(), "synthetic", true, "service", "order-service",
+        Map<String, Object> config = new java.util.LinkedHashMap<>(Map.of("mode", current.mode(), "synthetic", observation.synthetic(), "service", "order-service",
             "scenarios", Scenario.values(), "tools", List.of("search_runbooks", "read_service_metrics", "query_error_logs")));
+        config.put("observationSource", observation.kind().name());
+        if (!observation.synthetic()) {
+            try { config.put("scenario", live.scenario()); config.put("observationAvailable", true); }
+            catch (RuntimeException e) { config.put("observationAvailable", false); }
+        }
         if (current.modelName() != null) config.put("model", current.modelName());
         if (current.source() != null) config.put("provider", current.source());
         config.put("selectionToken", current.selectionToken());

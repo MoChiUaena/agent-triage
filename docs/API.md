@@ -25,13 +25,13 @@
 
 | 请求 | 结果 |
 |---|---|
-| `GET /api/config` | 当前模式、模型名称（MODEL 模式）、合成数据标记、服务、场景和工具列表 |
+| `GET /api/config` | 当前模式、模型名称（MODEL 模式）、观测来源与可用状态、服务、场景和工具列表 |
 | `GET /api/demo` | `/api/config` 的兼容入口 |
 | `GET /api/runs?limit=20` | 最近执行摘要，limit 为 1–50 |
 | `GET /api/runs/{uuid}` | 完整执行记录，包含事件、证据、结论或失败信息 |
 | `GET /api/runs/{uuid}/events` | SSE 事件流，支持 `Last-Event-ID` 重放 |
 
-运行模式由服务端配置，提交请求不能切换模式。执行记录和列表摘要的 `mode` 为 `DEMO` 或 `MODEL`，两种模式的 `synthetic` 都为 true。
+运行模式由服务端配置，提交请求不能切换模式。执行记录和列表摘要的 `mode` 为 `DEMO` 或 `MODEL`。默认合成数据源下 `synthetic` 为 true；启用 LIVE 数据源后为 false。LIVE 模式下，服务端读取样例服务当前场景，提交体中的 `scenario` 仅为兼容字段，不决定观测值。
 
 不存在的记录返回 404，非法 UUID 返回 400。错误使用 `application/problem+json`，不回显用户问题或工具原始异常。
 
@@ -54,17 +54,21 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 
 ## 工具
 
-所有工具接收 `ToolContext(service, windowMinutes, scenario, endTime)`。服务、场景和时间窗口在提交后保持不变。
+所有工具接收 `ToolContext(service, windowMinutes, scenario, endTime)`。服务、场景和时间窗口在提交后保持不变。LIVE 数据源通过 HTTP 查询本机订单样例服务的窗口观测；工具本身不切换场景，也不生成请求。
 
 模型请求工具时必须传入 `service` 和 `windowMinutes`，检索工具还需要 `query`。服务和窗口必须与本次请求一致，多余字段和重复参数都会被拒绝。
 
 | 工具 | 额外输入 | 返回上限 | 证据 ID |
 |---|---|---|---|
 | `search_runbooks` | query：1–200 字符 | 3 个文档，每篇 ≤ 2400 字符 | `DOC-…#v1` |
-| `read_service_metrics` | 无，忽略 query 参数 | 1 条窗口聚合 | `METRICS-ORDER-{scenario}` |
-| `query_error_logs` | 无，忽略 query 参数 | 1 条结果，含至多 3 条样例日志 | `LOGS-ORDER-{scenario}` |
+| `read_service_metrics` | 无，忽略 query 参数 | 1 条窗口聚合 | 合成：`METRICS-ORDER-{scenario}`；LIVE：`METRICS-LIVE-{timestamp}` |
+| `query_error_logs` | 无，忽略 query 参数 | 1 条结果，含至多 3 条错误事件 | 合成：`LOGS-ORDER-{scenario}`；LIVE：`LOGS-LIVE-{timestamp}` |
 
-证据包含 `id`、`source`、`title`、`summary` 和 `data`，其中 data 带有 synthetic 标记。文档 ID 跨运行保持不变，观测 ID 只在本次执行内解析。工具由执行器调用，没有单独的 HTTP 接口。
+证据包含 `id`、`source`、`title`、`summary` 和 `data`，其中 data 带有 synthetic 标记。LIVE 数据源使用 v2 排障文档；合成模式保留 v1。观测 ID 只在本次执行内解析。工具由执行器调用，没有单独的 HTTP 接口。
+
+## 本地样例控制
+
+仅当 `TRIAGE_OBSERVATION_SOURCE=LIVE` 时提供 `POST /api/live-lab/traffic`。同源本地页面发送 `X-Triage-Lab: 1`，请求体为 `{"scenario":"NORMAL","count":5}` 或 `{"scenario":"DOWNSTREAM_TIMEOUT","count":5}`。`count` 范围 1–10。接口先清空样例观测、设置场景，再向样例订单接口发出指定数量的请求，返回实际请求数、超时次数和 p95。它是显式实验控制，不属于 Agent 的只读工具。
 
 ## 结果结构
 

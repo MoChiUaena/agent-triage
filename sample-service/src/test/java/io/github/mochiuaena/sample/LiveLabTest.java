@@ -16,6 +16,7 @@ class LiveLabTest {
 
     @Test void recordsActualInventoryCallsAndTimeouts() {
         String base = "http://127.0.0.1:" + port;
+        http.getForEntity(base + "/api/orders/warmup", Map.class);
         http.postForEntity(base + "/lab/reset", null, Map.class);
         for (int i = 0; i < 3; i++) {
             assertThat(http.getForEntity(base + "/api/orders/normal-" + i, Map.class).getStatusCode()).isEqualTo(HttpStatus.OK);

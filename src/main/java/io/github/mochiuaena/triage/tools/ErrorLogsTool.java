@@ -2,12 +2,16 @@ package io.github.mochiuaena.triage.tools;
 
 import io.github.mochiuaena.triage.domain.TriageModel.Evidence;
 import io.github.mochiuaena.triage.domain.TriageModel.Scenario;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.IntStream;
 
 @Component
+@Order(3)
+@ConditionalOnProperty(name = "triage.observation.source", havingValue = "SYNTHETIC", matchIfMissing = true)
 public class ErrorLogsTool implements ReadOnlyTool {
     @Override public String name() { return "query_error_logs"; }
 

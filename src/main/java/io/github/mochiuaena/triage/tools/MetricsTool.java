@@ -2,11 +2,15 @@ package io.github.mochiuaena.triage.tools;
 
 import io.github.mochiuaena.triage.domain.TriageModel.Evidence;
 import io.github.mochiuaena.triage.domain.TriageModel.Scenario;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.Map;
 
 @Component
+@Order(2)
+@ConditionalOnProperty(name = "triage.observation.source", havingValue = "SYNTHETIC", matchIfMissing = true)
 public class MetricsTool implements ReadOnlyTool {
     @Override public String name() { return "read_service_metrics"; }
 

@@ -18,6 +18,7 @@ final class MutableExecution {
     final List<Evidence> evidence = new ArrayList<>();
 
     MutableExecution(Run initial) { this.initial = initial; this.modelExecution = initial.modelExecution(); }
+    boolean synthetic() { return initial.synthetic(); }
     void event(String type, String tool, String message, List<String> ids) {
         events.add(new Event(events.size() + 1, Instant.now(), type, tool, message, List.copyOf(ids)));
     }

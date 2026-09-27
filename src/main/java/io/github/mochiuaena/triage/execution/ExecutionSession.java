@@ -38,6 +38,7 @@ public final class ExecutionSession {
     }
 
     public String question() { return question; }
+    public boolean synthetic() { return state.synthetic(); }
     public ToolContext context() { return context; }
     public List<String> toolNames() { return List.copyOf(tools.keySet()); }
     public List<Evidence> evidence() { return List.copyOf(state.evidence); }
