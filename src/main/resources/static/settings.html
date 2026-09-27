@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>模型设置 · Agent Triage</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/settings.css" />
+    <script src="/settings.js" defer></script>
+  </head>
+  <body class="settings-page">
+    <aside class="sidebar settings-sidebar" aria-label="工作区导航">
+      <a class="brand" href="/" aria-label="Agent Triage 首页"
+        ><span class="brand-mark"
+          ><svg class="icon"><use href="/icons.svg#activity" /></svg></span
+        ><span>Agent Triage</span><span class="version">开发版</span></a
+      >
+      <nav class="settings-links">
+        <a href="/"
+          ><svg class="icon"><use href="/icons.svg#search" /></svg>服务排查</a
+        >
+        <a href="/settings.html" aria-current="page"
+          ><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a
+        >
+      </nav>
+      <div class="sidebar-footer">
+        <svg class="icon"><use href="/icons.svg#server" /></svg>
+        <div><strong>本地工作区</strong><span>配置仅在本机管理</span></div>
+      </div>
+    </aside>
+    <div class="app-shell">
+      <header class="topbar">
+        <nav class="breadcrumb" aria-label="当前位置">
+          <a href="/">工作区</a><span class="divider">/</span
+          ><strong>模型设置</strong>
+        </nav>
+        <a class="back-link" href="/"
+          >返回排查 <svg class="icon"><use href="/icons.svg#arrow" /></svg
+        ></a>
+      </header>
+      <main class="workspace settings-workspace">
+        <div class="settings-heading">
+          <div>
+            <h1>模型设置</h1>
+            <p>添加模型服务，测试连接后选择用于排查的模型。</p>
+          </div>
+          <button id="add-provider" class="primary" type="button" disabled>
+            <svg class="icon"><use href="/icons.svg#plus" /></svg>添加服务
+          </button>
+        </div>
+        <section class="current-mode" aria-label="当前运行模式">
+          <div>
+            <span class="current-label">当前使用</span
+            ><strong id="current-provider">正在读取配置…</strong>
+            <p id="current-description"></p>
+          </div>
+          <button id="use-demo" class="secondary" type="button" disabled>
+            切回演示模式
+          </button>
+        </section>
+        <p
+          id="settings-notice"
+          class="settings-notice"
+          role="status"
+          hidden
+        ></p>
+        <div class="providers-heading">
+          <h2>模型服务 <span id="provider-count">0</span></h2>
+          <button id="refresh-providers" class="secondary" type="button">
+            <svg class="icon"><use href="/icons.svg#refresh" /></svg>刷新
+          </button>
+        </div>
+        <div id="providers" class="providers-grid">
+          <p class="settings-empty">正在加载模型服务…</p>
+        </div>
+        <p class="settings-footnote">
+          保存和切换配置无需重启，仅影响新任务。测试连接会发起一次短模型请求，可能产生费用。
+        </p>
+      </main>
+    </div>
+    <dialog id="provider-dialog" aria-labelledby="provider-dialog-title">
+      <form id="provider-form">
+        <div class="dialog-heading">
+          <h2 id="provider-dialog-title">添加模型服务</h2>
+          <button
+            id="close-provider"
+            class="icon-button"
+            type="button"
+            aria-label="关闭配置窗口"
+          >
+            <svg class="icon"><use href="/icons.svg#close" /></svg>
+          </button>
+        </div>
+        <div class="dialog-content">
+          <div class="form-grid">
+            <div class="form-field">
+              <label for="provider-name">服务名称</label
+              ><input
+                id="provider-name"
+                required
+                maxlength="80"
+                placeholder="例如：我的 DeepSeek"
+              />
+            </div>
+            <div class="form-field">
+              <label for="provider-protocol">接口类型</label
+              ><select id="provider-protocol">
+                <option value="DEEPSEEK">DeepSeek</option>
+                <option value="OPENAI_COMPATIBLE">OpenAI 兼容接口</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-field">
+            <label for="provider-url">Base URL</label
+            ><input
+              id="provider-url"
+              type="url"
+              required
+              maxlength="512"
+              spellcheck="false"
+              placeholder="https://api.deepseek.com"
+            />
+            <p>
+              填写服务根地址或带版本的地址，如 /v1，不包含 /chat/completions。
+            </p>
+          </div>
+          <div class="form-field">
+            <label for="provider-model">模型名称</label
+            ><input
+              id="provider-model"
+              required
+              maxlength="120"
+              spellcheck="false"
+              placeholder="deepseek-flash"
+            />
+          </div>
+          <div class="form-field">
+            <label for="provider-key"
+              >API Key <span id="key-hint">必填</span></label
+            ><input
+              id="provider-key"
+              type="password"
+              maxlength="4096"
+              autocomplete="new-password"
+              spellcheck="false"
+            />
+            <p id="key-description">
+              Key 加密保存在本机；本地服务不校验 Key 时，可填写 local。
+            </p>
+          </div>
+          <details class="advanced-settings">
+            <summary>高级参数</summary>
+            <div class="form-grid">
+              <div class="form-field">
+                <label for="provider-temperature">温度</label
+                ><input
+                  id="provider-temperature"
+                  type="number"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  required
+                  value="0"
+                />
+              </div>
+              <div class="form-field">
+                <label for="provider-timeout">单次超时（秒）</label
+                ><input
+                  id="provider-timeout"
+                  type="number"
+                  min="1"
+                  max="60"
+                  required
+                  value="20"
+                />
+              </div>
+              <div class="form-field">
+                <label for="provider-rounds">最多模型轮数</label
+                ><input
+                  id="provider-rounds"
+                  type="number"
+                  min="1"
+                  max="8"
+                  required
+                  value="4"
+                />
+              </div>
+              <div class="form-field">
+                <label for="provider-tokens">输出 Token 上限</label
+                ><input
+                  id="provider-tokens"
+                  type="number"
+                  min="256"
+                  max="4096"
+                  required
+                  value="1600"
+                />
+              </div>
+            </div>
+            <p>排查仍受服务端整体时限和工具调用次数限制。</p>
+          </details>
+          <p id="provider-error" class="error-banner" role="alert" hidden></p>
+        </div>
+        <div class="dialog-footer">
+          <button id="cancel-provider" class="secondary" type="button">
+            取消</button
+          ><button id="save-provider" class="primary" type="submit">
+            保存配置
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="delete-dialog" aria-labelledby="delete-title">
+      <div class="dialog-heading"><h2 id="delete-title">删除模型服务</h2></div>
+      <div class="dialog-content">
+        <p>
+          删除“<strong id="delete-name"></strong>”及其保存的
+          Key？已有排查记录会保留。
+        </p>
+        <p id="delete-error" class="error-banner" role="alert" hidden></p>
+      </div>
+      <div class="dialog-footer">
+        <button id="cancel-delete" class="secondary" type="button">取消</button
+        ><button id="confirm-delete" class="danger-button" type="button">
+          删除服务
+        </button>
+      </div>
+    </dialog>
+  </body>
+</html>

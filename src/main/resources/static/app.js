@@ -242,7 +242,9 @@ function addEvent(event) {
   );
   $("#events").append(row);
   if (event.type === "MODEL_STARTED" && $("#model-call-count"))
-    $("#model-call-count").textContent = document.querySelectorAll('[data-event-type="MODEL_STARTED"]').length + " 轮";
+    $("#model-call-count").textContent =
+      document.querySelectorAll('[data-event-type="MODEL_STARTED"]').length +
+      " 轮";
   $("#events-count").textContent = String(displayedEvents.size);
 
   const tool = [...document.querySelectorAll("[data-tool]")].find(
@@ -690,6 +692,7 @@ $("#investigate-form").addEventListener("submit", async (event) => {
     service: $("#service").value,
     windowMinutes: Number($("#window").value),
     scenario: $("#scenario").value,
+    expectedSelection: runtimeConfig.selectionToken,
   };
   resetResult();
   setStatus("QUEUED");
@@ -710,6 +713,8 @@ $("#investigate-form").addEventListener("submit", async (event) => {
     if (version === selectionVersion) {
       setStatus("FAILED");
       emptyResult("未能开始排查", "请检查连接后重试。");
+      if (error.message.includes("运行模式或模型配置已变更"))
+        await loadConfiguration();
       showError(error.message);
     }
   } finally {
