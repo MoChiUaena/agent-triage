@@ -4,7 +4,7 @@
 
 Agent Triage 是一个 Java 服务排障助手，通过查询日志、指标和排障文档，分析接口变慢的可能原因，并给出验证建议。
 
-仓库带有一个单独运行的订单样例服务。订单接口会通过 HTTP 调用库存接口；切换故障场景后，库存调用会实际超时，排障助手读取该服务刚产生的耗时指标和错误事件。默认启动仍使用合成数据，方便无需额外进程时查看页面。排障结论可以由固定规则生成，也可配置模型选择工具并生成结论。
+仓库带有两个独立运行的 Java 样例服务：订单服务通过 HTTP 调用库存服务。切换故障场景后，库存响应变慢，订单侧请求实际超时。排障助手读取订单服务的窗口指标、Micrometer 计数和 JSON 错误日志，再给出带证据的判断。默认启动仍使用合成数据，方便无需样例服务时查看页面；也可以配置模型选择工具并生成结论。
 
 ![本地订单请求发生库存调用超时后的排查页面](docs/assets/live-triage.png)
 
@@ -44,21 +44,26 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 ## 跑通本地真实请求
 
-先启动独立的[订单样例服务](sample-service/README.md)：
+先在两个终端分别启动[库存服务](inventory-service/README.md)和[订单服务](sample-service/README.md)：
+
+```powershell
+.\mvnw.cmd -f inventory-service/pom.xml verify
+java -jar inventory-service/target/triage-inventory-service-0.1.0-SNAPSHOT.jar
+```
 
 ```powershell
 .\mvnw.cmd -f sample-service/pom.xml verify
 java -jar sample-service/target/triage-sample-service-0.1.0-SNAPSHOT.jar
 ```
 
-在第二个终端启动排障助手：
+在第三个终端启动排障助手：
 
 ```powershell
 $env:TRIAGE_OBSERVATION_SOURCE = 'LIVE'
 .\mvnw.cmd spring-boot:run
 ```
 
-打开 <http://127.0.0.1:18080>，点击“生成正常请求”或“触发库存超时”，再点“开始排查”。页面会显示实际请求数、耗时、超时率和带 traceId 的错误事件。样例服务默认监听本机 `18082` 端口，重启后内存中的观测会清空；这条链路不接入生产系统。浏览器中的生成流量按钮与只读的 Agent 工具分开。
+打开 <http://127.0.0.1:18080>，点击“生成正常请求”或“触发库存超时”，再点“开始排查”。页面会显示实际请求数、耗时、超时率和带 traceId 的错误事件。订单和库存服务分别监听本机 `18082`、`18084` 端口；错误事件写入本地 JSON Lines 文件，指标可通过两个服务的 Actuator 端点核对。浏览器中的生成流量按钮与只读的 Agent 工具分开。
 
 也可以运行 `python scripts/live_smoke.py --agent-url http://127.0.0.1:18080`，复查空窗口、正常与超时三条链路。默认合成模式不需要启动样例服务。
 

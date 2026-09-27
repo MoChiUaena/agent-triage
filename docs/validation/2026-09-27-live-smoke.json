@@ -7,38 +7,38 @@
     {
       "case": "empty",
       "status": "INSUFFICIENT_EVIDENCE",
-      "runId": "1cd8915a-ff22-4f71-a434-9efc4a7fee69",
+      "runId": "90a5cfe7-8b1d-4fc5-925f-7d4d71d8b60f",
       "requestCount": 0,
       "orderP95Ms": 0.0,
       "downstreamP95Ms": 0.0,
       "downstreamTimeoutRate": 0.0,
       "errorCount": 0,
       "citationsValid": true,
-      "wallTimeMs": 219
+      "wallTimeMs": 218
     },
     {
       "case": "normal",
       "status": "SUCCEEDED",
-      "runId": "4b9ed1fc-e4f6-40ad-9ecb-1ea085ef2a45",
+      "runId": "a9b53dad-a256-4ee0-b56e-796d88fda1b2",
       "requestCount": 5,
-      "orderP95Ms": 19.2,
-      "downstreamP95Ms": 19.2,
+      "orderP95Ms": 19.6,
+      "downstreamP95Ms": 19.6,
       "downstreamTimeoutRate": 0.0,
       "errorCount": 0,
       "citationsValid": true,
-      "wallTimeMs": 141
+      "wallTimeMs": 156
     },
     {
       "case": "timeout",
       "status": "SUCCEEDED",
-      "runId": "a928b27e-29f1-418e-9e57-d3c671c936f1",
+      "runId": "a488a9d7-8c0f-4266-9940-bffea6ef778c",
       "requestCount": 5,
-      "orderP95Ms": 319.0,
-      "downstreamP95Ms": 319.0,
+      "orderP95Ms": 316.7,
+      "downstreamP95Ms": 316.7,
       "downstreamTimeoutRate": 1.0,
       "errorCount": 3,
       "citationsValid": true,
-      "wallTimeMs": 141
+      "wallTimeMs": 187
     }
   ]
 }

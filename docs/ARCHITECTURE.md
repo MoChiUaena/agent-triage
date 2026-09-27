@@ -1,6 +1,6 @@
 # 架构
 
-项目采用 Spring Boot 单体，前端为原生 HTML / JavaScript，数据库通过 JDBC 访问。
+排障助手是 Spring Boot 单体，前端为原生 HTML / JavaScript，数据库通过 JDBC 访问。样例订单服务与库存服务作为两个独立 JVM 运行。
 
 ## 请求流程
 
@@ -8,7 +8,7 @@
 
 DEMO 模式依次调用三个工具，再由 `DemoReasoner` 生成结论。MODEL 模式通过 Spring AI ChatClient 请求模型，把工具结果回传给下一轮模型请求，直到获得结构化结论或达到执行限制。
 
-观测数据源与推理模式分开配置。默认 SYNTHETIC 使用固定指标和日志；LIVE 模式通过只读 HTTP 接口查询独立订单样例服务处理过的请求。样例服务的故障切换和流量生成属于实验控制，不是 Agent 工具。LIVE 运行记录标记为 `synthetic=false`，本地样例仍不代表生产环境。
+观测数据源与推理模式分开配置。默认 SYNTHETIC 使用固定指标和日志；LIVE 模式通过只读 HTTP 接口查询订单样例服务。订单服务通过 HTTP 调用独立库存服务，窗口 p95 来自实际请求记录，累计计数来自 Micrometer，错误事件来自本地 JSON Lines 文件。故障切换和流量生成属于实验控制，不是 Agent 工具。LIVE 运行记录标记为 `synthetic=false`，本地样例仍不代表生产环境。
 
 浏览器通过 SSE 获取进度。`RunEventController` 每 200ms 读取一次执行记录，发送尚未推送的事件。前端按事件序号去重，点击引用可以展开本次执行的证据。
 

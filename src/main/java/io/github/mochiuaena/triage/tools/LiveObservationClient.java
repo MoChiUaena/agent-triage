@@ -19,7 +19,7 @@ import java.util.List;
 public class LiveObservationClient {
     public record ErrorEntry(Instant timestamp, String traceId, String level, String message) {}
     public record Snapshot(String service, Scenario scenario, Instant windowStart, Instant windowEnd,
-                           int requestCount, int normalCount, int timeoutCount, double orderP95Ms,
+                           int requestCount, int normalCount, int timeoutCount, long recordedRequestCount, double orderP95Ms,
                            double downstreamP95Ms, double downstreamTimeoutRate, Double baselineOrderP95Ms,
                            List<ErrorEntry> errors, boolean synthetic) {}
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(600)).build();

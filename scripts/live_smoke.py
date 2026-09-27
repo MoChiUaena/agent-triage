@@ -57,13 +57,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--agent-url", default="http://127.0.0.1:18083")
     parser.add_argument("--sample-url", default="http://127.0.0.1:18082")
+    parser.add_argument("--inventory-url", default="http://127.0.0.1:18084")
     parser.add_argument("--output", default="target/live-smoke")
     args = parser.parse_args()
     agent = args.agent_url.rstrip("/")
     sample = args.sample_url.rstrip("/")
+    inventory = args.inventory_url.rstrip("/")
     status, config = request(agent, "/api/config")
     if status != 200 or config.get("mode") != "DEMO" or config.get("observationSource") != "LIVE" or config.get("synthetic"):
         parser.error("The agent must be in DEMO mode with LIVE observations.")
+    assert request(inventory, "/lab/scenario")[0] == 200
     assert request(sample, "/lab/reset", {})[0] == 200
     status, _ = request(sample, "/api/orders/warmup")
     assert status == 200, status
@@ -78,6 +81,7 @@ def main():
     ]:
         assert request(sample, "/lab/reset", {})[0] == 200
         assert request(sample, "/lab/scenario", {"scenario": scenario})[0] == 200
+        assert request(inventory, "/lab/scenario")[1]["scenario"] == scenario
         responses = [request(sample, f"/api/orders/{name}-{i}") for i in range(count)]
         expected_http = 504 if scenario == "DOWNSTREAM_TIMEOUT" else 200
         assert all(code == expected_http for code, _ in responses), responses
@@ -89,15 +93,21 @@ def main():
         assert run["mode"] == "DEMO" and run["synthetic"] is False
         assert run["scenario"] == scenario  # The server reads the actual lab scenario.
         assert metrics["synthetic"] is False and metrics["requestCount"] == count
+        assert metrics["micrometerRecordedRequestCount"] >= count
         assert logs["synthetic"] is False and valid_citations(run)
         if scenario == "DOWNSTREAM_TIMEOUT":
             assert metrics["downstreamTimeoutRate"] == 1.0
             assert logs["returnedCount"] == 3
             trace_ids = {body["traceId"] for _, body in responses}
             assert {entry["traceId"] for entry in logs["entries"]} <= trace_ids
+            file_logs = request(sample, "/lab/errors?windowMinutes=15")[1]
+            assert {entry["traceId"] for entry in logs["entries"]} == {entry["traceId"] for entry in file_logs}
         else:
             assert metrics["downstreamTimeoutRate"] == 0
             assert logs["returnedCount"] == 0
+        if count:
+            meter_status, meter = request(sample, "/actuator/metrics/sample.order.requests")
+            assert meter_status == 200 and meter["name"] == "sample.order.requests"
         (output / f"{name}.json").write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         results.append({"case": name, "status": run["status"], "runId": run["id"],
                         "requestCount": metrics["requestCount"], "orderP95Ms": metrics["orderP95Ms"],
@@ -111,6 +121,8 @@ def main():
     generated_status, generated = request(agent, "/api/live-lab/traffic",
         {"scenario": "DOWNSTREAM_TIMEOUT", "count": 2}, {"X-Triage-Lab": "1"})
     assert generated_status == 200 and generated["requestCount"] == 2 and generated["timeoutCount"] == 2
+    inventory_meter_status, inventory_meter = request(inventory, "/actuator/metrics/sample.inventory.duration")
+    assert inventory_meter_status == 200 and inventory_meter["name"] == "sample.inventory.duration"
     summary = {"kind": "live-sample-smoke", "synthetic": False, "modelEvaluation": False,
                "labControlVerified": True, "cases": results}
     (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

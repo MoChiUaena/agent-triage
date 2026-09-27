@@ -35,21 +35,21 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 | 检查 | 结果 |
 |---|---|
-| Maven verify | 89 项通过；订单样例服务另有 1 项通过 |
+| Maven verify | 主项目 89 项、订单服务 1 项、库存服务 1 项通过 |
 | 环境变量隔离 | 预设 MODEL 模式和不可达模型地址后，旧的演示测试仍使用 DEMO 模式；模型测试只访问本机模拟服务 |
 | PostgreSQL 16.10 | 7 项 HTTP 集成测试通过，首次迁移成功 |
 | HTTP 冒烟脚本 | 超时、正常、无关问题、缺失规则 4 个案例通过 |
 | 浏览器操作 | 场景切换、历史查看、引用展开正常 |
 | H2 重启 | 原执行状态、9 个事件和 4 条证据保留 |
-| GitHub Actions | Windows、Ubuntu、PostgreSQL 作业通过 |
+| GitHub Actions | Windows、Ubuntu、PostgreSQL 已通过；本次增加跨服务 HTTP 集成作业 |
 | 本地模型协议冒烟 | 正常 / 超时各执行 2 轮模型请求、3 次工具调用；缺失 usage 保持 null |
 | 设置页面本地验收 | 新增、测试、编辑时 Key 留空、启用模型、完成排查、切回演示模式和删除确认窗口 |
-| 本地真实请求链路 | 空窗口证据不足；5 次正常请求和 5 次库存超时请求均可排查；超时错误的 traceId 与请求对应；页面流量控制可用 |
+| 本地真实请求链路 | 三个独立 JVM；空窗口证据不足；5 次正常请求和 5 次库存超时请求均可排查；Micrometer 指标与 JSON 错误日志可核对；页面流量控制可用 |
 | LIVE 页面 | 桌面与 390px 窄屏可生成请求并查看结果，无横向溢出 |
 
 [CI 运行列表](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml) · [早期演示冒烟结果](validation/2026-09-27-demo-smoke.json) · [演示超时场景记录](examples/timeout-run.json)
 
-[本地真实请求复查结果](validation/2026-09-27-live-smoke.json)来自独立订单样例进程，`synthetic=false`。它验证样例请求到排障结论的链路；不代表生产流量或真实模型效果。
+[本地真实请求复查结果](validation/2026-09-27-live-smoke.json)来自订单与库存两个独立样例进程，`synthetic=false`。它验证样例请求到排障结论的链路；不代表生产流量或真实模型效果。
 
 冒烟结果中的 `wallTimeMs` 包含客户端请求和轮询等待，是单次运行耗时。
 

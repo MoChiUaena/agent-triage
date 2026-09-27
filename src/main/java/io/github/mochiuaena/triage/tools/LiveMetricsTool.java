@@ -23,6 +23,7 @@ public class LiveMetricsTool implements ReadOnlyTool {
         data.put("windowStart", observation.windowStart().toString());
         data.put("windowEnd", observation.windowEnd().toString());
         data.put("requestCount", observation.requestCount());
+        data.put("micrometerRecordedRequestCount", observation.recordedRequestCount());
         data.put("orderP95Ms", observation.orderP95Ms());
         data.put("downstreamP95Ms", observation.downstreamP95Ms());
         data.put("downstreamTimeoutRate", observation.downstreamTimeoutRate());
@@ -34,7 +35,8 @@ public class LiveMetricsTool implements ReadOnlyTool {
             ? "该时间窗口尚无订单请求，不能判断延迟或超时。"
             : "实际处理 " + observation.requestCount() + " 个订单请求；订单查询 p95 为 " + observation.orderP95Ms()
                 + "ms，库存调用 p95 为 " + observation.downstreamP95Ms() + "ms，超时率为 "
-                + Math.round(observation.downstreamTimeoutRate() * 1000) / 10.0 + "%。";
+                + Math.round(observation.downstreamTimeoutRate() * 1000) / 10.0 + "%（Micrometer 累计 "
+                + observation.recordedRequestCount() + " 次请求）。";
         return List.of(new Evidence("METRICS-LIVE-" + context.endTime().toEpochMilli(), name(),
             "订单服务窗口指标（实际请求）", summary, data));
     }

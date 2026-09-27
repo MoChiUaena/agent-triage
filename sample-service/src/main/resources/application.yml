@@ -4,3 +4,12 @@ server:
 spring:
   application:
     name: triage-sample-service
+sample:
+  inventory:
+    base-url: ${INVENTORY_BASE_URL:http://127.0.0.1:18084}
+  error-log-file: ${SAMPLE_ERROR_LOG_FILE:./data/sample-errors.jsonl}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
