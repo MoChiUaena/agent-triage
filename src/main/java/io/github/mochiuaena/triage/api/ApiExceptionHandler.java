@@ -1,0 +1,30 @@
+package io.github.mochiuaena.triage.api;
+
+import io.github.mochiuaena.triage.execution.RunService.CapacityExceededException;
+import org.springframework.http.*;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.server.ResponseStatusException;
+
+@RestControllerAdvice
+public class ApiExceptionHandler {
+    @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
+        MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})
+    public ResponseEntity<ProblemDetail> badRequest(Exception e) {
+        return problem(HttpStatus.BAD_REQUEST, "参数无效：服务为 order-service，问题 1–200 字，窗口 1–60 分钟，场景 NORMAL 或 DOWNSTREAM_TIMEOUT。");
+    }
+
+    @ExceptionHandler(CapacityExceededException.class)
+    public ResponseEntity<ProblemDetail> busy() { return problem(HttpStatus.TOO_MANY_REQUESTS, "执行队列或事件连接已满，请稍后再试。"); }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ProblemDetail> status(ResponseStatusException e) {
+        return ResponseEntity.status(e.getStatusCode()).body(ProblemDetail.forStatusAndDetail(e.getStatusCode(), e.getReason() == null ? "请求失败。" : e.getReason()));
+    }
+
+    private ResponseEntity<ProblemDetail> problem(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(ProblemDetail.forStatusAndDetail(status, message));
+    }
+}
