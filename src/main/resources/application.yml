@@ -16,16 +16,16 @@ spring:
       request-timeout: 30000
 triage:
   mode: ${TRIAGE_MODE:DEMO}
-  max-tool-calls: 3
-  tool-timeout: 2s
-  run-timeout: 60s
+  max-tool-calls: ${TRIAGE_MAX_TOOL_CALLS:3}
+  tool-timeout: ${TRIAGE_TOOL_TIMEOUT:2s}
+  run-timeout: ${TRIAGE_RUN_TIMEOUT:60s}
   model:
     base-url: ${TRIAGE_MODEL_BASE_URL:https://api.deepseek.com}
     api-key: ${TRIAGE_MODEL_API_KEY:}
     name: ${TRIAGE_MODEL_NAME:deepseek-flash}
-    timeout: 20s
-    max-rounds: 4
-    max-tokens: 1600
+    timeout: ${TRIAGE_MODEL_TIMEOUT:20s}
+    max-rounds: ${TRIAGE_MODEL_MAX_ROUNDS:4}
+    max-tokens: ${TRIAGE_MODEL_MAX_TOKENS:1600}
 # The SDK's warnings for empty responses include the full prompt.
 logging:
   level:
