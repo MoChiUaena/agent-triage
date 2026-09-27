@@ -1,0 +1,5 @@
+spring:
+  datasource:
+    url: ${TRIAGE_DB_URL:jdbc:postgresql://localhost:15432/triage}
+    username: ${TRIAGE_DB_USER:triage}
+    password: ${TRIAGE_DB_PASSWORD:triage-local-demo}
