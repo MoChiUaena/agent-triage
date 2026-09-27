@@ -106,6 +106,8 @@ $env:SPRING_PROFILES_ACTIVE = 'postgres'
 
 要比较“仅检索文档”和 Agent 的实际回答，可运行 `python scripts/compare_live_methods.py --allow-model-calls`。默认先跑四个调试案例，结果写入 `target/live-comparison/`；评审方法和留出集约束见[小规模评测](docs/EVALUATION.md#后续比较)。
 
+本项目已按固定标准完成 10 个调试例和 10 个留出例的[人工对照记录](docs/validation/2026-09-27-holdout-comparison.md)。Agent 能引用实时观测，但仍存在无效输出和正文证据误写；这些问题列在报告中，不计为诊断准确率。
+
 ## 测试
 
 ```powershell
