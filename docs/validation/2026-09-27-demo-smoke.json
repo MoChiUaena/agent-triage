@@ -1,0 +1,39 @@
+{
+  "mode": "DEMO",
+  "synthetic": true,
+  "modelEvaluation": false,
+  "cases": [
+    {
+      "case": "timeout",
+      "status": "SUCCEEDED",
+      "runId": "f235cf1d-a35b-4984-b195-bebbd9546cc1",
+      "toolCalls": 3,
+      "evidenceCount": 4,
+      "wallTimeMs": 141
+    },
+    {
+      "case": "normal",
+      "status": "SUCCEEDED",
+      "runId": "85f40e08-36ba-4ede-844b-7d4143d8888f",
+      "toolCalls": 3,
+      "evidenceCount": 4,
+      "wallTimeMs": 125
+    },
+    {
+      "case": "unrelated",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "runId": "0d40be9a-4a6e-43c9-9f6a-04e53734dc4d",
+      "toolCalls": 0,
+      "evidenceCount": 0,
+      "wallTimeMs": 93
+    },
+    {
+      "case": "missing-rule",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "runId": "fe08cd43-2a13-4531-a156-4877422b0fe9",
+      "toolCalls": 3,
+      "evidenceCount": 3,
+      "wallTimeMs": 125
+    }
+  ]
+}

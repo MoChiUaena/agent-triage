@@ -1,0 +1,204 @@
+{
+  "id": "f235cf1d-a35b-4984-b195-bebbd9546cc1",
+  "question": "订单查询接口为什么变慢了？",
+  "service": "order-service",
+  "windowMinutes": 15,
+  "scenario": "DOWNSTREAM_TIMEOUT",
+  "mode": "DEMO",
+  "synthetic": true,
+  "status": "SUCCEEDED",
+  "createdAt": "2026-09-27T03:17:30.100175600Z",
+  "finishedAt": "2026-09-27T03:17:30.106148900Z",
+  "toolCalls": 3,
+  "events": [
+    {
+      "sequence": 1,
+      "timestamp": "2026-09-27T03:17:30.100175600Z",
+      "type": "RUN_QUEUED",
+      "tool": null,
+      "message": "已排队；使用确定性规则和合成数据。",
+      "evidenceIds": []
+    },
+    {
+      "sequence": 2,
+      "timestamp": "2026-09-27T03:17:30.101183400Z",
+      "type": "RUN_STARTED",
+      "tool": null,
+      "message": "开始收集证据。",
+      "evidenceIds": []
+    },
+    {
+      "sequence": 3,
+      "timestamp": "2026-09-27T03:17:30.101183400Z",
+      "type": "TOOL_STARTED",
+      "tool": "search_runbooks",
+      "message": "工具调用开始。",
+      "evidenceIds": []
+    },
+    {
+      "sequence": 4,
+      "timestamp": "2026-09-27T03:17:30.102145300Z",
+      "type": "TOOL_COMPLETED",
+      "tool": "search_runbooks",
+      "message": "工具返回 2 条证据。",
+      "evidenceIds": [
+        "DOC-DOWNSTREAM-TIMEOUT#v1",
+        "DOC-HEALTHY-BASELINE#v1"
+      ]
+    },
+    {
+      "sequence": 5,
+      "timestamp": "2026-09-27T03:17:30.103144100Z",
+      "type": "TOOL_STARTED",
+      "tool": "read_service_metrics",
+      "message": "工具调用开始。",
+      "evidenceIds": []
+    },
+    {
+      "sequence": 6,
+      "timestamp": "2026-09-27T03:17:30.103144100Z",
+      "type": "TOOL_COMPLETED",
+      "tool": "read_service_metrics",
+      "message": "工具返回 1 条证据。",
+      "evidenceIds": [
+        "METRICS-ORDER-DOWNSTREAM_TIMEOUT"
+      ]
+    },
+    {
+      "sequence": 7,
+      "timestamp": "2026-09-27T03:17:30.104143900Z",
+      "type": "TOOL_STARTED",
+      "tool": "query_error_logs",
+      "message": "工具调用开始。",
+      "evidenceIds": []
+    },
+    {
+      "sequence": 8,
+      "timestamp": "2026-09-27T03:17:30.105147Z",
+      "type": "TOOL_COMPLETED",
+      "tool": "query_error_logs",
+      "message": "工具返回 1 条证据。",
+      "evidenceIds": [
+        "LOGS-ORDER-DOWNSTREAM_TIMEOUT"
+      ]
+    },
+    {
+      "sequence": 9,
+      "timestamp": "2026-09-27T03:17:30.106148900Z",
+      "type": "RUN_COMPLETED",
+      "tool": null,
+      "message": "排障完成，请核查证据。",
+      "evidenceIds": []
+    }
+  ],
+  "evidence": [
+    {
+      "id": "DOC-DOWNSTREAM-TIMEOUT#v1",
+      "source": "search_runbooks",
+      "title": "下游超时排障",
+      "summary": "# 下游读取超时排障\n\n文档 ID：DOC-DOWNSTREAM-TIMEOUT#v1。适用服务：order-service。本文用于合成演示。\n\n订单查询同步调用 inventory-service。当订单接口 p95 和库存调用 p95 同时升高，且日志出现 SocketTimeoutException / Read timed out，优先验证下游调用超时路径。\n\n演示的读取超时配置为 2000ms。只有指标与错误日志共同支持时，才提出“库存下游超时可能拖慢订单查询”的判断。\n\n下一步：按同一时间窗口核对库存服务延迟和错误率；用 traceId 对照调用链；核实客户端读取超时配置。\n\n这些证据无法区分下游资源饱和、网络延迟或客户端连接池等待，不能直接断言最终根因，更不能仅增大超时就声称修复。\n",
+      "data": {
+        "version": 1,
+        "synthetic": true,
+        "service": "order-service",
+        "retrieval": "keyword"
+      }
+    },
+    {
+      "id": "DOC-HEALTHY-BASELINE#v1",
+      "source": "search_runbooks",
+      "title": "正常状态对照",
+      "summary": "# 正常状态对照\n\n文档 ID：DOC-HEALTHY-BASELINE#v1。适用服务：order-service。数据为合成基线，不代表生产 SLA。\n\n正常演示窗口中，订单查询 p95 为 120ms，库存下游调用 p95 为 45ms，库存读取超时率为 0%。\n\n如果当前指标接近基线且无错误日志，应说明“本次窗口未发现下游超时证据”，而不是保证服务永远正常。\n\n如果用户仍观察到慢请求，缩小到具体请求的时间和 traceId，并检查未采集的数据库耗时与其他依赖。缺少这些数据时保留不确定性。\n",
+      "data": {
+        "version": 1,
+        "synthetic": true,
+        "service": "order-service",
+        "retrieval": "keyword"
+      }
+    },
+    {
+      "id": "METRICS-ORDER-DOWNSTREAM_TIMEOUT",
+      "source": "read_service_metrics",
+      "title": "订单服务窗口指标（合成）",
+      "summary": "订单查询 p95 由基线 120ms 升至 2350ms；库存下游 p95 为 2100ms，超时率 18%。",
+      "data": {
+        "service": "order-service",
+        "requestCount": 1500,
+        "windowStart": "2026-09-27T03:02:30.100175600Z",
+        "downstreamTimeoutRate": 0.18,
+        "windowEnd": "2026-09-27T03:17:30.100175600Z",
+        "orderP95Ms": 2350,
+        "baselineOrderP95Ms": 120,
+        "synthetic": true,
+        "downstreamP95Ms": 2100
+      }
+    },
+    {
+      "id": "LOGS-ORDER-DOWNSTREAM_TIMEOUT",
+      "source": "query_error_logs",
+      "title": "近期错误日志（合成，最多 3 条）",
+      "summary": "发现 3 条库存下游读取超时样例，配置的读取超时为 2000ms。",
+      "data": {
+        "synthetic": true,
+        "windowEnd": "2026-09-27T03:17:30.100175600Z",
+        "sampleLimit": 3,
+        "returnedCount": 3,
+        "entries": [
+          {
+            "traceId": "synthetic-trace-1",
+            "message": "GET /inventory/availability: java.net.SocketTimeoutException: Read timed out after 2000ms",
+            "timestamp": "2026-09-27T03:17:20.100175600Z",
+            "level": "ERROR"
+          },
+          {
+            "traceId": "synthetic-trace-2",
+            "message": "GET /inventory/availability: java.net.SocketTimeoutException: Read timed out after 2000ms",
+            "timestamp": "2026-09-27T03:17:10.100175600Z",
+            "level": "ERROR"
+          },
+          {
+            "traceId": "synthetic-trace-3",
+            "message": "GET /inventory/availability: java.net.SocketTimeoutException: Read timed out after 2000ms",
+            "timestamp": "2026-09-27T03:17:00.100175600Z",
+            "level": "ERROR"
+          }
+        ],
+        "service": "order-service",
+        "windowStart": "2026-09-27T03:02:30.100175600Z"
+      }
+    }
+  ],
+  "diagnosis": {
+    "observations": [
+      {
+        "text": "订单查询 p95 由基线 120ms 升至 2350ms；库存下游 p95 为 2100ms，超时率 18%。",
+        "evidenceIds": [
+          "METRICS-ORDER-DOWNSTREAM_TIMEOUT"
+        ]
+      },
+      {
+        "text": "发现 3 条库存下游读取超时样例，配置的读取超时为 2000ms。",
+        "evidenceIds": [
+          "LOGS-ORDER-DOWNSTREAM_TIMEOUT"
+        ]
+      }
+    ],
+    "possibleCauses": [
+      {
+        "text": "库存下游读取超时可能拖慢同步订单查询；目前支持故障路径判断，不能确定下游超时的最终原因。",
+        "evidenceIds": [
+          "METRICS-ORDER-DOWNSTREAM_TIMEOUT",
+          "LOGS-ORDER-DOWNSTREAM_TIMEOUT",
+          "DOC-DOWNSTREAM-TIMEOUT#v1"
+        ]
+      }
+    ],
+    "nextSteps": [
+      "核对相同窗口内 inventory-service 的延迟、错误率及资源使用。",
+      "用 synthetic-trace-1 对照调用链；真实环境需换成真实 traceId。",
+      "确认客户端 2000ms 读取超时配置，区分网络、连接池与下游处理耗时。"
+    ],
+    "uncertainty": "全部观测来自合成适配器；未采集数据库、网络和下游资源指标，不能据此确定生产根因。"
+  },
+  "failure": null
+}
