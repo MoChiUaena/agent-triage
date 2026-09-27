@@ -1,7 +1,7 @@
 package io.github.mochiuaena.triage.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.mochiuaena.triage.domain.TriageModel.TokenUsage;
+import io.github.mochiuaena.triage.domain.TriageModel.*;
 import io.github.mochiuaena.triage.execution.*;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.*;
@@ -56,7 +56,24 @@ public final class ModelEngine implements TriageEngine {
                 results.add(new ToolResponseMessage.ToolResponse(call.id(), call.name(), result));
             }
             messages.add(ToolResponseMessage.builder().responses(results).build());
+            Decision noData = noDataDecision(session);
+            if (noData != null) {
+                session.recordNoDataGate();
+                return noData;
+            }
         }
+    }
+
+    private Decision noDataDecision(ExecutionSession session) {
+        return session.evidence().stream()
+            .filter(item -> item.source().equals("read_service_metrics"))
+            .filter(item -> item.data().get("requestCount") instanceof Number count && count.intValue() == 0)
+            .findFirst()
+            .map(item -> new Decision(Status.INSUFFICIENT_EVIDENCE,
+                new Diagnosis(List.of(new Finding("本窗口订单请求数为 0。", List.of(item.id()))), List.of(),
+                    List.of("先让订单服务处理一些请求，再重新排查同一时间窗口。"),
+                    "应用根据无请求证据门槛返回证据不足；模型只参与了工具选择，没有生成最终结论。")))
+            .orElse(null);
     }
 
     private void recordUsage(ExecutionSession session, ChatResponse response) {

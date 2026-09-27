@@ -43,6 +43,10 @@ public final class ExecutionSession {
     public List<String> toolNames() { return List.copyOf(tools.keySet()); }
     public List<Evidence> evidence() { return List.copyOf(state.evidence); }
 
+    public void recordNoDataGate() {
+        publish("EVIDENCE_GATE", null, "窗口没有订单请求，应用返回证据不足，跳过最终模型生成。", List.of());
+    }
+
     public void checkDeadline() {
         if (Thread.currentThread().isInterrupted()) throw new RunFailure("RUN_INTERRUPTED", "执行已中断。");
         if (System.nanoTime() >= deadline) throw new RunFailure("RUN_TIMEOUT", "已达到整体执行时长上限。");

@@ -3,7 +3,7 @@
   "mockProvider": true,
   "modelQualityEvaluated": false,
   "syntheticObservations": false,
-  "ranAt": "2026-09-27T09:31:22.403477+00:00",
+  "ranAt": "2026-09-27T10:00:06.997321+00:00",
   "configuredModel": "triage-stub",
   "provider": null,
   "accepted": 3,
@@ -16,7 +16,7 @@
       "status": "INSUFFICIENT_EVIDENCE",
       "statusMatch": true,
       "accepted": true,
-      "runId": "5a3f90dc-1c55-4d70-ae0b-3b07e1e2cce6",
+      "runId": "e3f88663-b118-408a-b53c-618ce0bd791d",
       "scenario": "NORMAL",
       "toolCalls": 3,
       "tools": [
@@ -26,20 +26,23 @@
       ],
       "evidenceCount": 4,
       "citationsValid": true,
-      "citedSources": [],
+      "citedSources": [
+        "read_service_metrics"
+      ],
       "unsafeSuccess": false,
+      "applicationNoDataGate": true,
       "requestCount": 0,
       "downstreamTimeoutRate": 0.0,
       "configuredModel": "triage-stub",
       "responseModel": "triage-stub-v1",
-      "modelCalls": 2,
+      "modelCalls": 1,
       "usage": {
-        "inputTokens": 240,
-        "outputTokens": 60,
-        "totalTokens": 300
+        "inputTokens": 120,
+        "outputTokens": 30,
+        "totalTokens": 150
       },
       "failureCode": null,
-      "wallTimeMs": 313
+      "wallTimeMs": 359
     },
     {
       "case": "normal",
@@ -48,7 +51,7 @@
       "status": "SUCCEEDED",
       "statusMatch": true,
       "accepted": true,
-      "runId": "72ddccc3-c6c6-4426-8f27-ad45e79af815",
+      "runId": "76e85db5-177e-4842-9e52-764615a5c667",
       "scenario": "NORMAL",
       "toolCalls": 3,
       "tools": [
@@ -64,6 +67,7 @@
         "search_runbooks"
       ],
       "unsafeSuccess": false,
+      "applicationNoDataGate": false,
       "requestCount": 5,
       "downstreamTimeoutRate": 0.0,
       "configuredModel": "triage-stub",
@@ -75,7 +79,7 @@
         "totalTokens": 300
       },
       "failureCode": null,
-      "wallTimeMs": 313
+      "wallTimeMs": 297
     },
     {
       "case": "timeout",
@@ -84,7 +88,7 @@
       "status": "SUCCEEDED",
       "statusMatch": true,
       "accepted": true,
-      "runId": "5a36aa14-1478-40fb-aa24-cee22e3b4f54",
+      "runId": "f68585d7-4e93-4530-8db1-391ee4578bef",
       "scenario": "DOWNSTREAM_TIMEOUT",
       "toolCalls": 3,
       "tools": [
@@ -100,6 +104,7 @@
         "search_runbooks"
       ],
       "unsafeSuccess": false,
+      "applicationNoDataGate": false,
       "requestCount": 5,
       "downstreamTimeoutRate": 1.0,
       "configuredModel": "triage-stub",
@@ -111,7 +116,7 @@
         "totalTokens": 300
       },
       "failureCode": null,
-      "wallTimeMs": 297
+      "wallTimeMs": 296
     }
   ]
 }

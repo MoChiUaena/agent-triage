@@ -47,7 +47,7 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 | 设置页面本地验收 | 新增、测试、编辑时 Key 留空、启用模型、完成排查、切回演示模式和删除确认窗口 |
 | 本地真实请求链路 | 三个独立 JVM；空窗口证据不足；5 次正常请求和 5 次库存超时请求均可排查；Micrometer 指标与 JSON 错误日志可核对；页面流量控制可用 |
 | LIVE 页面 | 桌面与 390px 窄屏可生成请求并查看结果，无横向溢出 |
-| LIVE + 模型协议模拟器 | 空窗口、正常和超时三条链路通过；每条 3 次工具调用、2 轮接口交互；不代表真实模型效果 |
+| LIVE + 模型协议模拟器 | 空窗口、正常和超时三条链路通过；每条 3 次工具调用；空窗口 1 轮、其他各 2 轮；不代表真实模型效果 |
 
 [CI 运行列表](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml) · [早期演示冒烟结果](validation/2026-09-27-demo-smoke.json) · [演示超时场景记录](examples/timeout-run.json)
 

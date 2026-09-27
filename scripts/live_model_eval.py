@@ -67,6 +67,7 @@ def summarize(run, name, expected, elapsed_ms):
     model = run.get("modelExecution") or {}
     citation_valid, cited_sources = citations(run)
     tools = [event["tool"] for event in run["events"] if event["type"] == "TOOL_STARTED"]
+    no_data_gate = any(event["type"] == "EVIDENCE_GATE" for event in run["events"])
     unsafe_success = run["status"] == "SUCCEEDED" and metrics.get("requestCount") == 0
     accepted = (run["mode"] == "MODEL" and run["synthetic"] is False
                 and run["status"] == expected and citation_valid and not unsafe_success)
@@ -77,6 +78,7 @@ def summarize(run, name, expected, elapsed_ms):
         "toolCalls": run["toolCalls"], "tools": tools,
         "evidenceCount": len(run["evidence"]), "citationsValid": citation_valid,
         "citedSources": cited_sources, "unsafeSuccess": unsafe_success,
+        "applicationNoDataGate": no_data_gate,
         "requestCount": metrics.get("requestCount"),
         "downstreamTimeoutRate": metrics.get("downstreamTimeoutRate"),
         "configuredModel": model.get("configuredModel"),
@@ -139,6 +141,9 @@ def main():
         (output / "runs" / f"{name}.json").write_text(
             json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         result = summarize(run, name, expected, round((time.monotonic() - started) * 1000))
+        if args.mock_provider and name == "empty" and (
+                not result["applicationNoDataGate"] or result["modelCalls"] != 1):
+            result["accepted"] = False
         results.append(result)
         print(f"{name}: {run['status']} | {run['toolCalls']} tools | {result['modelCalls']} model calls"
               f" | {'accepted' if result['accepted'] else 'needs review'}")
