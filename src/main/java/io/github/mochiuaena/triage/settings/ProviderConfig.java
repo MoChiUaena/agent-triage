@@ -7,7 +7,7 @@ import java.util.UUID;
 
 public final class ProviderConfig {
     private ProviderConfig() {}
-    public enum Protocol { DEEPSEEK, OPENAI_COMPATIBLE }
+    public enum Protocol { DEEPSEEK, DASHSCOPE, GLM, KIMI, LM_STUDIO, OPENAI_COMPATIBLE }
 
     public record Input(@NotBlank @Size(max = 80) String displayName,
                         @NotNull Protocol protocol,

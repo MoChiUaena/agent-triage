@@ -25,7 +25,7 @@ public final class ModelConfiguration {
         return createClient(settings, true, 0.0);
     }
 
-    public static ChatClient createClient(ModelSettings settings, boolean deepSeek, double temperature) {
+    public static ChatClient createClient(ModelSettings settings, boolean disableThinking, double temperature) {
         settings.requireCredentials();
         var factory = new JdkClientHttpRequestFactory(TRANSPORT);
         factory.setReadTimeout(settings.timeout());
@@ -57,7 +57,7 @@ public final class ModelConfiguration {
             }).build();
         var options = OpenAiChatOptions.builder().model(settings.name()).temperature(temperature)
             .maxTokens(settings.maxTokens()).internalToolExecutionEnabled(false);
-        if (deepSeek) options.extraBody(java.util.Map.of("thinking", java.util.Map.of("type", "disabled")));
+        if (disableThinking) options.extraBody(java.util.Map.of("thinking", java.util.Map.of("type", "disabled")));
         var model = OpenAiChatModel.builder().openAiApi(api).defaultOptions(options.build())
             .retryTemplate(RetryTemplate.builder().maxAttempts(1).build()).build();
         return ChatClient.builder(model).build();

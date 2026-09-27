@@ -105,7 +105,9 @@ public class ProviderRegistry {
         if (previous != null && previous.version() == stored.version()) return previous;
         ModelSettings settings = stored.settings(cipher.decrypt(id, stored.encryptedKey()));
         ChatClient client;
-        try { client = ModelConfiguration.createClient(settings, stored.protocol() == Protocol.DEEPSEEK, stored.temperature()); }
+        boolean disableThinking = stored.protocol() == Protocol.DEEPSEEK ||
+            (stored.protocol() == Protocol.KIMI && stored.model().equals("kimi-k2.6"));
+        try { client = ModelConfiguration.createClient(settings, disableThinking, stored.temperature()); }
         catch (IllegalArgumentException e) { throw error(BAD_REQUEST, "模型配置无效，请检查服务地址、模型名和 Key。"); }
         var model = new ModelEngine(client, settings, json);
         ModelSource source = new ModelSource(id, stored.displayName(), stored.version());
@@ -132,9 +134,13 @@ public class ProviderRegistry {
         try {
             if (!Double.isFinite(input.temperature()) || input.temperature() < 0 || input.temperature() > 2
                 || key.length() > 4096 || key.chars().anyMatch(c -> c < 33 || c > 126)) throw new IllegalArgumentException();
+            if (input.protocol() == Protocol.KIMI && input.model().strip().equals("kimi-k2.6")
+                && Double.compare(input.temperature(), 0.6) != 0)
+                throw error(BAD_REQUEST, "Kimi K2.6 非思考模式的温度必须为 0.6。");
             new ModelSettings(url, key, input.model().strip(), java.time.Duration.ofSeconds(input.timeoutSeconds()), input.maxRounds(), input.maxTokens())
                 .requireCredentials();
-        } catch (IllegalArgumentException e) { throw error(BAD_REQUEST, "模型配置无效。请检查模型名和参数；地址须为 HTTPS 或本机 HTTP，不能包含凭据或查询参数。"); }
+        } catch (org.springframework.web.server.ResponseStatusException e) { throw e; }
+        catch (IllegalArgumentException e) { throw error(BAD_REQUEST, "模型配置无效。请检查模型名和参数；地址须为 HTTPS 或本机 HTTP，不能包含凭据或查询参数。"); }
     }
 
     private Stored stored(UUID id, Input p, String url, String encrypted, long version, Instant createdAt) {

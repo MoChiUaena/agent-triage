@@ -7,6 +7,8 @@ import io.github.mochiuaena.triage.execution.TriageEngine;
 import io.github.mochiuaena.triage.settings.ProviderConfig.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.system.*;
@@ -44,7 +46,7 @@ class ProviderSettingsTest {
     @BeforeEach void reset() {
         jdbc.update("DELETE FROM model_selection");
         jdbc.update("DELETE FROM model_providers");
-        MODEL.requests.clear(); MODEL.status = 200; MODEL.entered = null; MODEL.release = null;
+        MODEL.requests.clear(); MODEL.paths.clear(); MODEL.status = 200; MODEL.entered = null; MODEL.release = null;
     }
     @AfterAll static void shutdown() throws Exception { MODEL.close(); Files.deleteIfExists(KEY); Files.deleteIfExists(KEY_DIRECTORY); }
 
@@ -132,6 +134,36 @@ class ProviderSettingsTest {
         assertThat(MODEL.requests.getFirst().at("/thinking/type").asText()).isEqualTo("disabled");
     }
 
+    @ParameterizedTest
+    @EnumSource(value = Protocol.class, names = {"DASHSCOPE", "GLM", "KIMI", "LM_STUDIO"})
+    void namedServicesCanBeSavedAndTestedThroughTheCompatibleEndpoint(Protocol protocol) {
+        var body = input("test-provider-secret", 0); body.put("protocol", protocol.name());
+        body.put("model", protocol == Protocol.KIMI ? "kimi-k2.6" : "test-one");
+        body.put("temperature", protocol == Protocol.KIMI ? 0.6 : 0.2);
+        View provider = mutate(HttpMethod.POST, "/api/settings/providers", body, View.class).getBody();
+        assertThat(provider.protocol()).isEqualTo(protocol);
+        var response = mutate(HttpMethod.POST, "/api/settings/providers/" + provider.id() + "/test?version=1", null, TestResult.class);
+        assertThat(response.getBody().success()).isTrue();
+        assertThat(MODEL.requests.getFirst().has("thinking")).isEqualTo(protocol == Protocol.KIMI);
+        assertThat(MODEL.requests.getFirst().path("temperature").asDouble()).isEqualTo(protocol == Protocol.KIMI ? 0.6 : 0.2);
+    }
+
+    @Test void kimiK26RejectsTemperatureOutsideItsNonThinkingSetting() {
+        var body = input("test-provider-secret", 0);
+        body.put("protocol", "KIMI"); body.put("model", "kimi-k2.6"); body.put("temperature", 1.0);
+        String response = mutate(HttpMethod.POST, "/api/settings/providers", body, String.class).getBody();
+        assertThat(response).contains("0.6").doesNotContain("test-provider-secret");
+        assertThat(registry.list()).isEmpty();
+    }
+
+    @Test void versionedCompatibleBaseUrlKeepsItsPathWhenCallingTheModel() {
+        var body = input("test-provider-secret", 0); body.put("baseUrl", MODEL.url() + "/v1");
+        View provider = mutate(HttpMethod.POST, "/api/settings/providers", body, View.class).getBody();
+        assertThat(mutate(HttpMethod.POST, "/api/settings/providers/" + provider.id() + "/test?version=1", null, TestResult.class)
+            .getBody().success()).isTrue();
+        assertThat(MODEL.paths).containsExactly("/v1/chat/completions");
+    }
+
     @Test void changingActiveConfigurationDoesNotAlterAnAlreadySubmittedRun() throws Exception {
         View p = create(); activate(p);
         MODEL.entered = new CountDownLatch(1); MODEL.release = new CountDownLatch(1);
@@ -198,14 +230,16 @@ class ProviderSettingsTest {
         final HttpServer server;
         final ExecutorService workers = Executors.newCachedThreadPool(Thread.ofPlatform().daemon(true).factory());
         final List<JsonNode> requests = new CopyOnWriteArrayList<>();
+        final List<String> paths = new CopyOnWriteArrayList<>();
         volatile int status = 200;
         volatile CountDownLatch entered, release;
         Stub() {
             try {
                 server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
                 server.setExecutor(workers);
-                server.createContext("/chat/completions", exchange -> {
+                com.sun.net.httpserver.HttpHandler handler = exchange -> {
                     try (exchange) {
+                        paths.add(exchange.getRequestURI().getPath());
                         JsonNode request = JSON.readTree(exchange.getRequestBody()); requests.add(request);
                         if (entered != null) entered.countDown();
                         if (release != null) { try { release.await(3, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }
@@ -217,7 +251,10 @@ class ProviderSettingsTest {
                         exchange.getResponseHeaders().set("Content-Type", "application/json");
                         exchange.sendResponseHeaders(status, body.length); exchange.getResponseBody().write(body);
                     } catch (IOException ignored) {}
-                }); server.start();
+                };
+                server.createContext("/chat/completions", handler);
+                server.createContext("/v1/chat/completions", handler);
+                server.start();
             } catch (IOException e) { throw new IllegalStateException(e); }
         }
         String url() { return "http://127.0.0.1:" + server.getAddress().getPort(); }
