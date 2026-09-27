@@ -75,11 +75,12 @@
         <div class="topbar-actions">
           <details class="mode-info">
             <summary>
-              <span class="mode-dot"></span>演示环境<svg class="icon">
+              <span class="mode-dot"></span><span id="mode-label">读取配置</span
+              ><svg class="icon">
                 <use href="/icons.svg#chevron" />
               </svg>
             </summary>
-            <p>使用合成日志和指标，按固定规则生成结果。当前未连接模型服务。</p>
+            <p id="mode-description">正在读取运行配置。</p>
           </details>
           <a
             class="repo-link"
@@ -140,8 +141,11 @@
 订单查询接口为什么变慢了？</textarea
           >
           <div class="composer-footer">
-            <span class="composer-note">仅查询所选服务的演示数据</span>
-            <button class="primary" id="submit-button" type="submit">
+            <span class="composer-note" id="composer-note">正在连接服务…</span>
+            <button class="config-retry" id="config-retry" type="button" hidden>
+              重新连接
+            </button>
+            <button class="primary" id="submit-button" type="submit" disabled>
               <span>开始排查</span
               ><svg class="icon"><use href="/icons.svg#arrow" /></svg>
             </button>

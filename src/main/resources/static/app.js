@@ -20,6 +20,41 @@ let historyVersion = 0;
 let historyRuns = [];
 let displayedEvents = new Set();
 let submitting = false;
+let runtimeConfig = null;
+
+async function loadConfiguration() {
+  $("#config-retry").disabled = true;
+  try {
+    const config = await request("/api/config");
+    if (!["DEMO", "MODEL"].includes(config.mode))
+      throw new Error("运行模式无效。");
+    runtimeConfig = config;
+    $("#mode-label").textContent =
+      config.mode === "MODEL" ? "模型模式" : "演示模式";
+    $("#mode-description").textContent =
+      config.mode === "MODEL"
+        ? "问题和所选合成观测会发送给模型 " +
+          config.model +
+          "。费用以配置的模型服务为准。"
+        : "使用合成日志和指标，按固定规则生成结果，不调用模型服务。";
+    $("#composer-note").textContent =
+      config.mode === "MODEL"
+        ? config.model + " · 合成观测数据"
+        : "仅查询所选服务的演示数据";
+    $("#config-retry").hidden = true;
+    $("#submit-button").disabled = submitting;
+    $("#form-error").hidden = true;
+  } catch (error) {
+    runtimeConfig = null;
+    $("#mode-label").textContent = "连接失败";
+    $("#composer-note").textContent = "无法读取服务配置";
+    $("#submit-button").disabled = true;
+    $("#config-retry").hidden = false;
+    showError("无法读取运行配置，请确认服务已启动后重新连接。");
+  } finally {
+    $("#config-retry").disabled = false;
+  }
+}
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -117,6 +152,7 @@ function metadata(rows) {
   rows.forEach(([label, value]) => {
     const row = element("div");
     row.append(element("dt", "", label), element("dd", "", value));
+    if (label === "模型调用") row.querySelector("dd").id = "model-call-count";
     list.append(row);
   });
 }
@@ -196,6 +232,7 @@ function addEvent(event) {
     "li",
     "event-row" + (event.type.endsWith("FAILED") ? " event-failed" : ""),
   );
+  row.dataset.eventType = event.type;
   const time = element("time", "", timeText(event.timestamp));
   time.dateTime = event.timestamp;
   row.append(
@@ -204,6 +241,8 @@ function addEvent(event) {
     element("p", "", eventText(event)),
   );
   $("#events").append(row);
+  if (event.type === "MODEL_STARTED" && $("#model-call-count"))
+    $("#model-call-count").textContent = document.querySelectorAll('[data-event-type="MODEL_STARTED"]').length + " 轮";
   $("#events-count").textContent = String(displayedEvents.size);
 
   const tool = [...document.querySelectorAll("[data-tool]")].find(
@@ -448,7 +487,8 @@ function renderRun(run) {
   const elapsed = run.finishedAt
     ? Math.max(0, new Date(run.finishedAt) - new Date(run.createdAt))
     : null;
-  metadata([
+  const info = [
+    ["运行模式", run.mode === "MODEL" ? "模型" : "演示"],
     ["服务", run.service],
     ["时间窗口", "最近 " + run.windowMinutes + " 分钟"],
     ["场景", run.scenario === "NORMAL" ? "正常对照" : "下游超时"],
@@ -462,7 +502,23 @@ function renderRun(run) {
           : (elapsed / 1000).toFixed(2) + " s",
     ],
     ["记录 ID", run.id.slice(0, 8)],
-  ]);
+  ];
+  if (run.modelExecution) {
+    const model = run.modelExecution;
+    info.push(
+      ["模型", model.configuredModel],
+      ["模型调用", model.calls + " 轮"],
+      [
+        "Token 用量",
+        model.usage
+          ? model.usage.totalTokens.toLocaleString("zh-CN")
+          : "未返回完整用量",
+      ],
+    );
+    if (model.responseModel && model.responseModel !== model.configuredModel)
+      info.push(["返回模型", model.responseModel]);
+  }
+  metadata(info);
   if (terminal(run)) {
     document.querySelectorAll("[data-tool]").forEach((node) => {
       if (node.classList.contains("active")) {
@@ -481,6 +537,13 @@ function connect(run, version) {
   if (terminal(run)) return;
   const source = new EventSource("/api/runs/" + run.id + "/events");
   stream = source;
+  let reconnecting = false;
+  source.onopen = () => {
+    if (version === selectionVersion && reconnecting) {
+      $("#source-note").textContent = "进度连接已恢复";
+      reconnecting = false;
+    }
+  };
   source.addEventListener("progress", (event) => {
     if (version === selectionVersion) addEvent(JSON.parse(event.data));
   });
@@ -491,17 +554,22 @@ function connect(run, version) {
     refreshHistory();
   });
   source.onerror = async () => {
-    source.close();
     if (version !== selectionVersion) return;
+    reconnecting = true;
     try {
       const latest = await request("/api/runs/" + run.id);
       if (version !== selectionVersion) return;
+      if (activeRun?.id === run.id && terminal(activeRun)) return;
       renderRun(latest);
-      if (!terminal(latest))
-        showError("进度连接中断。排查仍在运行，可以从左侧重新打开记录。");
+      if (terminal(latest)) source.close();
+      else $("#source-note").textContent = "连接中断，正在重新连接…";
       refreshHistory();
     } catch (error) {
-      if (version === selectionVersion) showError(error.message);
+      if (
+        version === selectionVersion &&
+        !(activeRun?.id === run.id && terminal(activeRun))
+      )
+        $("#source-note").textContent = "连接中断，正在重新连接…";
     }
   };
 }
@@ -577,7 +645,8 @@ function renderHistory() {
       element(
         "span",
         "",
-        (run.scenario === "NORMAL" ? "正常" : "超时") +
+        (run.mode === "MODEL" ? "模型 · " : "") +
+          (run.scenario === "NORMAL" ? "正常" : "超时") +
           " · " +
           statusText[run.status],
       ),
@@ -607,6 +676,7 @@ async function refreshHistory() {
 $("#investigate-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (submitting) return;
+  if (!runtimeConfig) return showError("请先连接服务，确认运行模式。");
   const question = $("#question").value.trim();
   if (!question) return showError("请输入排查问题。");
   const version = ++selectionVersion;
@@ -682,6 +752,7 @@ $("#question").addEventListener("keydown", (event) => {
 });
 $("#new-run").addEventListener("click", newRun);
 $("#refresh-history").addEventListener("click", refreshHistory);
+$("#config-retry").addEventListener("click", loadConfiguration);
 $("#history-search").addEventListener("input", renderHistory);
 $("#sidebar-toggle").addEventListener("click", () =>
   setSidebar(!document.body.classList.contains("sidebar-open")),
@@ -715,4 +786,5 @@ document.addEventListener("keydown", (event) => {
 const mobileLayout = window.matchMedia("(max-width: 720px)");
 mobileLayout.addEventListener("change", () => setSidebar(false));
 setSidebar(false);
+loadConfiguration();
 refreshHistory();

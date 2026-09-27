@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+    "triage.mode=DEMO",
     "spring.datasource.url=${TRIAGE_TEST_DB_URL:jdbc:h2:mem:http;DB_CLOSE_DELAY=-1}",
     "spring.datasource.username=${TRIAGE_TEST_DB_USER:sa}",
     "spring.datasource.password=${TRIAGE_TEST_DB_PASSWORD:}"
@@ -94,7 +95,7 @@ class RunApiTest {
     }
 
     @Test void pageAndDemoMetadataAreAvailableWithoutAKey() {
-        assertThat(http.getForObject("/", String.class)).contains("演示环境", "app.js", "下游超时");
+        assertThat(http.getForObject("/", String.class)).contains("mode-label", "app.js", "下游超时");
         assertThat(http.getForObject("/api/demo", String.class)).contains("DEMO", "synthetic", "query_error_logs");
     }
 }
