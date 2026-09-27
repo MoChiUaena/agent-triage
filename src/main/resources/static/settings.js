@@ -6,6 +6,45 @@ let busy = false;
 let editing = null;
 let removing = null;
 const tests = new Map();
+const presets = {
+  DEEPSEEK: {
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com",
+    model: "deepseek-flash",
+    temperature: 0,
+  },
+  DASHSCOPE: {
+    label: "阿里云百炼",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    model: "qwen-plus",
+    temperature: 0,
+  },
+  GLM: {
+    label: "智谱 GLM",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-5.3",
+    temperature: 1,
+  },
+  KIMI: {
+    label: "Kimi",
+    baseUrl: "https://api.moonshot.cn/v1",
+    model: "kimi-k2.6",
+    temperature: 0.6,
+  },
+  LM_STUDIO: {
+    label: "LM Studio",
+    baseUrl: "http://localhost:1234/v1",
+    model: "",
+    temperature: 0,
+    apiKey: "local",
+  },
+  OPENAI_COMPATIBLE: {
+    label: "兼容接口",
+    baseUrl: "",
+    model: "",
+    temperature: 0,
+  },
+};
 
 function node(tag, className, text) {
   const item = document.createElement(tag);
@@ -87,7 +126,7 @@ function render() {
       node(
         "p",
         "settings-empty",
-        "还没有模型服务。添加 DeepSeek 或本机兼容服务后，可以在这里测试并启用。",
+        "还没有模型服务。添加服务后，可以在这里测试并启用。",
       ),
     );
     return;
@@ -109,11 +148,7 @@ function render() {
     const title = node("div");
     title.append(
       node("h3", "", provider.displayName),
-      node(
-        "p",
-        "",
-        provider.protocol === "DEEPSEEK" ? "DeepSeek" : "OpenAI 兼容接口",
-      ),
+      node("p", "", presets[provider.protocol]?.label || "兼容接口"),
     );
     heading.append(mark, title);
     if (provider.active) heading.append(node("span", "active-tag", "正在使用"));
@@ -190,6 +225,7 @@ function formError(message) {
 
 function openForm(provider = null) {
   editing = provider;
+  const preset = presets[provider?.protocol || "DEEPSEEK"];
   $("#provider-form").reset();
   formError("");
   $("#provider-dialog-title").textContent = provider
@@ -199,12 +235,17 @@ function openForm(provider = null) {
   $("#key-description").textContent = provider
     ? "服务地址变更时需重新填写 Key。不会在页面中回显已保存的 Key。"
     : "Key 加密保存在本机；本地服务不校验 Key 时，可填写 local。";
-  $("#provider-name").value = provider?.displayName || "";
+  $("#provider-name").value = provider?.displayName || preset.label;
   $("#provider-protocol").value = provider?.protocol || "DEEPSEEK";
-  $("#provider-url").value = provider?.baseUrl || "https://api.deepseek.com";
-  $("#provider-model").value = provider?.model || "deepseek-flash";
-  $("#provider-key").value = "";
-  $("#provider-temperature").value = String(provider?.temperature ?? 0);
+  $("#provider-url").value = provider?.baseUrl || preset.baseUrl;
+  $("#provider-url").placeholder =
+    preset.baseUrl || "https://api.example.com/v1";
+  $("#provider-model").value = provider?.model || preset.model;
+  $("#provider-model").placeholder = preset.model || "输入模型 ID";
+  $("#provider-key").value = provider ? "" : preset.apiKey || "";
+  $("#provider-temperature").value = String(
+    provider?.temperature ?? preset.temperature,
+  );
   $("#provider-timeout").value = String(provider?.timeoutSeconds ?? 20);
   $("#provider-rounds").value = String(provider?.maxRounds ?? 4);
   $("#provider-tokens").value = String(provider?.maxTokens ?? 1600);
@@ -343,14 +384,16 @@ $("#provider-dialog").addEventListener("cancel", (event) => {
 });
 $("#provider-protocol").addEventListener("change", () => {
   if (editing) return;
-  if ($("#provider-protocol").value === "DEEPSEEK") {
-    $("#provider-url").value = "https://api.deepseek.com";
-    $("#provider-model").value = "deepseek-flash";
-  } else {
-    $("#provider-url").value = "";
-    $("#provider-model").value = "";
-    $("#provider-url").focus();
-  }
+  const preset = presets[$("#provider-protocol").value];
+  $("#provider-name").value = preset.label;
+  $("#provider-url").value = preset.baseUrl;
+  $("#provider-url").placeholder =
+    preset.baseUrl || "https://api.example.com/v1";
+  $("#provider-model").value = preset.model;
+  $("#provider-model").placeholder = preset.model || "输入模型 ID";
+  $("#provider-temperature").value = String(preset.temperature);
+  $("#provider-key").value = preset.apiKey || "";
+  if (!preset.baseUrl) $("#provider-url").focus();
 });
 $("#cancel-delete").addEventListener("click", () => {
   if (!busy) {
