@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="用可核查的证据，定位 Java 服务的故障路径。"
+    />
+    <title>Agent Triage · 故障排查工作台</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Agent Triage 首页"
+        ><span class="brand-mark">AT</span> AGENT TRIAGE
+        <span class="version">/ 0.1 PREVIEW</span></a
+      >
+      <span class="connection"><span class="dot"></span> 本地排障工作台</span>
+    </header>
+    <main class="workspace">
+      <section class="intro">
+        <div>
+          <p class="eyebrow">JAVA INCIDENT INVESTIGATION</p>
+          <h1>先找证据，再下判断。</h1>
+          <p class="lead">从日志、指标和排障文档，追踪订单服务的异常路径。</p>
+        </div>
+        <div class="mode-note">
+          <span class="pill">确定性演示</span>
+          <p>合成数据 · 三个只读工具<br />无需模型密钥，不产生 API 费用</p>
+        </div>
+      </section>
+      <div class="layout">
+        <aside class="sidebar">
+          <section class="panel investigation">
+            <div class="section-heading">
+              <span class="section-index">01</span>
+              <h2>发起排查</h2>
+            </div>
+            <form id="investigate-form">
+              <label for="question">你想了解什么？</label>
+              <textarea
+                id="question"
+                name="question"
+                maxlength="200"
+                required
+                rows="4"
+              >
+订单查询接口为什么变慢了？请结合日志、指标和排障文档给出建议。</textarea
+              >
+              <div class="field-row">
+                <div>
+                  <label for="service">目标服务</label
+                  ><select id="service">
+                    <option value="order-service">order-service</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="window">时间窗口</label
+                  ><select id="window">
+                    <option value="5">最近 5 分钟</option>
+                    <option value="15" selected>最近 15 分钟</option>
+                    <option value="60">最近 60 分钟</option>
+                  </select>
+                </div>
+              </div>
+              <fieldset>
+                <legend>演示场景</legend>
+                <div class="scenario-options">
+                  <label class="scenario"
+                    ><input
+                      type="radio"
+                      name="scenario"
+                      value="DOWNSTREAM_TIMEOUT"
+                      checked /><span
+                      ><strong>下游超时</strong
+                      ><small>库存调用延迟升高</small></span
+                    ><span class="scenario-dot fault"></span
+                  ></label>
+                  <label class="scenario"
+                    ><input type="radio" name="scenario" value="NORMAL" /><span
+                      ><strong>正常对照</strong
+                      ><small>基线指标，无错误日志</small></span
+                    ><span class="scenario-dot healthy"></span
+                  ></label>
+                </div>
+              </fieldset>
+              <button class="primary" id="submit-button" type="submit">
+                开始排查 <span aria-hidden="true">↗</span>
+              </button>
+              <p class="form-hint">每次运行冻结场景和时间窗口，可重复验证。</p>
+              <p id="form-error" class="error" role="alert" hidden></p>
+            </form>
+          </section>
+          <section class="panel history-panel">
+            <div class="section-heading">
+              <span class="section-index">02</span>
+              <h2>执行记录</h2>
+              <button class="text-button" id="refresh-history" type="button">
+                刷新
+              </button>
+            </div>
+            <div id="history" class="history">
+              <p class="muted">正在加载记录…</p>
+            </div>
+          </section>
+        </aside>
+        <div class="results-column">
+          <section class="panel execution-panel">
+            <div class="section-heading">
+              <span class="section-index">03</span>
+              <h2>证据收集</h2>
+              <span id="run-status" class="status neutral" role="status"
+                >等待开始</span
+              >
+            </div>
+            <div class="tool-grid">
+              <div class="tool-card" data-tool="search_runbooks">
+                <span class="tool-icon">文</span
+                ><span
+                  ><strong>排障文档</strong><small>检索判断依据</small></span
+                ><span class="tool-state">待执行</span>
+              </div>
+              <div class="tool-card" data-tool="read_service_metrics">
+                <span class="tool-icon">标</span
+                ><span
+                  ><strong>服务指标</strong><small>对照窗口与基线</small></span
+                ><span class="tool-state">待执行</span>
+              </div>
+              <div class="tool-card" data-tool="query_error_logs">
+                <span class="tool-icon">志</span
+                ><span
+                  ><strong>错误日志</strong><small>追踪超时信号</small></span
+                ><span class="tool-state">待执行</span>
+              </div>
+            </div>
+            <div id="run-meta" class="run-meta">
+              事件会保存在服务端；刷新页面后可从历史记录继续查看。
+            </div>
+            <ol id="events" class="event-list" aria-live="polite">
+              <li class="empty-event">
+                发起排查后，这里会显示工具事件与证据数量。
+              </li>
+            </ol>
+          </section>
+          <section class="panel diagnosis-panel">
+            <div class="section-heading">
+              <span class="section-index">04</span>
+              <h2>排查结论</h2>
+              <span class="small-label">EVIDENCE FIRST</span>
+            </div>
+            <div id="diagnosis">
+              <div class="empty-state">
+                <span class="empty-symbol">⌕</span>
+                <h3>一个问题，三类证据。</h3>
+                <p>
+                  选择场景并发起排查。每条判断都应有据可查，<br />证据不足时会明确保留不确定性。
+                </p>
+              </div>
+            </div>
+          </section>
+          <section class="panel evidence-panel" id="evidence-panel" hidden>
+            <div class="section-heading">
+              <span class="section-index">05</span>
+              <h2>证据原文</h2>
+              <span id="evidence-count" class="small-label"></span>
+            </div>
+            <div id="evidence-list"></div>
+          </section>
+        </div>
+      </div>
+      <footer>
+        <span>Agent Triage / 为可解释的故障排查而构建</span
+        ><span>所有观测为合成数据 · 不代表生产诊断</span>
+      </footer>
+    </main>
+  </body>
+</html>
