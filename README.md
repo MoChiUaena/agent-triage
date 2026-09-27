@@ -4,7 +4,7 @@
 
 Agent Triage 是一个 Java 服务排障助手，通过查询日志、指标和排障文档，分析接口变慢的可能原因，并给出验证建议。
 
-目前支持订单服务的下游超时场景和正常状态对照。演示使用合成数据和固定规则，无需模型密钥；后续计划接入 Spring AI。
+目前支持订单服务的下游超时场景和正常状态对照。默认演示模式使用固定规则，无需模型密钥；也可以配置 Spring AI + DeepSeek，由模型选择工具并生成结论。两种模式都使用合成观测数据。
 
 ## 功能
 
@@ -13,6 +13,7 @@ Agent Triage 是一个 Java 服务排障助手，通过查询日志、指标和�
 - 保存执行记录，支持历史查询和事件重放。
 - 概览、证据、执行记录分开查看，支持搜索历史记录。
 - 限制工具调用次数和执行时间，分别处理执行失败与证据不足。
+- 模型模式校验工具参数和结果引用，记录调用轮数及服务端返回的 token 用量。
 
 ## 快速启动
 
@@ -62,6 +63,12 @@ $env:SPRING_PROFILES_ACTIVE = 'postgres'
 
 自定义密码需在首次初始化数据库前设置；修改环境变量不会更新已有数据卷的密码。使用 `docker compose stop` 停止数据库，清除 `SPRING_PROFILES_ACTIVE` 后可切回 H2。两种存储的历史记录相互独立。
 
+## 模型模式
+
+设置 `TRIAGE_MODE=MODEL` 和 `TRIAGE_MODEL_API_KEY` 后启动。默认服务为 DeepSeek，模型为 `deepseek-flash`，使用非思考模式。配置方法、调用限制和费用说明见[模型配置](docs/MODELS.md)。
+
+模型链路已通过本地模拟服务测试，真实服务调用待配置凭据后验证。
+
 ## 测试
 
 ```powershell
@@ -81,7 +88,7 @@ CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具
 | `PORT` | `18080` | HTTP 端口 |
 | `TRIAGE_MAX_TOOL_CALLS` | `3` | 每次执行调用上限，可配置 1–10 |
 | `TRIAGE_TOOL_TIMEOUT` | `2s` | 单次工具超时，范围 1ms–10s |
-| `TRIAGE_RUN_TIMEOUT` | `10s` | 整体执行超时，范围 1ms–20s |
+| `TRIAGE_RUN_TIMEOUT` | `60s` | 整体执行超时，范围 1ms–120s |
 | `SPRING_PROFILES_ACTIVE` | 未设置 | 设置 `postgres` 切换数据库 |
 
 查询范围限于 `order-service`，时间窗口为 1–60 分钟，问题最多 200 字符。超时从提交时开始计时；数据库 I/O 和不响应中断的工具仍可能超过该时限，详见[执行与超时](docs/ARCHITECTURE.md#执行与超时)。
@@ -91,6 +98,7 @@ CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具
 ## 文档
 
 - [API](docs/API.md)
+- [模型配置](docs/MODELS.md)
 - [架构](docs/ARCHITECTURE.md)
 - [开发计划](docs/ROADMAP.md)
 - [贡献指南](CONTRIBUTING.md)

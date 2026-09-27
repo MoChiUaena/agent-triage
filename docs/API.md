@@ -25,10 +25,13 @@
 
 | 请求 | 结果 |
 |---|---|
-| `GET /api/demo` | DEMO 模式、合成数据标记、服务、场景、工具列表 |
+| `GET /api/config` | 当前模式、模型名称（MODEL 模式）、合成数据标记、服务、场景和工具列表 |
+| `GET /api/demo` | `/api/config` 的兼容入口 |
 | `GET /api/runs?limit=20` | 最近执行摘要，limit 为 1–50 |
 | `GET /api/runs/{uuid}` | 完整执行记录，包含事件、证据、结论或失败信息 |
 | `GET /api/runs/{uuid}/events` | SSE 事件流，支持 `Last-Event-ID` 重放 |
+
+运行模式由服务端配置，提交请求不能切换模式。执行记录和列表摘要的 `mode` 为 `DEMO` 或 `MODEL`，两种模式的 `synthetic` 都为 true。
 
 不存在的记录返回 404，非法 UUID 返回 400。错误使用 `application/problem+json`，不回显用户问题或工具原始异常。
 
@@ -47,9 +50,13 @@ data:{"id":"...","status":"SUCCEEDED",...}
 
 已结束的执行仍可订阅。服务端先重放尚未收到的 progress，再发送 complete。`Last-Event-ID` 的有效范围为 0 到已保存的事件数；即使所有 progress 都已接收，重连时仍会返回 complete。
 
+MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事件，表示请求边界，不包含模型原始回复或内部思考内容。
+
 ## 工具
 
 所有工具接收 `ToolContext(service, windowMinutes, scenario, endTime)`。服务、场景和时间窗口在提交后保持不变。
+
+模型请求工具时必须传入 `service` 和 `windowMinutes`，检索工具还需要 `query`。服务和窗口必须与本次请求一致，多余字段和重复参数都会被拒绝。
 
 | 工具 | 额外输入 | 返回上限 | 证据 ID |
 |---|---|---|---|
@@ -73,5 +80,20 @@ data:{"id":"...","status":"SUCCEEDED",...}
 失败时 diagnosis 为 null，failure 包含 code 和 message；已采集的证据会保留。
 
 常见失败代码：`TOOL_CALL_LIMIT`、`TOOL_TIMEOUT`、`RUN_TIMEOUT`、`TOOL_ERROR`、`TOOL_OUTPUT_LIMIT`、`RUN_QUEUE_FULL`、`TOOL_CAPACITY`、`SERVER_RESTARTED`。未知执行异常使用 `EXECUTION_ERROR`。
+
+模型相关失败包括 `MODEL_HTTP_ERROR`、`MODEL_TIMEOUT`、`MODEL_ROUND_LIMIT`、`MODEL_OUTPUT_TRUNCATED`、`MODEL_RESPONSE_LIMIT`、`INVALID_MODEL_OUTPUT`、`INVALID_TOOL_ARGUMENTS`、`TOOL_NOT_ALLOWED` 和 `DUPLICATE_TOOL_CALL`。
+
+## 模型执行信息
+
+完整执行记录中的 `modelExecution` 在 DEMO 模式及旧记录中为 null。MODEL 模式包含：
+
+| 字段 | 内容 |
+|---|---|
+| `configuredModel` | 配置的模型名 |
+| `responseModel` | 服务端返回的模型名，未提供时为空 |
+| `calls` | 已尝试的模型请求次数 |
+| `usage` | 完整累计用量：inputTokens、outputTokens、totalTokens；任一轮缺失时为空 |
+
+服务地址、凭据和原始模型消息不会通过接口返回。
 
 完整响应见[超时场景记录](examples/timeout-run.json)。
