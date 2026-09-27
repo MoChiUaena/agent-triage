@@ -12,7 +12,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class ApiExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
         MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})
-    public ResponseEntity<ProblemDetail> badRequest(Exception e) {
+    public ResponseEntity<ProblemDetail> badRequest(Exception e, jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getServletPath().startsWith("/api/settings"))
+            return problem(HttpStatus.BAD_REQUEST, "模型配置参数无效，请检查必填项、参数类型和范围。");
         return problem(HttpStatus.BAD_REQUEST, "参数无效：服务为 order-service，问题 1–200 字，窗口 1–60 分钟，场景 NORMAL 或 DOWNSTREAM_TIMEOUT。");
     }
 

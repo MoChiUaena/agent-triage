@@ -22,7 +22,8 @@ import static org.springframework.http.HttpStatus.*;
 public class RunController {
     public record CreateRun(@NotBlank @Size(max = 200) String question,
                             @NotNull @Pattern(regexp = "order-service") String service,
-                            @Min(1) @Max(60) int windowMinutes, @NotNull Scenario scenario) {}
+                            @Min(1) @Max(60) int windowMinutes, @NotNull Scenario scenario,
+                            @Size(max = 240) String expectedSelection) {}
 
     private final RunService service;
     private final RunRepository repository;
@@ -34,7 +35,8 @@ public class RunController {
     @PostMapping("/runs")
     public ResponseEntity<Run> create(@Valid @RequestBody CreateRun request) {
         Run run = service.submit(request.question().strip(),
-            new ToolContext(request.service(), request.windowMinutes(), request.scenario(), Instant.now()));
+            new ToolContext(request.service(), request.windowMinutes(), request.scenario(), Instant.now()),
+            request.expectedSelection());
         return ResponseEntity.accepted().location(URI.create("/api/runs/" + run.id())).body(run);
     }
 
@@ -50,9 +52,12 @@ public class RunController {
 
     @GetMapping({"/demo", "/config"})
     public Map<String, Object> demo() {
-        Map<String, Object> config = new java.util.LinkedHashMap<>(Map.of("mode", engine.mode(), "synthetic", true, "service", "order-service",
+        TriageEngine current = engine.snapshot();
+        Map<String, Object> config = new java.util.LinkedHashMap<>(Map.of("mode", current.mode(), "synthetic", true, "service", "order-service",
             "scenarios", Scenario.values(), "tools", List.of("search_runbooks", "read_service_metrics", "query_error_logs")));
-        if (engine.modelName() != null) config.put("model", engine.modelName());
+        if (current.modelName() != null) config.put("model", current.modelName());
+        if (current.source() != null) config.put("provider", current.source());
+        config.put("selectionToken", current.selectionToken());
         return config;
     }
 }

@@ -36,7 +36,8 @@ def main():
     scenarios = [args.scenario] if args.scenario else ["DOWNSTREAM_TIMEOUT", "NORMAL"]
     for scenario in scenarios:
         run = request("/api/runs", {"question": "订单查询接口为什么变慢了？请给出判断依据和检查建议。",
-            "service": "order-service", "windowMinutes": 15, "scenario": scenario})
+            "service": "order-service", "windowMinutes": 15, "scenario": scenario,
+            "expectedSelection": config["selectionToken"]})
         deadline = time.monotonic() + 130
         while run["status"] in ("QUEUED", "RUNNING") and time.monotonic() < deadline:
             time.sleep(0.25)

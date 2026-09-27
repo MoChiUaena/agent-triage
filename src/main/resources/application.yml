@@ -26,6 +26,8 @@ triage:
     timeout: ${TRIAGE_MODEL_TIMEOUT:20s}
     max-rounds: ${TRIAGE_MODEL_MAX_ROUNDS:4}
     max-tokens: ${TRIAGE_MODEL_MAX_TOKENS:1600}
+  settings:
+    key-file: ${TRIAGE_SETTINGS_KEY_FILE:./data/model-config.key}
 # The SDK's warnings for empty responses include the full prompt.
 logging:
   level:

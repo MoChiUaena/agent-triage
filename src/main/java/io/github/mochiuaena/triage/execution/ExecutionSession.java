@@ -100,7 +100,7 @@ public final class ExecutionSession {
         ModelExecution previous = state.modelExecution;
         if (previous == null) throw new RunFailure("MODEL_NOT_CONFIGURED", "没有配置模型。");
         if (previous.calls() >= maxRounds) throw new RunFailure("MODEL_ROUND_LIMIT", "模型调用已达到轮次上限。");
-        state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls() + 1, null);
+        state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls() + 1, null, previous.source());
         publish("MODEL_STARTED", null, "请求模型，第 " + state.modelExecution.calls() + " 轮。", List.of());
         Future<T> future;
         try { future = modelWorkers.submit(action); }
@@ -138,7 +138,7 @@ public final class ExecutionSession {
             totalUsage.outputTokens() + usage.outputTokens(), totalUsage.totalTokens() + usage.totalTokens());
         ModelExecution previous = state.modelExecution;
         String reported = responseModel != null && responseModel.matches("[A-Za-z0-9._:/-]{1,120}") ? responseModel : null;
-        state.modelExecution = new ModelExecution(previous.configuredModel(), reported, previous.calls(), usageComplete ? totalUsage : null);
+        state.modelExecution = new ModelExecution(previous.configuredModel(), reported, previous.calls(), usageComplete ? totalUsage : null, previous.source());
         repository.save(state.snapshot());
     }
 }

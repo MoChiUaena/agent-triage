@@ -6,9 +6,6 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.http.*;
 import org.springframework.http.client.*;
 import org.springframework.retry.support.RetryTemplate;
@@ -19,19 +16,18 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
 
-@Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(name = "triage.mode", havingValue = "MODEL")
-public class ModelConfiguration {
-    @Bean
-    ModelEngine modelEngine(ModelSettings settings, ObjectMapper json) {
-        return new ModelEngine(createClient(settings), settings, json);
-    }
+public final class ModelConfiguration {
+    private static final HttpClient TRANSPORT = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
+        .followRedirects(HttpClient.Redirect.NEVER).build();
+    private ModelConfiguration() {}
 
     public static ChatClient createClient(ModelSettings settings) {
+        return createClient(settings, true, 0.0);
+    }
+
+    public static ChatClient createClient(ModelSettings settings, boolean deepSeek, double temperature) {
         settings.requireCredentials();
-        var http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
-            .followRedirects(HttpClient.Redirect.NEVER).build();
-        var factory = new JdkClientHttpRequestFactory(http);
+        var factory = new JdkClientHttpRequestFactory(TRANSPORT);
         factory.setReadTimeout(settings.timeout());
         var rest = RestClient.builder().requestFactory(factory).requestInterceptor((request, body, execution) -> {
             ClientHttpResponse response = execution.execute(request, body);
@@ -59,10 +55,10 @@ public class ModelConfiguration {
                     throw new RunFailure("MODEL_HTTP_ERROR", "模型服务返回 HTTP " + response.getStatusCode().value() + "，请检查配置或稍后重试。");
                 }
             }).build();
-        var options = OpenAiChatOptions.builder().model(settings.name()).temperature(0.0)
-            .maxTokens(settings.maxTokens()).internalToolExecutionEnabled(false)
-            .extraBody(java.util.Map.of("thinking", java.util.Map.of("type", "disabled"))).build();
-        var model = OpenAiChatModel.builder().openAiApi(api).defaultOptions(options)
+        var options = OpenAiChatOptions.builder().model(settings.name()).temperature(temperature)
+            .maxTokens(settings.maxTokens()).internalToolExecutionEnabled(false);
+        if (deepSeek) options.extraBody(java.util.Map.of("thinking", java.util.Map.of("type", "disabled")));
+        var model = OpenAiChatModel.builder().openAiApi(api).defaultOptions(options.build())
             .retryTemplate(RetryTemplate.builder().maxAttempts(1).build()).build();
         return ChatClient.builder(model).build();
     }

@@ -47,13 +47,21 @@ public class RunService {
     }
 
     public Run submit(String question, ToolContext context) {
+        return submit(question, context, null);
+    }
+
+    public Run submit(String question, ToolContext context, String expectedSelection) {
         long deadline = System.nanoTime() + limits.runTimeout().toNanos();
+        TriageEngine selectedEngine = engine.snapshot();
+        if (expectedSelection != null && !expectedSelection.equals(selectedEngine.selectionToken()))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                "运行模式或模型配置已变更，请刷新后重新提交。");
         Run run = new Run(UUID.randomUUID(), question, context.service(), context.windowMinutes(), context.scenario(),
-            engine.mode(), true, Status.QUEUED, context.endTime(), null, 0,
+            selectedEngine.mode(), true, Status.QUEUED, context.endTime(), null, 0,
             List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "任务已创建。", List.of())), List.of(), null, null,
-            engine.modelName() == null ? null : new ModelExecution(engine.modelName(), null, 0, null));
+            selectedEngine.modelName() == null ? null : new ModelExecution(selectedEngine.modelName(), null, 0, null, selectedEngine.source()));
         repository.insert(run);
-        try { coordinators.execute(() -> execute(run, context, deadline)); }
+        try { coordinators.execute(() -> execute(run, context, deadline, selectedEngine)); }
         catch (RejectedExecutionException e) {
             fail(stateFrom(run), "RUN_QUEUE_FULL", "执行队列已满，请稍后再试。");
             throw new CapacityExceededException();
@@ -67,14 +75,14 @@ public class RunService {
         return state;
     }
 
-    private void execute(Run run, ToolContext context, long deadline) {
+    private void execute(Run run, ToolContext context, long deadline, TriageEngine selectedEngine) {
         MutableExecution state = stateFrom(run);
         ExecutionSession session = new ExecutionSession(run.question(), context, state, repository, limits, deadline, toolWorkers, modelWorkers, tools);
         try {
             session.checkDeadline();
             state.status = Status.RUNNING;
             publish(state, "RUN_STARTED", "开始收集证据。");
-            TriageEngine.Decision decision = engine.investigate(session);
+            TriageEngine.Decision decision = selectedEngine.investigate(session);
             session.checkDeadline();
             if (decision == null || (decision.status() != Status.SUCCEEDED && decision.status() != Status.INSUFFICIENT_EVIDENCE))
                 throw new RunFailure("INVALID_RESULT", "排查没有返回有效结果。");

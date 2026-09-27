@@ -2,11 +2,9 @@ package io.github.mochiuaena.triage.execution;
 
 import io.github.mochiuaena.triage.domain.TriageModel.*;
 import org.springframework.stereotype.Component;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import java.util.List;
 
 @Component
-@ConditionalOnProperty(name = "triage.mode", havingValue = "DEMO", matchIfMissing = true)
 public class DemoEngine implements TriageEngine {
     private final DemoReasoner reasoner;
 

@@ -31,7 +31,13 @@ public final class TriageModel {
 
     public record TokenUsage(long inputTokens, long outputTokens, long totalTokens) {}
 
-    public record ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage) {}
+    public record ModelSource(UUID providerId, String displayName, long version) {}
+
+    public record ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage, ModelSource source) {
+        public ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage) {
+            this(configuredModel, responseModel, calls, usage, null);
+        }
+    }
 
     public record Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
                       String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
