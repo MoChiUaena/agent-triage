@@ -23,6 +23,6 @@ class LiveModelOutputTest {
         var output = new ModelOutput(json);
         assertThatThrownBy(() -> output.parse(answer, evidence))
             .isInstanceOfSatisfying(RunFailure.class, failure ->
-                org.assertj.core.api.Assertions.assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT"));
+                org.assertj.core.api.Assertions.assertThat(failure.code()).isEqualTo("MODEL_NO_OBSERVATIONS"));
     }
 }

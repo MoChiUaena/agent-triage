@@ -33,10 +33,10 @@ public class LiveMetricsTool implements ReadOnlyTool {
         data.put("synthetic", false);
         String summary = observation.requestCount() == 0
             ? "该时间窗口尚无订单请求，不能判断延迟或超时。"
-            : "实际处理 " + observation.requestCount() + " 个订单请求；订单查询 p95 为 " + observation.orderP95Ms()
-                + "ms，库存调用 p95 为 " + observation.downstreamP95Ms() + "ms，超时率为 "
-                + Math.round(observation.downstreamTimeoutRate() * 1000) / 10.0 + "%（Micrometer 累计 "
-                + observation.recordedRequestCount() + " 次请求）。";
+            : "本窗口处理 " + observation.requestCount() + " 个订单请求，其中库存调用超时 "
+                + observation.timeoutCount() + " 次；订单查询 p95 为 " + observation.orderP95Ms()
+                + "ms，库存调用 p95 为 " + observation.downstreamP95Ms() + "ms，本窗口超时率为 "
+                + Math.round(observation.downstreamTimeoutRate() * 1000) / 10.0 + "%。";
         return List.of(new Evidence("METRICS-LIVE-" + context.endTime().toEpochMilli(), name(),
             "订单服务窗口指标（实际请求）", summary, data));
     }

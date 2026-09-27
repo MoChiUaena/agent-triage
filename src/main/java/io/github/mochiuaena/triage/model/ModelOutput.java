@@ -46,14 +46,24 @@ final class ModelOutput {
                 content = content.substring(content.indexOf('\n') + 1, content.length() - 3).strip();
             Response response = json.readValue(content, Response.class);
             if (response == null || response.status() == null) throw new IllegalArgumentException();
+            if (response.status() == Outcome.SUCCEEDED) rejectEmptyWindow(evidence);
             EvidenceValidator.validate(response.diagnosis(), evidence);
             Diagnosis diagnosis = response.diagnosis();
             if (response.status() == Outcome.SUCCEEDED) validateSuccess(diagnosis, evidence);
             else if (!diagnosis.possibleCauses().isEmpty()) throw new IllegalArgumentException();
             return new TriageEngine.Decision(Status.valueOf(response.status().name()), diagnosis);
+        } catch (RunFailure e) {
+            throw e;
         } catch (Exception e) {
             throw new RunFailure("INVALID_MODEL_OUTPUT", "模型结论的格式或证据引用无效，未保存为排查结果。");
         }
+    }
+
+    private void rejectEmptyWindow(List<Evidence> evidence) {
+        evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().ifPresent(metrics -> {
+            if (metrics.data().get("requestCount") instanceof Number count && count.intValue() <= 0)
+                throw new RunFailure("MODEL_NO_OBSERVATIONS", "模型试图在无请求窗口生成成功结论，已拒绝。");
+        });
     }
 
     private void validateSuccess(Diagnosis diagnosis, List<Evidence> evidence) {
