@@ -14,6 +14,7 @@ Agent Triage 是一个 Java 服务排障助手，通过查询日志、指标和�
 - 概览、证据、执行记录分开查看，支持搜索历史记录。
 - 限制工具调用次数和执行时间，分别处理执行失败与证据不足。
 - 模型模式校验工具参数和结果引用，记录调用轮数及服务端返回的 token 用量。
+- 在[模型设置页](http://127.0.0.1:18080/settings.html)添加、测试和选择模型服务；更改配置无需重启。
 
 ## 快速启动
 
@@ -65,7 +66,7 @@ $env:SPRING_PROFILES_ACTIVE = 'postgres'
 
 ## 模型模式
 
-设置 `TRIAGE_MODE=MODEL` 和 `TRIAGE_MODEL_API_KEY` 后启动。默认服务为 DeepSeek，模型为 `deepseek-flash`，使用非思考模式。配置方法、调用限制和费用说明见[模型配置](docs/MODELS.md)。
+打开[模型设置页](http://127.0.0.1:18080/settings.html)，填写服务名称、Base URL、模型和 API Key，保存后可测试连接并设为当前模型。默认提供 DeepSeek 参数，也可填写本机 OpenAI 兼容服务。配置方法、调用限制和费用说明见[模型配置](docs/MODELS.md)。
 
 模型链路已通过本地模拟服务测试，真实服务调用待配置凭据后验证。
 

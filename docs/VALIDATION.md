@@ -21,10 +21,13 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 | `ModelIntegrationTest` | 29 | Spring AI HTTP 协议、多轮工具调用、参数与引用校验、截断、超时、错误脱敏和 usage |
 | `ModelSettingsTest` | 9 | 必填配置、地址限制、凭据脱敏和配置上限 |
 | `EnvironmentSettingsTest` | 1 | 文档中的环境变量能覆盖默认配置 |
+| `CredentialCipherTest` | 3 | 非重复密文、重启后可解密、跨服务不能复用密文、丢失密钥时不会重建 |
+| `ProviderSettingsTest` | 12 | 页面配置存取、Key 脱敏、编辑留空保留、切换快照、旧页面防误提交、连接测试和跨站写入拒绝 |
+| `UnconfiguredModelStartupTest` | 1 | 环境变量没有模型 Key 时，仍可进入设置页完成配置 |
 
 工具失败测试会注入一个抛出异常的工具，检查结果是否为 `FAILED / TOOL_ERROR`，且诊断为空。调用次数测试将上限设为 2，确认第三个工具没有执行。超时测试检查中断是否发出，以及迟到结果是否被忽略。
 
-合计 65 项。模型服务返回预设响应，用于验证协议和执行边界；模型实际选择工具的能力和结论质量尚未评测。
+合计 81 项。模型服务返回预设响应，用于验证协议和执行边界；模型实际选择工具的能力和结论质量尚未评测。
 
 ## 2026-09-27 运行结果
 
@@ -32,14 +35,15 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 | 检查 | 结果 |
 |---|---|
-| Maven verify | 65 项通过 |
-| 环境变量隔离 | 预设 MODEL 模式和不可达模型地址后，65 项测试仍通过 |
+| Maven verify | 81 项通过 |
+| 环境变量隔离 | 预设 MODEL 模式和不可达模型地址后，旧的演示测试仍使用 DEMO 模式；模型测试只访问本机模拟服务 |
 | PostgreSQL 16.10 | 7 项 HTTP 集成测试通过，首次迁移成功 |
 | HTTP 冒烟脚本 | 超时、正常、无关问题、缺失规则 4 个案例通过 |
 | 浏览器操作 | 场景切换、历史查看、引用展开正常 |
 | H2 重启 | 原执行状态、9 个事件和 4 条证据保留 |
 | GitHub Actions | Windows、Ubuntu、PostgreSQL 作业通过 |
 | 本地模型协议冒烟 | 正常 / 超时各执行 2 轮模型请求、3 次工具调用；缺失 usage 保持 null |
+| 设置页面本地验收 | 新增、测试、编辑时 Key 留空、启用模型、完成排查、切回演示模式和删除确认窗口 |
 
 [CI 运行列表](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml) · [早期演示冒烟结果](validation/2026-09-27-demo-smoke.json) · [演示超时场景记录](examples/timeout-run.json)
 

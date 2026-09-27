@@ -96,4 +96,21 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 
 服务地址、凭据和原始模型消息不会通过接口返回。
 
+## 模型设置接口
+
+设置页调用以下接口。所有设置请求限于本机；写请求需要同源页面提供 `X-Triage-Settings: 1` 请求头。
+
+| 请求 | 作用 |
+|---|---|
+| `GET /api/settings` | 读取服务列表和当前模式，Key 只返回 `keyConfigured` |
+| `POST /api/settings/providers` | 添加服务 |
+| `PUT /api/settings/providers/{id}` | 编辑服务，附带当前 version；API Key 为空时保留原值 |
+| `POST /api/settings/providers/{id}/test?version=N` | 发起一次短模型请求测试连接，不切换当前服务 |
+| `PUT /api/settings/selection` | 请求体为 `{"mode":"MODEL","providerId":"..."}` 或 `{"mode":"DEMO"}` |
+| `DELETE /api/settings/providers/{id}?version=N` | 删除未启用的服务 |
+
+添加、编辑字段为 `displayName`、`protocol`、`baseUrl`、`model`、`apiKey`、`temperature`、`timeoutSeconds`、`maxRounds`、`maxTokens` 和 `version`。`protocol` 为 `DEEPSEEK` 或 `OPENAI_COMPATIBLE`。页面使用 version 检查并发修改；旧版本返回 409。
+
+`GET /api/config` 包含 `selectionToken`。排查页面提交时回传为 `expectedSelection`，防止其他页面切换模型后，旧页面在用户不知情的情况下提交给新模型。此字段不是身份认证凭据。旧 API 客户端可不传。
+
 完整响应见[超时场景记录](examples/timeout-run.json)。

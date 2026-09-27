@@ -182,6 +182,18 @@ class ProviderSettingsTest {
         assertThat(registry.list()).isEmpty();
     }
 
+    @Test void staleDemoPageCannotSubmitToNewlySelectedModel() {
+        String oldToken = http.getForObject("/api/config", com.fasterxml.jackson.databind.JsonNode.class)
+            .path("selectionToken").asText();
+        View p = create(); activate(p);
+        int before = http.getForObject("/api/runs", RunSummary[].class).length;
+        var body = new java.util.LinkedHashMap<String, Object>(Map.of("question", "订单为什么慢", "service", "order-service",
+            "windowMinutes", 15, "scenario", "NORMAL", "expectedSelection", oldToken));
+        assertThat(http.postForEntity("/api/runs", body, String.class).getStatusCode().value()).isEqualTo(409);
+        assertThat(http.getForObject("/api/runs", RunSummary[].class)).hasSize(before);
+        assertThat(MODEL.requests).isEmpty();
+    }
+
     private static class Stub implements AutoCloseable {
         final HttpServer server;
         final ExecutorService workers = Executors.newCachedThreadPool(Thread.ofPlatform().daemon(true).factory());

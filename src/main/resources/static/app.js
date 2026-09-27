@@ -46,11 +46,18 @@ async function loadConfiguration() {
     $("#form-error").hidden = true;
   } catch (error) {
     runtimeConfig = null;
-    $("#mode-label").textContent = "连接失败";
-    $("#composer-note").textContent = "无法读取服务配置";
+    const needsProvider = error.message.includes("环境变量中的模型配置不可用");
+    $("#mode-label").textContent = needsProvider ? "需要模型配置" : "连接失败";
+    $("#composer-note").textContent = needsProvider
+      ? "请先添加模型服务"
+      : "无法读取服务配置";
     $("#submit-button").disabled = true;
     $("#config-retry").hidden = false;
-    showError("无法读取运行配置，请确认服务已启动后重新连接。");
+    showError(
+      needsProvider
+        ? "请从左侧打开“模型设置”，添加并启用模型服务。"
+        : "无法读取运行配置，请确认服务已启动后重新连接。",
+    );
   } finally {
     $("#config-retry").disabled = false;
   }
@@ -507,6 +514,11 @@ function renderRun(run) {
   ];
   if (run.modelExecution) {
     const model = run.modelExecution;
+    if (model.source)
+      info.push(
+        ["模型服务", model.source.displayName],
+        ["配置版本", "v" + model.source.version],
+      );
     info.push(
       ["模型", model.configuredModel],
       ["模型调用", model.calls + " 轮"],
@@ -711,11 +723,21 @@ $("#investigate-form").addEventListener("submit", async (event) => {
     await refreshHistory();
   } catch (error) {
     if (version === selectionVersion) {
-      setStatus("FAILED");
-      emptyResult("未能开始排查", "请检查连接后重试。");
-      if (error.message.includes("运行模式或模型配置已变更"))
+      const changed = error.message.includes("运行模式或模型配置已变更");
+      setStatus(changed ? "未开始" : "FAILED");
+      emptyResult(
+        changed ? "运行配置已变更" : "未能开始排查",
+        changed ? "请确认当前模型后重新提交。" : "请检查连接后重试。",
+      );
+      if (changed) {
+        const previousMode = runtimeConfig?.mode;
         await loadConfiguration();
-      showError(error.message);
+        showError(
+          previousMode !== "MODEL" && runtimeConfig?.mode === "MODEL"
+            ? "已切换到模型模式。请确认服务后重新提交；模型调用可能产生费用。"
+            : error.message,
+        );
+      } else showError(error.message);
     }
   } finally {
     submitting = false;

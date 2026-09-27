@@ -12,6 +12,8 @@ DEMO 模式依次调用三个工具，再由 `DemoReasoner` 生成结论。MODEL
 
 模型的内部自动工具执行被关闭，工具请求由应用逐个处理。这样可以在每次调用前校验服务、时间窗口和参数，并记录实际调用顺序。
 
+设置页通过 `ProviderRegistry` 管理模型服务。每次新任务提交时，`EngineRouter` 取得当前配置的不可变快照；切换服务或修改参数不会改变已经提交的任务。未保存页面选择时，运行模式来自环境变量。
+
 ## 代码结构
 
 | 包 / 文件 | 职责 |
@@ -24,6 +26,8 @@ DEMO 模式依次调用三个工具，再由 `DemoReasoner` 生成结论。MODEL
 | `model/ModelEngine` | Spring AI 多轮调用和消息回传 |
 | `model/ModelTools` | 生成工具描述，校验模型传入的参数 |
 | `model/ModelOutput` | 解析结构化结论，检查引用和证据来源 |
+| `settings/ProviderRegistry` | 保存服务配置，切换当前模型，生成新任务使用的快照 |
+| `settings/CredentialCipher` | 用本地文件中的密钥加密数据库内的 API Key |
 | `execution/EvidenceValidator` | 校验引用是否来自本次执行 |
 | `store/RunRepository` | 保存和查询执行快照 |
 | `api/RunEventController` | SSE 推送与事件重放 |
@@ -50,6 +54,8 @@ SSE 最多同时接受 64 个连接，连接时限为整体执行时限加 5s。
 ## 执行记录
 
 H2 和 PostgreSQL 共用 `RunRepository` 与 Flyway 迁移。默认使用 H2 文件库，方便本地启动；PostgreSQL 兼容性由独立 CI 作业验证。
+
+V2 迁移增加服务配置与当前模型选择表。数据库中仅存储 API Key 的 AES-GCM 密文；加密密钥文件保存在本机，默认位于 `data/model-config.key`。读取和编辑接口只返回 Key 是否存在。丢失密钥文件后不会自动生成新密钥覆盖旧配置。
 
 一次执行保存为一行 JSON 快照，包含状态、事件和证据。每次更新通过同一条 SQL 写入，避免状态与事件分开保存时出现不一致。SSE 直接读取快照，因此即使浏览器在执行完成后才订阅，也能收到完整事件。
 
