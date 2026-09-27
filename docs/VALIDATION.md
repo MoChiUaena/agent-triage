@@ -58,6 +58,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 [真实百炼 LIVE 检查记录](validation/2026-09-27-bailian-live.md)列出三条最终执行与失败尝试；没有把状态检查当作诊断准确率。
 
+[10 个调试案例对照](validation/2026-09-27-dev-comparison.md)按[人工标准 v1](evaluation/rubric-v1.md)记录了仅文档与 Agent 的具体差异和越界句子。
+
 冒烟结果中的 `wallTimeMs` 包含客户端请求和轮询等待，是单次运行耗时。
 
 20 个案例已分为调试集和留出集；演示模式调试集 10/10 通过状态与结构检查，结果见[小规模评测](EVALUATION.md)。真实模型只运行了三条链路，20 案例留出集和仅检索对照仍未运行。
