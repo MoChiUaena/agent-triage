@@ -33,6 +33,7 @@ jobs:
         run: |
           node --check src/main/resources/static/app.js
           node --check src/main/resources/static/settings.js
+          node --check src/main/resources/static/theme-preview.js
   postgres:
     name: PostgreSQL HTTP integration
     runs-on: ubuntu-latest

@@ -1,0 +1,120 @@
+:root {
+  font-family:
+    "Microsoft YaHei", "微软雅黑", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  font-size: 14px;
+  line-height: 1.55;
+}
+body,
+button,
+input,
+textarea,
+select,
+code,
+pre {
+  font-family:
+    "Microsoft YaHei", "微软雅黑", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+}
+.page-heading h1,
+.settings-heading h1 {
+  font-size: 24px;
+  line-height: 1.35;
+}
+.brand {
+  font-size: 16px;
+}
+.results-heading h2,
+.settings-workspace .providers-heading h2,
+.settings-workspace .dialog-heading h2 {
+  font-size: 16px;
+}
+.context-sidebar h2,
+.sidebar-section h2,
+.result-heading,
+.settings-workspace .provider-card-header h3,
+.settings-workspace .current-mode strong,
+.empty-state h3 {
+  font-size: 14px;
+}
+.history-item strong,
+.tool-row,
+.finding,
+.next-steps,
+.provider-details,
+.settings-links a,
+.form-field input,
+.form-field select,
+.settings-workspace .provider-actions button,
+.settings-empty,
+.settings-notice,
+.probe-result,
+.dialog-content,
+.event-row,
+.sidebar-footer strong,
+.tabs button {
+  font-size: 13px;
+}
+.history-item small,
+.history-group,
+.history-search input,
+.sidebar-footer span:not(.local-dot),
+.version,
+.connection,
+.page-heading p,
+.settings-heading p,
+.mode-info,
+.control label,
+.control select,
+.composer-note,
+.status,
+.result-question,
+.tab-count,
+.metric-label,
+.metric-caption,
+.source-note,
+.run-info dl div,
+.context-note,
+.uncertainty,
+.citation,
+.evidence-kind,
+.evidence-item > summary,
+.settings-workspace .current-label,
+.settings-workspace .current-mode p,
+.settings-workspace .provider-card-header p,
+.settings-workspace .provider-details dt,
+.settings-workspace .settings-footnote,
+.settings-workspace .form-field label,
+.settings-workspace .form-field p,
+.settings-workspace .advanced-settings summary,
+.settings-workspace .advanced-settings > p,
+.settings-workspace .active-tag,
+.secondary,
+.primary,
+.back-link,
+.repo-link {
+  font-size: 12px;
+}
+.metric-value {
+  font-size: 28px;
+  line-height: 1.2;
+}
+.metric-value small {
+  font-size: 13px;
+}
+.event-row time,
+.log-message,
+.raw-data pre,
+.evidence-id {
+  font-size: 12px;
+}
+@media (max-width: 720px) {
+  .page-heading h1,
+  .settings-heading h1 {
+    font-size: 22px;
+  }
+  .metric-value {
+    font-size: 23px;
+  }
+  .composer-note {
+    font-size: 12px;
+  }
+}
