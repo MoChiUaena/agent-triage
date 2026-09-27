@@ -3,15 +3,12 @@ package io.github.mochiuaena.triage.execution;
 import io.github.mochiuaena.triage.domain.TriageModel.*;
 import org.springframework.stereotype.Component;
 import java.util.List;
-import java.util.Locale;
 
 /** Deterministic rules for the demonstration, deliberately not presented as an LLM. */
 @Component
 public class DemoReasoner {
     public boolean supports(String question) {
-        String q = question.toLowerCase(Locale.ROOT);
-        return List.of("订单", "order", "超时", "timeout", "延迟", "latency", "慢", "slow", "健康", "正常")
-            .stream().anyMatch(q::contains);
+        return QuestionScope.supports(question);
     }
 
     public Diagnosis diagnose(List<Evidence> evidence) {

@@ -85,6 +85,7 @@ def summarize(case, baseline, run, agent_ms):
             "status": run["status"], "runId": run["id"], "synthetic": run["synthetic"],
             "tools": [event["tool"] for event in run["events"] if event["type"] == "TOOL_STARTED"],
             "toolCalls": run["toolCalls"], "citationsValid": valid,
+            "applicationScopeGate": any(event["type"] == "SCOPE_GATE" for event in run["events"]),
             "citedSources": cited_sources,
             "observations": (run.get("diagnosis") or {}).get("observations"),
             "possibleCauses": (run.get("diagnosis") or {}).get("possibleCauses"),
@@ -99,9 +100,11 @@ def summarize(case, baseline, run, agent_ms):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allow-model-calls", action="store_true", help="Confirm provider calls and possible fees")
+    parser.add_argument("--mock-provider", action="store_true", help="Label a local protocol stub; never claim model quality")
     parser.add_argument("--split", choices=("dev", "holdout"), default="dev")
     parser.add_argument("--allow-holdout", action="store_true", help="Explicitly run the frozen holdout set")
     parser.add_argument("--all-dev", action="store_true", help="Run all 10 dev cases instead of the initial four")
+    parser.add_argument("--ids", help="Comma-separated case IDs within the chosen split, for a smaller first run")
     parser.add_argument("--agent-url", default="http://127.0.0.1:18080")
     parser.add_argument("--sample-url", default="http://127.0.0.1:18082")
     parser.add_argument("--inventory-url", default="http://127.0.0.1:18084")
@@ -117,16 +120,20 @@ def main():
         parser.error("--count must be 1–10 and --poll-timeout at least 10 seconds.")
     raw = DATASET.read_bytes()
     cases = json.loads(raw)["cases"]
+    requested = set(args.ids.split(",")) if args.ids else None
     selected = [case for case in cases if case["split"] == args.split and
-                (args.split == "holdout" or args.all_dev or case["id"] in DEFAULT_DEV)]
-    if not selected:
-        parser.error("No cases selected.")
+                (case["id"] in requested if requested is not None
+                 else args.split == "holdout" or args.all_dev or case["id"] in DEFAULT_DEV)]
+    if not selected or (requested is not None and requested != {case["id"] for case in selected}):
+        parser.error("No valid cases selected for this split.")
     agent, sample, inventory = (value.rstrip("/") for value in
                                 (args.agent_url, args.sample_url, args.inventory_url))
     status, config = request(agent, "/api/config")
     if (status != 200 or config.get("mode") != "MODEL" or config.get("observationSource") != "LIVE"
             or config.get("synthetic") is not False or not config.get("observationAvailable")):
         parser.error("Agent must use a configured MODEL with LIVE observations.")
+    if args.mock_provider and config.get("model") != "triage-stub":
+        parser.error("--mock-provider requires the local triage-stub model name.")
     if request(inventory, "/lab/scenario")[0] != 200:
         parser.error("Inventory service is unavailable.")
     assert request(sample, "/lab/reset", {})[0] == 200
@@ -157,6 +164,9 @@ def main():
         (output / "runs" / f"{case['id']}-agent.json").write_text(
             json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         result = summarize(case, baseline, run, agent_ms)
+        if args.mock_provider and case["id"] == "D07" and (
+                run["status"] != "INSUFFICIENT_EVIDENCE" or not result["agent"]["applicationScopeGate"]):
+            raise AssertionError("The unrelated-question scope gate did not run")
         results.append(result)
         print(f"{case['id']}: docs={baseline['status']} | agent={run['status']} |"
               f" tools={run['toolCalls']} | review pending")
@@ -165,7 +175,7 @@ def main():
         "kind": "live-document-vs-agent-comparison", "datasetSha256": hashlib.sha256(raw).hexdigest(),
         "split": args.split, "model": config.get("model"),
         "provider": config.get("provider", {}).get("displayName"),
-        "syntheticObservations": False, "modelQualityEvaluated": False,
+        "syntheticObservations": False, "mockProvider": args.mock_provider, "modelQualityEvaluated": False,
         "ranAt": datetime.now(timezone.utc).isoformat(), "cases": results,
     }
     (output / "summary.json").write_text(

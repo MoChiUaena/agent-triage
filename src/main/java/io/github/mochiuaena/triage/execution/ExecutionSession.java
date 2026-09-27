@@ -47,6 +47,10 @@ public final class ExecutionSession {
         publish("EVIDENCE_GATE", null, "窗口没有订单请求，应用返回证据不足，跳过最终模型生成。", List.of());
     }
 
+    public void recordScopeGate() {
+        publish("SCOPE_GATE", null, "问题不属于订单与库存排障范围，应用未请求模型。", List.of());
+    }
+
     public void checkDeadline() {
         if (Thread.currentThread().isInterrupted()) throw new RunFailure("RUN_INTERRUPTED", "执行已中断。");
         if (System.nanoTime() >= deadline) throw new RunFailure("RUN_TIMEOUT", "已达到整体执行时长上限。");

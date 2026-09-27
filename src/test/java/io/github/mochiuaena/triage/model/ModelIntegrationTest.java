@@ -44,7 +44,11 @@ class ModelIntegrationTest {
     @AfterAll static void shutdown() { MODEL.close(); }
 
     private Run execute() {
-        var response = http.postForEntity("/api/runs", Map.of("question", "订单 confidential-test-question 为什么慢？",
+        return execute("订单 confidential-test-question 为什么慢？");
+    }
+
+    private Run execute(String question) {
+        var response = http.postForEntity("/api/runs", Map.of("question", question,
             "service", "order-service", "windowMinutes", 15, "scenario", "DOWNSTREAM_TIMEOUT"), Run.class);
         assertThat(response.getStatusCode().value()).isEqualTo(202);
         UUID id = response.getBody().id();
@@ -87,6 +91,15 @@ class ModelIntegrationTest {
         assertThat(run.status()).isEqualTo(Status.INSUFFICIENT_EVIDENCE);
         assertThat(run.toolCalls()).isZero();
         assertThat(run.modelExecution().usage()).isNull();
+    }
+
+    @Test void unrelatedQuestionStopsBeforeAnyPaidModelCall() {
+        Run run = execute("写一首诗");
+        assertThat(run.status()).isEqualTo(Status.INSUFFICIENT_EVIDENCE);
+        assertThat(run.toolCalls()).isZero();
+        assertThat(run.modelExecution().calls()).isZero();
+        assertThat(run.events()).extracting(Event::type).contains("SCOPE_GATE");
+        assertThat(MODEL.requests).isEmpty();
     }
 
     @Test void aMissingUsageRoundDoesNotBecomeAnInventedTotal() throws Exception {

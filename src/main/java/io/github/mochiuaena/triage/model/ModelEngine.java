@@ -28,6 +28,13 @@ public final class ModelEngine implements TriageEngine {
     @Override public String modelName() { return settings.name(); }
 
     @Override public Decision investigate(ExecutionSession session) {
+        if (!QuestionScope.supports(session.question())) {
+            session.recordScopeGate();
+            return new Decision(Status.INSUFFICIENT_EVIDENCE,
+                new Diagnosis(List.of(), List.of(),
+                    List.of("请询问订单查询、库存调用、延迟或超时等服务排障问题。"),
+                    "该问题超出当前排障范围；应用没有请求模型生成结论。"));
+        }
         ModelTools tools = new ModelTools(session, json);
         var options = OpenAiChatOptions.builder().toolCallbacks(tools.definitions()).internalToolExecutionEnabled(false).build();
         List<Message> messages = new ArrayList<>();

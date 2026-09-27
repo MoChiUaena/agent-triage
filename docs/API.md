@@ -54,6 +54,8 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 
 若模型调用工具后得到的窗口请求数为 0，应用记录 `EVIDENCE_GATE` 事件并直接返回 `INSUFFICIENT_EVIDENCE`，不再发起最终一轮模型请求。结果中的不确定性会说明结论由应用证据门槛生成。
 
+明显超出订单与库存排障范围的问题由应用记录 `SCOPE_GATE` 并返回 `INSUFFICIENT_EVIDENCE`，不发起模型请求；该门槛只筛掉明确无关的问题，不能代替模型的语义判断。
+
 ## 工具
 
 所有工具接收 `ToolContext(service, windowMinutes, scenario, endTime)`。服务、场景和时间窗口在提交后保持不变。LIVE 数据源通过 HTTP 查询本机订单样例服务的窗口观测；工具本身不切换场景，也不生成请求。
