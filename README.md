@@ -66,7 +66,7 @@ $env:SPRING_PROFILES_ACTIVE = 'postgres'
 
 ## 模型模式
 
-打开[模型设置页](http://127.0.0.1:18080/settings.html)，填写服务名称、Base URL、模型和 API Key，保存后可测试连接并设为当前模型。默认提供 DeepSeek 参数，也可填写本机 OpenAI 兼容服务。配置方法、调用限制和费用说明见[模型配置](docs/MODELS.md)。
+打开[模型设置页](http://127.0.0.1:18080/settings.html)，选择 DeepSeek、阿里云百炼、智谱 GLM、Kimi、LM Studio 或自定义兼容接口，再填写 API Key。保存后可测试连接并设为当前模型。配置方法、调用限制和费用说明见[模型配置](docs/MODELS.md)。
 
 模型链路已通过本地模拟服务测试，真实服务调用待配置凭据后验证。
 

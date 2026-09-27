@@ -109,7 +109,7 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 | `PUT /api/settings/selection` | 请求体为 `{"mode":"MODEL","providerId":"..."}` 或 `{"mode":"DEMO"}` |
 | `DELETE /api/settings/providers/{id}?version=N` | 删除未启用的服务 |
 
-添加、编辑字段为 `displayName`、`protocol`、`baseUrl`、`model`、`apiKey`、`temperature`、`timeoutSeconds`、`maxRounds`、`maxTokens` 和 `version`。`protocol` 为 `DEEPSEEK` 或 `OPENAI_COMPATIBLE`。页面使用 version 检查并发修改；旧版本返回 409。
+添加、编辑字段为 `displayName`、`protocol`、`baseUrl`、`model`、`apiKey`、`temperature`、`timeoutSeconds`、`maxRounds`、`maxTokens` 和 `version`。`protocol` 可以是 `DEEPSEEK`、`DASHSCOPE`、`GLM`、`KIMI`、`LM_STUDIO` 或 `OPENAI_COMPATIBLE`。只有 DeepSeek 与 `KIMI` 下的 `kimi-k2.6` 自动发送非思考参数。页面使用 version 检查并发修改；旧版本返回 409。
 
 `GET /api/config` 包含 `selectionToken`。排查页面提交时回传为 `expectedSelection`，防止其他页面切换模型后，旧页面在用户不知情的情况下提交给新模型。此字段不是身份认证凭据。旧 API 客户端可不传。
 
