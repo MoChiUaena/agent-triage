@@ -94,7 +94,7 @@ class RunApiTest {
     }
 
     @Test void pageAndDemoMetadataAreAvailableWithoutAKey() {
-        assertThat(http.getForObject("/", String.class)).contains("确定性演示", "app.js", "下游超时");
+        assertThat(http.getForObject("/", String.class)).contains("演示环境", "app.js", "下游超时");
         assertThat(http.getForObject("/api/demo", String.class)).contains("DEMO", "synthetic", "query_error_logs");
     }
 }

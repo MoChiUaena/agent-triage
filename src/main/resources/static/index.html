@@ -5,175 +5,278 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="用可核查的证据，定位 Java 服务的故障路径。"
+      content="Java 服务排查：查看日志、指标、排障文档和执行记录。"
     />
-    <title>Agent Triage · 故障排查工作台</title>
+    <title>服务排查 · Agent Triage</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/styles.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
-    <header class="topbar">
-      <a class="brand" href="/" aria-label="Agent Triage 首页"
-        ><span class="brand-mark">AT</span> AGENT TRIAGE
-        <span class="version">/ 0.1 PREVIEW</span></a
-      >
-      <span class="connection"><span class="dot"></span> 本地排障工作台</span>
-    </header>
-    <main class="workspace">
-      <section class="intro">
-        <div>
-          <p class="eyebrow">JAVA INCIDENT INVESTIGATION</p>
-          <h1>先找证据，再下判断。</h1>
-          <p class="lead">从日志、指标和排障文档，追踪订单服务的异常路径。</p>
+    <a class="skip-link" href="#main">跳转到内容</a>
+    <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+    <aside class="sidebar" id="sidebar" aria-label="工作区导航">
+      <a class="brand" href="/" aria-label="Agent Triage 首页">
+        <span class="brand-mark"
+          ><svg class="icon"><use href="/icons.svg#activity" /></svg
+        ></span>
+        <span>Agent Triage</span><span class="version">开发版</span>
+      </a>
+      <button class="new-run" id="new-run" type="button">
+        <svg class="icon"><use href="/icons.svg#plus" /></svg>新建排查
+      </button>
+      <div class="sidebar-section">
+        <h2>最近排查</h2>
+        <button
+          class="icon-button"
+          id="refresh-history"
+          type="button"
+          aria-label="刷新执行记录"
+          title="刷新"
+        >
+          <svg class="icon"><use href="/icons.svg#refresh" /></svg>
+        </button>
+      </div>
+      <label class="history-search">
+        <svg class="icon"><use href="/icons.svg#search" /></svg>
+        <input
+          id="history-search"
+          type="search"
+          placeholder="搜索记录…"
+          aria-label="搜索执行记录"
+          autocomplete="off"
+        />
+      </label>
+      <div id="history" class="history" aria-label="执行记录">
+        <p class="sidebar-empty">正在加载…</p>
+      </div>
+      <div class="sidebar-footer">
+        <svg class="icon"><use href="/icons.svg#server" /></svg>
+        <div><strong>本地工作区</strong><span>order-service</span></div>
+        <span class="local-dot" title="本地配置"></span>
+      </div>
+    </aside>
+    <div class="app-shell">
+      <header class="topbar">
+        <button
+          class="icon-button mobile-menu"
+          id="sidebar-toggle"
+          type="button"
+          aria-label="打开执行记录"
+          aria-controls="sidebar"
+          aria-expanded="false"
+        >
+          <svg class="icon"><use href="/icons.svg#menu" /></svg>
+        </button>
+        <nav class="breadcrumb" aria-label="当前位置">
+          <span>工作区</span><span class="divider">/</span
+          ><strong>服务排查</strong>
+        </nav>
+        <div class="topbar-actions">
+          <details class="mode-info">
+            <summary>
+              <span class="mode-dot"></span>演示环境<svg class="icon">
+                <use href="/icons.svg#chevron" />
+              </svg>
+            </summary>
+            <p>使用合成日志和指标，按固定规则生成结果。当前未连接模型服务。</p>
+          </details>
+          <a
+            class="repo-link"
+            href="https://github.com/MoChiUaena/agent-triage"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub <svg class="icon"><use href="/icons.svg#external" /></svg>
+          </a>
         </div>
-        <div class="mode-note">
-          <span class="pill">确定性演示</span>
-          <p>合成数据 · 三个只读工具<br />无需模型密钥，不产生 API 费用</p>
+      </header>
+      <main id="main" class="workspace">
+        <div class="page-heading">
+          <div>
+            <h1>服务排查</h1>
+            <p>查询日志、指标和文档，定位订单接口的问题。</p>
+          </div>
         </div>
-      </section>
-      <div class="layout">
-        <aside class="sidebar">
-          <section class="panel investigation">
-            <div class="section-heading">
-              <span class="section-index">01</span>
-              <h2>发起排查</h2>
-            </div>
-            <form id="investigate-form">
-              <label for="question">你想了解什么？</label>
-              <textarea
-                id="question"
-                name="question"
-                maxlength="200"
-                required
-                rows="4"
+        <form id="investigate-form" class="composer">
+          <div class="query-controls">
+            <div class="control">
+              <label for="service"
+                ><svg class="icon"><use href="/icons.svg#server" /></svg
+                >服务</label
               >
-订单查询接口为什么变慢了？请结合日志、指标和排障文档给出建议。</textarea
+              <select id="service">
+                <option value="order-service">order-service</option>
+              </select>
+            </div>
+            <div class="control">
+              <label for="window"
+                ><svg class="icon"><use href="/icons.svg#clock" /></svg
+                >时间</label
               >
-              <div class="field-row">
-                <div>
-                  <label for="service">目标服务</label
-                  ><select id="service">
-                    <option value="order-service">order-service</option>
-                  </select>
-                </div>
-                <div>
-                  <label for="window">时间窗口</label
-                  ><select id="window">
-                    <option value="5">最近 5 分钟</option>
-                    <option value="15" selected>最近 15 分钟</option>
-                    <option value="60">最近 60 分钟</option>
-                  </select>
-                </div>
-              </div>
-              <fieldset>
-                <legend>演示场景</legend>
-                <div class="scenario-options">
-                  <label class="scenario"
-                    ><input
-                      type="radio"
-                      name="scenario"
-                      value="DOWNSTREAM_TIMEOUT"
-                      checked /><span
-                      ><strong>下游超时</strong
-                      ><small>库存调用延迟升高</small></span
-                    ><span class="scenario-dot fault"></span
-                  ></label>
-                  <label class="scenario"
-                    ><input type="radio" name="scenario" value="NORMAL" /><span
-                      ><strong>正常对照</strong
-                      ><small>基线指标，无错误日志</small></span
-                    ><span class="scenario-dot healthy"></span
-                  ></label>
-                </div>
-              </fieldset>
-              <button class="primary" id="submit-button" type="submit">
-                开始排查 <span aria-hidden="true">↗</span>
-              </button>
-              <p class="form-hint">每次运行冻结场景和时间窗口，可重复验证。</p>
-              <p id="form-error" class="error" role="alert" hidden></p>
-            </form>
-          </section>
-          <section class="panel history-panel">
-            <div class="section-heading">
-              <span class="section-index">02</span>
-              <h2>执行记录</h2>
-              <button class="text-button" id="refresh-history" type="button">
-                刷新
-              </button>
+              <select id="window">
+                <option value="5">最近 5 分钟</option>
+                <option value="15" selected>最近 15 分钟</option>
+                <option value="60">最近 60 分钟</option>
+              </select>
             </div>
-            <div id="history" class="history">
-              <p class="muted">正在加载记录…</p>
+            <div class="control">
+              <label for="scenario">场景</label>
+              <select id="scenario">
+                <option value="DOWNSTREAM_TIMEOUT">下游超时</option>
+                <option value="NORMAL">正常对照</option>
+              </select>
             </div>
-          </section>
-        </aside>
-        <div class="results-column">
-          <section class="panel execution-panel">
-            <div class="section-heading">
-              <span class="section-index">03</span>
-              <h2>证据收集</h2>
+          </div>
+          <label class="sr-only" for="question">排查问题</label>
+          <textarea
+            id="question"
+            name="question"
+            maxlength="200"
+            required
+            rows="2"
+            placeholder="描述问题，例如：订单查询接口为什么变慢了？"
+          >
+订单查询接口为什么变慢了？</textarea
+          >
+          <div class="composer-footer">
+            <span class="composer-note">仅查询所选服务的演示数据</span>
+            <button class="primary" id="submit-button" type="submit">
+              <span>开始排查</span
+              ><svg class="icon"><use href="/icons.svg#arrow" /></svg>
+            </button>
+          </div>
+        </form>
+        <p id="form-error" class="error-banner" role="alert" hidden></p>
+        <div class="investigation-grid">
+          <section class="results" aria-label="排查结果">
+            <div class="results-heading">
+              <h2 id="result-title">排查结果</h2>
               <span id="run-status" class="status neutral" role="status"
-                >等待开始</span
+                >未开始</span
               >
             </div>
-            <div class="tool-grid">
-              <div class="tool-card" data-tool="search_runbooks">
-                <span class="tool-icon">文</span
-                ><span
-                  ><strong>排障文档</strong><small>检索判断依据</small></span
-                ><span class="tool-state">待执行</span>
-              </div>
-              <div class="tool-card" data-tool="read_service_metrics">
-                <span class="tool-icon">标</span
-                ><span
-                  ><strong>服务指标</strong><small>对照窗口与基线</small></span
-                ><span class="tool-state">待执行</span>
-              </div>
-              <div class="tool-card" data-tool="query_error_logs">
-                <span class="tool-icon">志</span
-                ><span
-                  ><strong>错误日志</strong><small>追踪超时信号</small></span
-                ><span class="tool-state">待执行</span>
+            <p id="result-question" class="result-question" hidden></p>
+            <div class="tabs" role="tablist" aria-label="结果视图">
+              <button
+                id="tab-overview"
+                type="button"
+                role="tab"
+                aria-selected="true"
+                aria-controls="overview-panel"
+                data-tab="overview"
+              >
+                概览
+              </button>
+              <button
+                id="tab-evidence"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="evidence-panel"
+                tabindex="-1"
+                data-tab="evidence"
+              >
+                证据<span class="tab-count" id="evidence-count">0</span>
+              </button>
+              <button
+                id="tab-events"
+                type="button"
+                role="tab"
+                aria-selected="false"
+                aria-controls="events-panel"
+                tabindex="-1"
+                data-tab="events"
+              >
+                执行记录<span class="tab-count" id="events-count">0</span>
+              </button>
+            </div>
+            <div
+              id="overview-panel"
+              role="tabpanel"
+              aria-labelledby="tab-overview"
+              tabindex="0"
+            >
+              <div id="metrics" class="metrics" hidden></div>
+              <div id="diagnosis">
+                <div class="empty-state">
+                  <span class="empty-icon"
+                    ><svg class="icon"><use href="/icons.svg#search" /></svg
+                  ></span>
+                  <h3>还没有排查结果</h3>
+                  <p>输入问题并开始排查，或从左侧打开已有记录。</p>
+                </div>
               </div>
             </div>
-            <div id="run-meta" class="run-meta">
-              事件会保存在服务端；刷新页面后可从历史记录继续查看。
-            </div>
-            <ol id="events" class="event-list" aria-live="polite">
-              <li class="empty-event">
-                发起排查后，这里会显示工具事件与证据数量。
-              </li>
-            </ol>
-          </section>
-          <section class="panel diagnosis-panel">
-            <div class="section-heading">
-              <span class="section-index">04</span>
-              <h2>排查结论</h2>
-              <span class="small-label">EVIDENCE FIRST</span>
-            </div>
-            <div id="diagnosis">
-              <div class="empty-state">
-                <span class="empty-symbol">⌕</span>
-                <h3>一个问题，三类证据。</h3>
-                <p>
-                  选择场景并发起排查。每条判断都应有据可查，<br />证据不足时会明确保留不确定性。
+            <div
+              id="evidence-panel"
+              role="tabpanel"
+              aria-labelledby="tab-evidence"
+              tabindex="0"
+              hidden
+            >
+              <div id="evidence-list">
+                <p class="panel-empty">
+                  本次排查的文档、指标和日志会显示在这里。
                 </p>
               </div>
             </div>
-          </section>
-          <section class="panel evidence-panel" id="evidence-panel" hidden>
-            <div class="section-heading">
-              <span class="section-index">05</span>
-              <h2>证据原文</h2>
-              <span id="evidence-count" class="small-label"></span>
+            <div
+              id="events-panel"
+              role="tabpanel"
+              aria-labelledby="tab-events"
+              tabindex="0"
+              hidden
+            >
+              <ol id="events" class="event-list">
+                <li class="panel-empty">开始排查后可查看执行记录。</li>
+              </ol>
             </div>
-            <div id="evidence-list"></div>
           </section>
+          <aside class="context-sidebar" aria-label="执行信息">
+            <section class="sources">
+              <h2>数据来源<span id="source-count">0 / 3</span></h2>
+              <div class="tool-row" data-tool="search_runbooks">
+                <svg class="icon"><use href="/icons.svg#file" /></svg
+                ><span>排障文档</span><span class="tool-state">待查询</span>
+              </div>
+              <div class="tool-row" data-tool="read_service_metrics">
+                <svg class="icon"><use href="/icons.svg#chart" /></svg
+                ><span>服务指标</span><span class="tool-state">待查询</span>
+              </div>
+              <div class="tool-row" data-tool="query_error_logs">
+                <svg class="icon"><use href="/icons.svg#logs" /></svg
+                ><span>错误日志</span><span class="tool-state">待查询</span>
+              </div>
+              <p class="source-note" id="source-note" aria-live="polite">
+                尚未调用工具
+              </p>
+            </section>
+            <section class="run-info">
+              <h2>执行信息</h2>
+              <dl id="run-meta">
+                <div>
+                  <dt>服务</dt>
+                  <dd>—</dd>
+                </div>
+                <div>
+                  <dt>时间窗口</dt>
+                  <dd>—</dd>
+                </div>
+                <div>
+                  <dt>场景</dt>
+                  <dd>—</dd>
+                </div>
+                <div>
+                  <dt>执行时间</dt>
+                  <dd>—</dd>
+                </div>
+              </dl>
+            </section>
+            <p class="context-note">演示数据仅供本地测试。</p>
+          </aside>
         </div>
-      </div>
-      <footer>
-        <span>Agent Triage / 为可解释的故障排查而构建</span
-        ><span>所有观测为合成数据 · 不代表生产诊断</span>
-      </footer>
-    </main>
+      </main>
+    </div>
   </body>
 </html>
