@@ -16,6 +16,8 @@ python scripts/compare_live_methods.py --allow-model-calls --dataset docs/evalua
 
 [v2 调试记录](validation/2026-09-28-dev-contract.md)保留了最初三次校验失败、漏选规则的复查和修订后的 6 例结果：3 条满足契约，3 条由应用门槛结束。
 
+[v2 首次留出对照](validation/2026-09-28-holdout-contract.md)已完成：5 条满足契约、4 条应用门槛、1 条工具参数失败。正常案例的检查建议仍有欠针对性的情况。该留出集已使用，后续修改只能用它作回归，不能继续作为独立效果证明。
+
 ## v1：历史记录
 
 案例集 [`cases-v1.json`](evaluation/cases-v1.json) 有 20 个问题，`dev` 和 `holdout` 各 10 个，两组已完成真实模型对照。固定规则的演示模式使用合成数据，真实模型对照使用 LIVE 请求；`expectedDemoStatus` 只用于演示模式的状态检查。

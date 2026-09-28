@@ -2,13 +2,15 @@
 
 [![Verify](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml)
 
-Agent Triage 是一个 Java 服务排障助手，通过查询日志、指标和排障文档，分析接口变慢的可能原因，并给出验证建议。
+Agent Triage 是一个面向 Java 服务的只读排障助手。当前支持订单查询变慢这一场景，结合窗口指标、错误日志和排障文档，判断是否观察到库存调用超时，并给出验证建议。
 
 仓库带有两个独立运行的 Java 样例服务：订单服务通过 HTTP 调用库存服务。切换故障场景后，库存响应变慢，订单侧请求实际超时。排障助手读取窗口指标、Micrometer 计数和 JSON 错误日志，再给出带证据的判断。默认启动使用合成数据；模型模式中，模型选择工具、判断类型和证据，应用核对观测后生成关键结论措辞，避免自由归因超出证据范围。
 
 ![本地订单请求发生库存调用超时后的排查页面](docs/assets/live-triage.png)
 
 图中是 5 次实际处理的样例请求，其中 2 次库存调用超时，窗口超时率为 40%；数值随机器和运行次数变化。
+
+[v2 首次留出对照](docs/validation/2026-09-28-holdout-contract.md)的 10 个案例中，5 条符合证据契约，4 条由应用门槛返回证据不足，1 条工具参数失败。关键结论由应用按证据生成，这组结果不代表模型自由归因能力或生产诊断准确率。
 
 ## 功能
 
