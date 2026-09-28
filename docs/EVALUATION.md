@@ -1,5 +1,18 @@
 # 小规模评测
 
+## v4：规则完整性与应用排序
+
+LIVE 检索增加本服务基础参考并标明召回来源；模型缺少必需证据或引用时最多反馈一次，证据齐全后关闭工具选择。应用从有效候选中排序并显示前两项，保留原始选择。
+
+[v4 调试记录](validation/2026-09-28-v4-dev.md)包含首批一次超额工具请求失败和修订后的三例通过结果。[v4 案例](evaluation/cases-v4.json)另有 6 个新留出问题，使用[标准 v4](evaluation/rubric-v4.md)。两种方法共享本次召回改动，应用排序与限额控制不作为模型能力提升。
+
+```powershell
+python scripts/compare_live_methods.py --allow-model-calls --dataset docs/evaluation/cases-v4.json
+python scripts/compare_live_methods.py --allow-model-calls --dataset docs/evaluation/cases-v4.json --split holdout --allow-holdout
+```
+
+命令调用当前真实模型并可能产生费用。原始结果在忽略目录，公开报告只保留脱敏结果。
+
 ## v3：参数纠正与检查建议
 
 参数反馈允许一次有界更正，检查建议按已有证据限制。[v3 调试与回归记录](validation/2026-09-28-v3-dev.md)为 3 条满足契约、1 条应用门槛，真实模型没有触发参数纠正；该路径另外用本地接口模拟器注入无效参数验证。

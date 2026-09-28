@@ -1,0 +1,193 @@
+{
+  "datasetVersion": 4,
+  "datasetSha256": "7cdb19470dc75edb603fefc8e6ae230746b2d0c1d7bb07a8bb775726133af825",
+  "split": "dev",
+  "model": "qwen3.7-flash-2026-07-15",
+  "provider": "阿里云百炼",
+  "syntheticObservations": false,
+  "mockProvider": false,
+  "ranAt": "2026-09-28T09:00:56.513186+00:00",
+  "evaluationTarget": "system-evidence-boundaries",
+  "rubricVersion": 4,
+  "parameters": {
+    "temperature": 0,
+    "maxRounds": 4,
+    "maxOutputTokens": 1600,
+    "modelTimeoutSeconds": 45
+  },
+  "cases": [
+    {
+      "case": "Q01",
+      "status": "FAILED",
+      "classification": "失败",
+      "assessment": null,
+      "observationsMatchToolSummaries": null,
+      "conclusionRendered": false,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 4575,
+        "outputTokens": 689,
+        "totalTokens": 5264
+      },
+      "nextChecks": null,
+      "requestedNextChecks": null,
+      "evidenceFeedbackCount": 0,
+      "checksPrioritized": false,
+      "argumentRejectionCount": 0,
+      "argumentReasons": [],
+      "failureCode": "TOOL_CALL_LIMIT",
+      "category": "normal",
+      "referenceRequestCount": 3,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": 3,
+      "observedTimeoutRate": 0.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 603,
+          "outputTokens": 2023,
+          "totalTokens": 2626
+        },
+        "wallTimeMs": 24743,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 8187,
+      "citationsValid": false,
+      "citedSources": []
+    },
+    {
+      "case": "Q02",
+      "status": "SUCCEEDED",
+      "classification": "满足契约",
+      "assessment": "NO_DOWNSTREAM_TIMEOUT_OBSERVED",
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": true,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 4551,
+        "outputTokens": 1307,
+        "totalTokens": 5858
+      },
+      "nextChecks": [
+        "COLLECT_RESOURCE_METRICS",
+        "FIND_SLOW_REQUEST"
+      ],
+      "requestedNextChecks": [
+        "INSPECT_INVENTORY_LATENCY",
+        "COLLECT_RESOURCE_METRICS",
+        "FIND_SLOW_REQUEST"
+      ],
+      "evidenceFeedbackCount": 0,
+      "checksPrioritized": true,
+      "argumentRejectionCount": 0,
+      "argumentReasons": [],
+      "failureCode": null,
+      "category": "normal",
+      "referenceRequestCount": 7,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": 7,
+      "observedTimeoutRate": 0.0,
+      "documentOnly": {
+        "status": "GENERAL_GUIDANCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 600,
+          "outputTokens": 2205,
+          "totalTokens": 2805
+        },
+        "wallTimeMs": 24920,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 16172,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ]
+    },
+    {
+      "case": "Q03",
+      "status": "SUCCEEDED",
+      "classification": "满足契约",
+      "assessment": "DOWNSTREAM_TIMEOUT_OBSERVED",
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": true,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 4876,
+        "outputTokens": 1324,
+        "totalTokens": 6200
+      },
+      "nextChecks": [
+        "CORRELATE_TRACE",
+        "INSPECT_INVENTORY_LATENCY"
+      ],
+      "requestedNextChecks": [
+        "CORRELATE_TRACE",
+        "VERIFY_REQUEST_TIMEOUT",
+        "INSPECT_INVENTORY_LATENCY"
+      ],
+      "evidenceFeedbackCount": 0,
+      "checksPrioritized": true,
+      "argumentRejectionCount": 0,
+      "argumentReasons": [],
+      "failureCode": null,
+      "category": "timeout",
+      "referenceRequestCount": 3,
+      "referenceTimeoutRate": 1.0,
+      "observedRequestCount": 3,
+      "observedTimeoutRate": 1.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 773,
+          "outputTokens": 1665,
+          "totalTokens": 2438
+        },
+        "wallTimeMs": 22127,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 15859,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ]
+    }
+  ],
+  "implementationCommit": "d62022b"
+}
