@@ -22,6 +22,7 @@ public class RunService {
     private final List<ReadOnlyTool> tools;
     private final boolean synthetic;
     private final ServiceRegistry registry;
+    private final ConcurrentMap<UUID, RunControl> active = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor coordinators = pool("triage-run-", 4, 16);
     private final ThreadPoolExecutor toolWorkers = pool("triage-tool-", 4, 16);
     private final ThreadPoolExecutor modelWorkers = pool("triage-model-", 4, 16);
@@ -77,9 +78,20 @@ public class RunService {
             List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "任务已创建。", List.of())), List.of(), null, null,
             selectedEngine.modelName() == null ? null : new ModelExecution(selectedEngine.modelName(), null, 0, null, selectedEngine.source()), frozen.serviceInfo());
         repository.insert(run);
-        try { coordinators.execute(() -> execute(run, frozen, deadline, selectedEngine)); }
+        RunControl control = new RunControl(stateFrom(run));
+        FutureTask<Void> task = new FutureTask<>(() -> { execute(run, frozen, deadline, selectedEngine, control); return null; }) {
+            @Override protected void done() { active.remove(run.id(), control); }
+        };
+        synchronized (control.state) {
+            control.coordinator = task;
+            active.put(run.id(), control);
+        }
+        try {
+            synchronized (control.state) { if (!control.cancelled) coordinators.execute(task); }
+        }
         catch (RejectedExecutionException e) {
-            fail(stateFrom(run), "RUN_QUEUE_FULL", "执行队列已满，请稍后再试。");
+            synchronized (control.state) { if (!control.cancelled) fail(control.state, "RUN_QUEUE_FULL", "执行队列已满，请稍后再试。"); }
+            active.remove(run.id(), control);
             throw new CapacityExceededException();
         }
         return run;
@@ -91,27 +103,60 @@ public class RunService {
         return state;
     }
 
-    private void execute(Run run, ToolContext context, long deadline, TriageEngine selectedEngine) {
-        MutableExecution state = stateFrom(run);
-        ExecutionSession session = new ExecutionSession(run.question(), context, state, repository, limits, deadline, toolWorkers, modelWorkers, tools);
+    public Run cancel(UUID id) {
+        RunControl control = active.get(id);
+        if (control == null) {
+            Run stored = repository.find(id).orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND, "执行记录不存在。"));
+            if (stored.status().terminal()) return stored;
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                "当前执行状态尚未就绪，请刷新后重试。");
+        }
+        Run result;
+        RunControl.Step step;
+        synchronized (control.state) {
+            MutableExecution state = control.state;
+            if (state.status.terminal()) return state.snapshot();
+            Status previous = state.status;
+            control.cancelled = true;
+            state.status = Status.CANCELLED; state.finishedAt = Instant.now();
+            state.diagnosis = null; state.failure = null;
+            state.event("RUN_CANCELLED", null, "本次排查已取消，保留已采集证据。", List.of());
+            result = state.snapshot();
+            try { repository.save(result); }
+            catch (RuntimeException e) {
+                state.events.remove(state.events.size() - 1); state.status = previous; state.finishedAt = null; control.cancelled = false;
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "取消状态未能保存，请检查本地存储后重试。");
+            }
+            step = control.step;
+        }
+        if (step != null) RunControl.stop(step.future(), step.executor());
+        RunControl.stop(control.coordinator, coordinators);
+        return result;
+    }
+
+    private void execute(Run run, ToolContext context, long deadline, TriageEngine selectedEngine, RunControl control) {
+        MutableExecution state = control.state;
+        ExecutionSession session = new ExecutionSession(run.question(), context, state, repository, limits, deadline, toolWorkers, modelWorkers, tools, control);
         try {
-            session.checkDeadline();
-            state.status = Status.RUNNING;
-            publish(state, "RUN_STARTED", "开始收集证据。");
+            synchronized (state) {
+                session.checkDeadline(); state.status = Status.RUNNING;
+                publish(state, "RUN_STARTED", "开始收集证据。");
+            }
             TriageEngine.Decision decision = selectedEngine.investigate(session);
-            session.checkDeadline();
-            if (decision == null || (decision.status() != Status.SUCCEEDED && decision.status() != Status.INSUFFICIENT_EVIDENCE))
-                throw new RunFailure("INVALID_RESULT", "排查没有返回有效结果。");
-            EvidenceValidator.validate(decision.diagnosis(), state.evidence);
-            state.diagnosis = decision.diagnosis();
-            session.checkDeadline();
-            state.status = decision.status();
-            state.finishedAt = Instant.now();
-            publish(state, "RUN_COMPLETED", state.status == Status.SUCCEEDED ? "排查完成。" : "证据不足，无法支持完整判断。");
+            synchronized (state) {
+                session.checkDeadline();
+                if (decision == null || (decision.status() != Status.SUCCEEDED && decision.status() != Status.INSUFFICIENT_EVIDENCE))
+                    throw new RunFailure("INVALID_RESULT", "排查没有返回有效结果。");
+                EvidenceValidator.validate(decision.diagnosis(), state.evidence);
+                session.checkDeadline(); state.diagnosis = decision.diagnosis(); state.status = decision.status(); state.finishedAt = Instant.now();
+                publish(state, "RUN_COMPLETED", state.status == Status.SUCCEEDED ? "排查完成。" : "证据不足，无法支持完整判断。");
+            }
         } catch (RunFailure e) {
-            fail(state, e.code(), e.getMessage());
+            synchronized (state) { if (!control.cancelled && !state.status.terminal()) fail(state, e.code(), e.getMessage()); }
         } catch (Exception e) {
-            fail(state, "EXECUTION_ERROR", "执行失败；请检查本地配置和持久化存储。");
+            synchronized (state) { if (!control.cancelled && !state.status.terminal()) fail(state, "EXECUTION_ERROR", "执行失败；请检查本地配置和持久化存储。"); }
         }
     }
 

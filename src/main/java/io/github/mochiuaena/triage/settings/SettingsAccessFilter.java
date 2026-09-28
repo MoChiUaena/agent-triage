@@ -9,13 +9,13 @@ import java.io.IOException;
 import java.net.*;
 import java.util.Set;
 
-/** Local settings are privileged: reject cross-origin writes and DNS-rebinding hosts. */
+/** Guard local settings, evaluations and cancellation against cross-origin writes. */
 @Component
 @Order(0)
 public class SettingsAccessFilter extends OncePerRequestFilter {
     @Override protected boolean shouldNotFilter(HttpServletRequest request) {
         return !(request.getServletPath().startsWith("/api/settings")
-            || request.getServletPath().startsWith("/api/evaluation"));
+            || request.getServletPath().startsWith("/api/evaluation") || cancellation(request));
     }
 
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {
@@ -33,15 +33,17 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
                     allowed = false;
             } catch (RuntimeException e) { allowed = false; }
         }
-        if (!"GET".equals(request.getMethod()) && !"1".equals(request.getHeader("X-Triage-Settings"))) allowed = false;
+        if (!"GET".equals(request.getMethod()) && !"1".equals(request.getHeader(cancellation(request) ? "X-Triage-Run" : "X-Triage-Settings"))) allowed = false;
         if (!allowed) {
             response.setStatus(403);
             response.setContentType("application/problem+json");
             response.setCharacterEncoding("UTF-8");
-            response.getWriter().write("{\"status\":403,\"detail\":\"模型设置与评测仅允许从本机同源页面访问。\"}");
+            response.getWriter().write(cancellation(request) ? "{\"status\":403,\"detail\":\"取消操作仅允许从本机同源页面发起。\"}"
+                : "{\"status\":403,\"detail\":\"模型设置与评测仅允许从本机同源页面访问。\"}");
             return;
         }
         response.setHeader("Cache-Control", "no-store");
         chain.doFilter(request, response);
     }
+    private boolean cancellation(HttpServletRequest request) { return request.getServletPath().matches("/api/runs/[^/]+/cancel"); }
 }

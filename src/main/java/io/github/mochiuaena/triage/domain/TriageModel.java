@@ -16,7 +16,7 @@ public final class TriageModel {
     }
 
     public enum Status {
-        QUEUED, RUNNING, SUCCEEDED, INSUFFICIENT_EVIDENCE, FAILED;
+        QUEUED, RUNNING, SUCCEEDED, INSUFFICIENT_EVIDENCE, FAILED, CANCELLED;
         public boolean terminal() { return this != QUEUED && this != RUNNING; }
     }
 
@@ -38,7 +38,12 @@ public final class TriageModel {
     public record ModelSource(UUID providerId, String displayName, long version) {}
 
     public record ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage, ModelSource source,
-                                 String assessment, List<String> nextChecks, List<String> requestedNextChecks) {
+                                 String assessment, List<String> nextChecks, List<String> requestedNextChecks,
+                                 TokenUsage knownUsage, Integer completedCalls, Integer usageReportedCalls) {
+        public ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage, ModelSource source,
+                              String assessment, List<String> nextChecks, List<String> requestedNextChecks) {
+            this(configuredModel, responseModel, calls, usage, source, assessment, nextChecks, requestedNextChecks, null, null, null);
+        }
         public ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage, ModelSource source,
                               String assessment, List<String> nextChecks) {
             this(configuredModel, responseModel, calls, usage, source, assessment, nextChecks, null);

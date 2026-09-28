@@ -46,10 +46,9 @@ public final class ModelEngine implements TriageEngine {
             var options = OpenAiChatOptions.builder().toolCallbacks(tools.definitions()).internalToolExecutionEnabled(false)
                 .toolChoice(missingTools(session).isEmpty() ? "none" : "auto").build();
             Prompt prompt = new Prompt(List.copyOf(messages), options);
-            ChatResponse response = session.callModel(() -> client.prompt(prompt).call().chatResponse(), settings.timeout(), settings.maxRounds());
+            ChatResponse response = session.callModel(() -> client.prompt(prompt).call().chatResponse(), settings.timeout(), settings.maxRounds(), reply -> recordUsage(session, reply));
             if (response == null || response.getResults().size() != 1 || response.getResult().getOutput() == null)
                 throw new RunFailure("INVALID_MODEL_RESPONSE", "模型没有返回有效消息。");
-            recordUsage(session, response);
             if ("length".equalsIgnoreCase(response.getResult().getMetadata().getFinishReason()))
                 throw new RunFailure("MODEL_OUTPUT_TRUNCATED", "模型输出达到长度上限，请调整配置后重试。");
             AssistantMessage assistant = response.getResult().getOutput();
@@ -163,6 +162,9 @@ public final class ModelEngine implements TriageEngine {
     }
 
     private void recordUsage(ExecutionSession session, ChatResponse response) {
+        if (response == null || response.getMetadata() == null || response.getMetadata().getUsage() == null) {
+            session.recordModelUsage(null, null); return;
+        }
         TokenUsage usage = null;
         if (response.getMetadata().getUsage().getNativeUsage() instanceof OpenAiApi.Usage nativeUsage
             && nativeUsage.promptTokens() != null && nativeUsage.completionTokens() != null && nativeUsage.totalTokens() != null

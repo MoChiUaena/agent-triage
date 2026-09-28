@@ -67,6 +67,9 @@ public class RunController {
     @GetMapping("/runs/{id}")
     public Run get(@PathVariable UUID id) { return repository.find(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "执行记录不存在。")); }
 
+    @PostMapping("/runs/{id}/cancel")
+    public Run cancel(@PathVariable UUID id) { return service.cancel(id); }
+
     @GetMapping({"/demo", "/config"})
     public Map<String, Object> demo(@RequestParam(required = false, name = "service") String serviceId) {
         ServiceRegistry.Target target = serviceId == null ? registry.defaultTarget() : registry.require(serviceId);

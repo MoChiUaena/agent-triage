@@ -5,7 +5,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Owned by exactly one coordinator task. Only immutable snapshots leave this class. */
+/** Coordinator and cancel transitions hold this monitor. Only immutable snapshots leave it. */
 final class MutableExecution {
     private final Run initial;
     Status status = Status.QUEUED;
