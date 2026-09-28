@@ -100,6 +100,8 @@ def summarize(case, baseline, run, agent_ms, reference):
             "modelCalls": model.get("calls"), "usage": model.get("usage"),
             "assessment": model.get("assessment"),
             "nextChecks": model.get("nextChecks"),
+            "requestedNextChecks": model.get("requestedNextChecks"),
+            "evidenceFeedbackCount": sum(event["type"] == "EVIDENCE_FEEDBACK" for event in run["events"]),
             "argumentRejectionCount": sum(event["type"] == "TOOL_ARGUMENTS_REJECTED" for event in run["events"]),
             "wallTimeMs": agent_ms, "failureCode": (run.get("failure") or {}).get("code"),
         },
@@ -210,9 +212,9 @@ def main():
                 or not result["documentOnly"]["applicationScopeGate"]):
             raise AssertionError("Both unrelated-question scope gates must run")
         if args.mock_provider and case["id"] == "D10" and (
-                run["status"] != "INSUFFICIENT_EVIDENCE" or not result["agent"]["applicationEvidenceGate"]
-                or result["agent"]["modelCalls"] != 1):
-            raise AssertionError("The missing-rule evidence gate did not run")
+                run["status"] != "SUCCEEDED" or result["agent"]["assessment"] != "NO_DOWNSTREAM_TIMEOUT_OBSERVED"
+                or not result["agent"]["conclusionRendered"]):
+            raise AssertionError("LIVE service-reference rules did not complete the normal diagnosis")
         if args.mock_provider and case.get("expectedAssessment"):
             actual = result["agent"]
             expected = case["expectedAssessment"]

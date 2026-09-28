@@ -1,0 +1,16 @@
+{
+  "version": 4,
+  "description": "服务基础规则召回、证据完整性反馈和应用排序。Q01/Q02 只回归已消费的 v3 问题；T01–T06 首次运行前固定。",
+  "initialDev": ["Q01", "Q02", "Q03"],
+  "cases": [
+    {"id":"Q01","split":"dev","category":"normal","regressionSource":"v3 R01, consumed","question":"Review order-service in the latest window and recommend checks without assuming the entire service is healthy.","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":3}]},
+    {"id":"Q02","split":"dev","category":"normal","regressionSource":"v3 R02, consumed","question":"订单指标和错误日志已经查过了，下一步有哪些还没查证的事项？","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":7}]},
+    {"id":"Q03","split":"dev","category":"timeout","question":"请依据当前订单超时记录给出优先检查项，不要把所有可能原因一起列出来。","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"DOWNSTREAM_TIMEOUT","count":3}]},
+    {"id":"T01","split":"holdout","category":"normal","question":"Check the current order-service evidence and show the most useful next checks with references.","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":4}]},
+    {"id":"T02","split":"holdout","category":"normal","question":"核对这段订单窗口有没有库存调用超时，再说明还有哪些证据值得补充。","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":5}]},
+    {"id":"T03","split":"holdout","category":"timeout","question":"Investigate recent order latency, cite the observed evidence and focus the verification steps.","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"DOWNSTREAM_TIMEOUT","count":2}]},
+    {"id":"T04","split":"holdout","category":"mixed","question":"这批订单有成功也有库存调用超时，应该优先验证什么，现有证据能支持到哪里？","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":3},{"scenario":"DOWNSTREAM_TIMEOUT","count":1}]},
+    {"id":"T05","split":"holdout","category":"empty","question":"Check order-service even when the latest window contains no requests; explain the evidence limits.","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[]},
+    {"id":"T06","split":"holdout","category":"unrelated","question":"推荐几道适合周末做的家常菜。","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[{"scenario":"NORMAL","count":2}]}
+  ]
+}

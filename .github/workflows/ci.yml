@@ -96,5 +96,11 @@ jobs:
           kill "$stub_pid"
           wait "$stub_pid" || true
           python3 scripts/model_protocol_stub.py --port 18100 --invalid-first-arguments > correction-stub.log 2>&1 &
+          correction_stub_pid=$!
           sleep 1
           python3 scripts/live_model_eval.py --allow-model-calls --mock-provider --expect-argument-correction --agent-url http://127.0.0.1:18085
+          kill "$correction_stub_pid"
+          wait "$correction_stub_pid" || true
+          python3 scripts/model_protocol_stub.py --port 18100 --omit-rules-first > evidence-stub.log 2>&1 &
+          sleep 1
+          python3 scripts/live_model_eval.py --allow-model-calls --mock-provider --expect-evidence-feedback --agent-url http://127.0.0.1:18085

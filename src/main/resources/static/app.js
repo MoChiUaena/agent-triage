@@ -604,6 +604,11 @@ function renderRun(run) {
     )
       info.push(["结论生成", "应用证据门槛"]);
     else if (run.diagnosis) info.push(["结论生成", "旧版模型文本"]);
+    if (model.requestedNextChecks && model.nextChecks)
+      info.push([
+        "检查建议",
+        "候选 " + model.requestedNextChecks.length + " 项 · 按证据排列 " + model.nextChecks.length + " 项",
+      ]);
     if (model.source)
       info.push(
         ["模型服务", model.source.displayName],

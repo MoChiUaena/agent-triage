@@ -18,7 +18,7 @@ final class ModelOutput {
         FIND_SLOW_REQUEST, COLLECT_OBSERVATIONS, SEARCH_MATCHING_RULE
     }
     record Response(Assessment assessment, List<String> evidenceIds, List<Check> nextChecks) {}
-    record Parsed(Assessment assessment, List<Check> nextChecks, TriageEngine.Decision decision) {}
+    record Parsed(Assessment assessment, List<Check> requestedNextChecks, List<Check> nextChecks, TriageEngine.Decision decision) {}
 
     private final ObjectMapper json;
     private final String format;
@@ -76,9 +76,10 @@ final class ModelOutput {
             if (response.assessment() != Assessment.INSUFFICIENT_EVIDENCE) validateAssessment(response.assessment(), selected);
             if (!allowedChecks(response.assessment(), evidence).containsAll(response.nextChecks()))
                 throw new RunFailure("MODEL_CHECKS_MISMATCH", "模型检查项重复已有查询，或缺少对应观测，未保存为排查结果。");
-            Diagnosis diagnosis = render(response, selected);
+            List<Check> prioritized = prioritize(response.assessment(), response.nextChecks());
+            Diagnosis diagnosis = render(response, selected, prioritized);
             EvidenceValidator.validate(diagnosis, evidence);
-            return new Parsed(response.assessment(), List.copyOf(response.nextChecks()), new TriageEngine.Decision(response.assessment() == Assessment.INSUFFICIENT_EVIDENCE
+            return new Parsed(response.assessment(), List.copyOf(response.nextChecks()), prioritized, new TriageEngine.Decision(response.assessment() == Assessment.INSUFFICIENT_EVIDENCE
                 ? Status.INSUFFICIENT_EVIDENCE : Status.SUCCEEDED, diagnosis));
         } catch (RunFailure e) { throw e; }
         catch (UnrecognizedPropertyException e) {
@@ -99,6 +100,18 @@ final class ModelOutput {
     }
 
     private RunFailure invalid(String message) { return new RunFailure("INVALID_MODEL_OUTPUT", message); }
+
+    private List<Check> prioritize(Assessment assessment, List<Check> requested) {
+        List<Check> order = switch (assessment) {
+            case DOWNSTREAM_TIMEOUT_OBSERVED -> List.of(Check.CORRELATE_TRACE, Check.INSPECT_INVENTORY_LATENCY,
+                Check.VERIFY_REQUEST_TIMEOUT, Check.COLLECT_RESOURCE_METRICS, Check.FIND_SLOW_REQUEST);
+            case NO_DOWNSTREAM_TIMEOUT_OBSERVED -> List.of(Check.COLLECT_RESOURCE_METRICS, Check.FIND_SLOW_REQUEST,
+                Check.INSPECT_INVENTORY_LATENCY);
+            case INSUFFICIENT_EVIDENCE -> List.of(Check.COLLECT_OBSERVATIONS, Check.SEARCH_MATCHING_RULE,
+                Check.CORRELATE_TRACE, Check.FIND_SLOW_REQUEST, Check.COLLECT_RESOURCE_METRICS);
+        };
+        return order.stream().filter(requested::contains).limit(2).toList();
+    }
 
     static Set<Check> allowedChecks(Assessment assessment, List<Evidence> evidence) {
         EnumSet<Check> checks = EnumSet.of(Check.FIND_SLOW_REQUEST, Check.COLLECT_RESOURCE_METRICS);
@@ -143,13 +156,13 @@ final class ModelOutput {
             throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "模型判断与本窗口指标或错误事件不符，已拒绝。");
         String rule = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
         if (selected.stream().noneMatch(item -> item.source().equals("search_runbooks") && item.id().startsWith(rule)))
-            throw invalid("模型没有选择与本窗口观测匹配的排障规则，未保存为排查结果。");
+            throw new RunFailure("MODEL_MISSING_EVIDENCE", "模型没有选择与本窗口观测匹配的排障规则，未保存为排查结果。");
     }
 
     private Evidence one(List<Evidence> selected, String source) {
         List<Evidence> matches = selected.stream().filter(item -> item.source().equals(source)).toList();
         if (matches.size() != 1)
-            throw invalid("成功判断必须各选择一条指标证据和一条日志证据，未保存为排查结果。");
+            throw new RunFailure("MODEL_MISSING_EVIDENCE", "成功判断必须各选择一条指标证据和一条日志证据，未保存为排查结果。");
         return matches.getFirst();
     }
 
@@ -160,7 +173,7 @@ final class ModelOutput {
         return value;
     }
 
-    private Diagnosis render(Response response, List<Evidence> selected) {
+    private Diagnosis render(Response response, List<Evidence> selected, List<Check> prioritized) {
         List<Finding> observations = selected.stream()
             .filter(item -> Set.of("read_service_metrics", "query_error_logs").contains(item.source()))
             .map(item -> new Finding(item.summary(), List.of(item.id()))).toList();
@@ -178,7 +191,7 @@ final class ModelOutput {
             uncertainty = "本次只覆盖查询窗口内已采集的订单请求、库存调用和错误事件。未采集库存内部、网络、数据库与连接池指标，"
                 + "不能确认内部根因或服务整体健康。模型选择判断类型与证据，关键结论由应用按证据生成。";
         }
-        List<String> nextSteps = response.nextChecks().stream().map(this::checkText).toList();
+        List<String> nextSteps = prioritized.stream().map(this::checkText).toList();
         return new Diagnosis(observations, causes, nextSteps, uncertainty);
     }
 

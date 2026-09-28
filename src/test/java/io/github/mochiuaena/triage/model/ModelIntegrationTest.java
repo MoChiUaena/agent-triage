@@ -27,7 +27,7 @@ import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
     "triage.mode=MODEL", "triage.model.api-key=test-only-not-a-real-key", "triage.model.name=test-model",
-    "triage.model.max-rounds=3", "triage.model.timeout=2s", "triage.run-timeout=8s",
+    "triage.model.max-rounds=4", "triage.model.timeout=2s", "triage.run-timeout=8s",
     "spring.datasource.url=jdbc:h2:mem:model-http;DB_CLOSE_DELAY=-1"
 })
 @ExtendWith(OutputCaptureExtension.class)
@@ -72,7 +72,8 @@ class ModelIntegrationTest {
         assertThat(run.modelExecution().configuredModel()).isEqualTo("test-model");
         assertThat(run.modelExecution().responseModel()).isEqualTo("test-model-v1");
         assertThat(run.modelExecution().calls()).isEqualTo(2);
-        assertThat(run.modelExecution().nextChecks()).containsExactly("INSPECT_INVENTORY_LATENCY", "CORRELATE_TRACE");
+        assertThat(run.modelExecution().nextChecks()).containsExactly("CORRELATE_TRACE", "INSPECT_INVENTORY_LATENCY");
+        assertThat(run.modelExecution().requestedNextChecks()).containsExactly("INSPECT_INVENTORY_LATENCY", "CORRELATE_TRACE");
         assertThat(run.modelExecution().usage()).isEqualTo(new TokenUsage(220, 40, 260));
         assertThat(MODEL.requests).hasSize(2);
         JsonNode first = MODEL.requests.getFirst();
@@ -131,7 +132,78 @@ class ModelIntegrationTest {
         String id = "DOC-DOWNSTREAM-TIMEOUT#v1";
         MODEL.enqueue(completion(JSON.writeValueAsString(Map.of("assessment", "DOWNSTREAM_TIMEOUT_OBSERVED",
             "evidenceIds", List.of(id), "nextChecks", List.of("COLLECT_OBSERVATIONS"))), true));
-        assertThat(execute().failure().code()).isEqualTo("INVALID_MODEL_OUTPUT");
+        MODEL.enqueue(completion(JSON.writeValueAsString(Map.of("assessment", "DOWNSTREAM_TIMEOUT_OBSERVED",
+            "evidenceIds", List.of(id), "nextChecks", List.of("COLLECT_OBSERVATIONS"))), true));
+        assertThat(execute().failure().code()).isEqualTo("MODEL_MISSING_EVIDENCE");
+    }
+
+    @Test void prematureFinalAnswerCanCollectTheMissingRuleOnceWithinTheOriginalBudget() throws Exception {
+        MODEL.enqueue(toolResponse(true, call("metrics", "read_service_metrics", arguments(false)), call("logs", "query_error_logs", arguments(false))));
+        String partial = JSON.writeValueAsString(Map.of("assessment", "DOWNSTREAM_TIMEOUT_OBSERVED",
+            "evidenceIds", List.of("METRICS-ORDER-DOWNSTREAM_TIMEOUT", "LOGS-ORDER-DOWNSTREAM_TIMEOUT"),
+            "nextChecks", List.of("CORRELATE_TRACE")));
+        MODEL.enqueue(completion(partial, true));
+        MODEL.enqueue(toolResponse(true, call("docs", "search_runbooks", arguments(true))));
+        MODEL.enqueue(completion(answer("METRICS-ORDER-DOWNSTREAM_TIMEOUT"), true));
+        Run run = execute();
+        assertThat(run.status()).isEqualTo(Status.SUCCEEDED);
+        assertThat(run.toolCalls()).isEqualTo(3);
+        assertThat(run.modelExecution().calls()).isEqualTo(4);
+        assertThat(run.events().stream().filter(event -> event.type().equals("EVIDENCE_FEEDBACK"))).hasSize(1);
+        assertThat(MODEL.requests.get(2).toString()).contains("EVIDENCE_FEEDBACK", "search_runbooks");
+    }
+
+    @Test void aSecondPrematureAnswerIsRejectedInsteadOfRepeatingFeedback() throws Exception {
+        MODEL.enqueue(toolResponse(true, call("metrics", "read_service_metrics", arguments(false)), call("logs", "query_error_logs", arguments(false))));
+        String partial = JSON.writeValueAsString(Map.of("assessment", "DOWNSTREAM_TIMEOUT_OBSERVED",
+            "evidenceIds", List.of("METRICS-ORDER-DOWNSTREAM_TIMEOUT", "LOGS-ORDER-DOWNSTREAM_TIMEOUT"),
+            "nextChecks", List.of("CORRELATE_TRACE")));
+        MODEL.enqueue(completion(partial, true));
+        MODEL.enqueue(completion(partial, true));
+        Run run = execute();
+        assertThat(run.failure().code()).isEqualTo("MODEL_MISSING_EVIDENCE");
+        assertThat(run.toolCalls()).isEqualTo(2);
+        assertThat(MODEL.requests).hasSize(3);
+        assertThat(run.events().stream().filter(event -> event.type().equals("EVIDENCE_FEEDBACK"))).hasSize(1);
+    }
+
+    @Test void availableEvidenceNeedsOnlyAReferenceCorrectionAndNoRepeatTools() throws Exception {
+        enqueueAllTools(true);
+        String partial = JSON.writeValueAsString(Map.of("assessment", "DOWNSTREAM_TIMEOUT_OBSERVED",
+            "evidenceIds", List.of("METRICS-ORDER-DOWNSTREAM_TIMEOUT", "LOGS-ORDER-DOWNSTREAM_TIMEOUT"),
+            "nextChecks", List.of("CORRELATE_TRACE")));
+        MODEL.enqueue(completion(partial, true));
+        MODEL.enqueue(completion(answer("METRICS-ORDER-DOWNSTREAM_TIMEOUT"), true));
+        Run run = execute();
+        assertThat(run.status()).isEqualTo(Status.SUCCEEDED);
+        assertThat(run.toolCalls()).isEqualTo(3);
+        assertThat(run.modelExecution().calls()).isEqualTo(3);
+    }
+
+    @Test void missingRuleFeedbackRequiresTimeForBothQueryAndFinalAnswer() throws Exception {
+        MODEL.enqueue(toolResponse(true, call("metrics", "read_service_metrics", arguments(false))));
+        MODEL.enqueue(toolResponse(true, call("logs", "query_error_logs", arguments(false))));
+        MODEL.enqueue(completion(JSON.writeValueAsString(Map.of("assessment", "DOWNSTREAM_TIMEOUT_OBSERVED",
+            "evidenceIds", List.of("METRICS-ORDER-DOWNSTREAM_TIMEOUT", "LOGS-ORDER-DOWNSTREAM_TIMEOUT"),
+            "nextChecks", List.of("CORRELATE_TRACE"))), true));
+        Run run = execute();
+        assertThat(run.failure().code()).isEqualTo("MODEL_MISSING_EVIDENCE");
+        assertThat(MODEL.requests).hasSize(3);
+        assertThat(run.events()).extracting(Event::type).doesNotContain("EVIDENCE_FEEDBACK");
+    }
+
+    @Test void exhaustedToolBudgetDoesNotStartEvidenceFeedback() throws Exception {
+        MODEL.enqueue(toolResponse(true, call("metrics", "read_service_metrics", arguments(false)),
+            call("logs", "query_error_logs", arguments(false)),
+            call("docs", "search_runbooks", arguments(true).replace("订单 超时", "天气预报"))));
+        MODEL.enqueue(completion(JSON.writeValueAsString(Map.of("assessment", "DOWNSTREAM_TIMEOUT_OBSERVED",
+            "evidenceIds", List.of("METRICS-ORDER-DOWNSTREAM_TIMEOUT", "LOGS-ORDER-DOWNSTREAM_TIMEOUT"),
+            "nextChecks", List.of("CORRELATE_TRACE"))), true));
+        Run run = execute();
+        assertThat(run.failure().code()).isEqualTo("MODEL_MISSING_EVIDENCE");
+        assertThat(run.toolCalls()).isEqualTo(3);
+        assertThat(MODEL.requests).hasSize(2);
+        assertThat(run.events()).extracting(Event::type).doesNotContain("EVIDENCE_FEEDBACK");
     }
 
     @Test void unregisteredToolIsRejected() throws Exception {
@@ -199,10 +271,11 @@ class ModelIntegrationTest {
         MODEL.enqueue(toolResponse(true, call("bad", "read_service_metrics", arguments(false).replace("15", "60"))));
         MODEL.enqueue(toolResponse(true, call("docs", "search_runbooks", arguments(true))));
         MODEL.enqueue(toolResponse(true, call("metrics", "read_service_metrics", arguments(false))));
+        MODEL.enqueue(toolResponse(true, call("logs", "query_error_logs", arguments(false))));
         Run run = execute();
         assertThat(run.failure().code()).isEqualTo("MODEL_ROUND_LIMIT");
-        assertThat(run.toolCalls()).isEqualTo(2);
-        assertThat(MODEL.requests).hasSize(3);
+        assertThat(run.toolCalls()).isEqualTo(3);
+        assertThat(MODEL.requests).hasSize(4);
     }
 
     @Test void repeatedToolParametersStopTheLoop() throws Exception {
@@ -214,13 +287,14 @@ class ModelIntegrationTest {
         assertThat(MODEL.requests).hasSize(2);
     }
 
-    @Test void roundLimitStopsASequenceOfDifferentQueries() throws Exception {
+    @Test void argumentFeedbackCannotBypassAnExhaustedRoundBudget() throws Exception {
         MODEL.enqueue(toolResponse(true, call("one", "search_runbooks", arguments(true))));
         MODEL.enqueue(toolResponse(true, call("two", "search_runbooks", arguments(true).replace("订单 超时", "订单 正常"))));
         MODEL.enqueue(toolResponse(true, call("three", "search_runbooks", arguments(true).replace("订单 超时", "库存 健康"))));
+        MODEL.enqueue(toolResponse(true, call("bad", "read_service_metrics", arguments(false).replace("15", "60"))));
         Run run = execute();
         assertThat(run.failure().code()).isEqualTo("MODEL_ROUND_LIMIT");
-        assertThat(MODEL.requests).hasSize(3);
+        assertThat(MODEL.requests).hasSize(4);
     }
 
     @Test void toolBudgetAppliesToMultipleCallsInASingleModelReply() throws Exception {

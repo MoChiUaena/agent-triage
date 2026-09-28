@@ -58,4 +58,16 @@ class ToolsTest {
         assertThatThrownBy(() -> new ObservationSource("LIVE", "http://127.0.0.1:18082/path"))
             .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test void liveSearchIncludesServiceRulesWithoutPretendingTheyMatchedTheQuery() throws Exception {
+        var live = new RunbookSearchTool(new ObservationSource("LIVE", "http://127.0.0.1:18082"));
+        var results = live.execute(context(Scenario.NORMAL), "验证原因");
+        assertThat(results).extracting(item -> item.id()).containsExactly(
+            "DOC-DOWNSTREAM-TIMEOUT#v2", "DOC-HEALTHY-BASELINE#v2", "DOC-EVIDENCE-LIMITS#v1");
+        assertThat(results.get(1).data()).containsEntry("queryMatched", false).containsEntry("serviceReference", true)
+            .containsEntry("retrieval", "keyword+service-reference");
+        assertThat(results.get(2).data()).containsEntry("queryMatched", true).containsEntry("serviceReference", false);
+        assertThat(new RunbookSearchTool().execute(context(Scenario.NORMAL), "验证原因"))
+            .extracting(item -> item.id()).containsExactly("DOC-EVIDENCE-LIMITS#v1");
+    }
 }

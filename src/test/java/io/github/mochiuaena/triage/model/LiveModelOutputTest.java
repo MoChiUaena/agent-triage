@@ -70,7 +70,7 @@ class LiveModelOutputTest {
     @Test void wrongScenarioRuleCannotSupportASuccessfulClaim() {
         var evidence = evidence(5, 0, false, "DOC-DOWNSTREAM-TIMEOUT#v2");
         assertThatThrownBy(() -> output.parse(answer("NO_DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id()), evidence))
-            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT"));
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_MISSING_EVIDENCE"));
     }
 
     @Test void metricsAndLogsAloneDoNotSatisfyTheSuccessfulSelectionContract() {
@@ -78,7 +78,7 @@ class LiveModelOutputTest {
         String answer = "{\"assessment\":\"DOWNSTREAM_TIMEOUT_OBSERVED\",\"evidenceIds\":[\"METRICS-LIVE\",\"LOGS-LIVE\"],"
             + "\"nextChecks\":[\"CORRELATE_TRACE\"]}";
         assertThatThrownBy(() -> output.parse(answer, evidence)).isInstanceOfSatisfying(RunFailure.class, failure -> {
-            assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT");
+            assertThat(failure.code()).isEqualTo("MODEL_MISSING_EVIDENCE");
             assertThat(failure.getMessage()).contains("没有选择", "匹配的排障规则");
         });
     }
@@ -113,6 +113,7 @@ class LiveModelOutputTest {
         assertThat(old.calls()).isEqualTo(2);
         assertThat(old.assessment()).isNull();
         assertThat(old.nextChecks()).isNull();
+        assertThat(old.requestedNextChecks()).isNull();
     }
 
     @Test void schemaExposesEveryAllowedSelectionToTheProvider() throws Exception {
@@ -162,5 +163,24 @@ class LiveModelOutputTest {
         assertThatThrownBy(() -> output.parse(answer("DOWNSTREAM_TIMEOUT_OBSERVED", original.getFirst().id()),
             List.of(original.get(0), original.get(1), log)))
             .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_CHECKS_MISMATCH"));
+    }
+
+    @Test void timeoutSuggestionsArePrioritizedWithoutInventingOrLosingOriginalChoices() {
+        var evidence = evidence(5, 1, true, "DOC-DOWNSTREAM-TIMEOUT#v2");
+        String answer = answer("DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id())
+            .replace("\"INSPECT_INVENTORY_LATENCY\",\"CORRELATE_TRACE\"",
+                "\"FIND_SLOW_REQUEST\",\"COLLECT_RESOURCE_METRICS\",\"VERIFY_REQUEST_TIMEOUT\",\"INSPECT_INVENTORY_LATENCY\",\"CORRELATE_TRACE\"");
+        var parsed = output.parse(answer, evidence);
+        assertThat(parsed.requestedNextChecks()).hasSize(5);
+        assertThat(parsed.nextChecks()).containsExactly(ModelOutput.Check.CORRELATE_TRACE, ModelOutput.Check.INSPECT_INVENTORY_LATENCY);
+        assertThat(parsed.requestedNextChecks()).containsAll(parsed.nextChecks());
+        assertThat(parsed.decision().diagnosis().nextSteps()).hasSize(2);
+    }
+
+    @Test void priorityDoesNotInsertAnUnselectedCheck() {
+        var evidence = evidence(5, 1, true, "DOC-DOWNSTREAM-TIMEOUT#v2");
+        String answer = answer("DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id())
+            .replace("\"INSPECT_INVENTORY_LATENCY\",\"CORRELATE_TRACE\"", "\"COLLECT_RESOURCE_METRICS\"");
+        assertThat(output.parse(answer, evidence).nextChecks()).containsExactly(ModelOutput.Check.COLLECT_RESOURCE_METRICS);
     }
 }

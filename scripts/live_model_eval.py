@@ -87,6 +87,8 @@ def summarize(run, name, expected, elapsed_ms):
         "configuredModel": model.get("configuredModel"),
         "assessment": model.get("assessment"),
         "nextChecks": model.get("nextChecks"),
+        "requestedNextChecks": model.get("requestedNextChecks"),
+        "evidenceFeedbackCount": sum(event["type"] == "EVIDENCE_FEEDBACK" for event in run["events"]),
         "argumentRejectionCount": sum(event["type"] == "TOOL_ARGUMENTS_REJECTED" for event in run["events"]),
         "responseModel": model.get("responseModel"), "modelCalls": model.get("calls"),
         "usage": model.get("usage"),
@@ -100,6 +102,7 @@ def main():
     parser.add_argument("--allow-model-calls", action="store_true", help="Confirm model requests and possible provider fees")
     parser.add_argument("--mock-provider", action="store_true", help="Label an offline protocol stub; never claim model quality")
     parser.add_argument("--expect-argument-correction", action="store_true", help="Require the mock provider to inject and correct one rejected batch")
+    parser.add_argument("--expect-evidence-feedback", action="store_true", help="Require the mock provider to omit then collect a rule after feedback")
     parser.add_argument("--agent-url", default="http://127.0.0.1:18080")
     parser.add_argument("--sample-url", default="http://127.0.0.1:18082")
     parser.add_argument("--inventory-url", default="http://127.0.0.1:18084")
@@ -112,6 +115,8 @@ def main():
         parser.error("Pass --allow-model-calls before contacting the configured model.")
     if args.expect_argument_correction and not args.mock_provider:
         parser.error("--expect-argument-correction requires --mock-provider.")
+    if args.expect_evidence_feedback and (not args.mock_provider or args.expect_argument_correction):
+        parser.error("--expect-evidence-feedback requires --mock-provider and a separate argument-correction run.")
     if not 1 <= args.count <= 10 or args.poll_timeout < 10:
         parser.error("--count must be 1–10 and --poll-timeout must be at least 10 seconds.")
     agent, sample, inventory = (value.rstrip("/") for value in
@@ -158,6 +163,11 @@ def main():
                 result["argumentRejectionCount"] != 1 or result["toolCalls"] != 3
                 or result["modelCalls"] != (2 if name == "empty" else 3)):
             result["accepted"] = False
+        if args.expect_evidence_feedback:
+            expected_calls = 1 if name == "empty" else 4
+            if (result["modelCalls"] != expected_calls or result["evidenceFeedbackCount"] != (0 if name == "empty" else 1)
+                    or result["toolCalls"] != (2 if name == "empty" else 3)):
+                result["accepted"] = False
         results.append(result)
         print(f"{name}: {run['status']} | {run['toolCalls']} tools | {result['modelCalls']} model calls"
               f" | {'accepted' if result['accepted'] else 'needs review'}")
@@ -166,6 +176,7 @@ def main():
         "kind": "live-model-protocol-check" if args.mock_provider else "live-model-run",
         "mockProvider": args.mock_provider, "modelQualityEvaluated": False,
         "argumentCorrectionExpected": args.expect_argument_correction,
+        "evidenceFeedbackExpected": args.expect_evidence_feedback,
         "syntheticObservations": False, "ranAt": datetime.now(timezone.utc).isoformat(),
         "configuredModel": config.get("model"), "provider": config.get("provider"),
         "accepted": sum(item["accepted"] for item in results), "total": len(results),

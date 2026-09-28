@@ -34,7 +34,11 @@ public final class TriageModel {
     public record ModelSource(UUID providerId, String displayName, long version) {}
 
     public record ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage, ModelSource source,
-                                 String assessment, List<String> nextChecks) {
+                                 String assessment, List<String> nextChecks, List<String> requestedNextChecks) {
+        public ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage, ModelSource source,
+                              String assessment, List<String> nextChecks) {
+            this(configuredModel, responseModel, calls, usage, source, assessment, nextChecks, null);
+        }
         public ModelExecution(String configuredModel, String responseModel, int calls, TokenUsage usage, ModelSource source, String assessment) {
             this(configuredModel, responseModel, calls, usage, source, assessment, null);
         }

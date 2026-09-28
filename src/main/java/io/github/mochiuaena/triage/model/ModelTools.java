@@ -25,7 +25,7 @@ final class ModelTools {
     List<ToolCallback> definitions() {
         String observation = session.synthetic() ? "合成观测数据" : "本地样例服务实际请求的窗口观测";
         String logs = session.synthetic() ? "合成样例" : "本地样例服务写入的";
-        return List.of(definition("search_runbooks", "检索订单服务的排障文档。query 使用简短关键词，例如：订单 超时。"),
+        return List.of(definition("search_runbooks", "检索订单服务排障文档。query 使用简短关键词，例如：订单 正常 超时。LIVE 检索还提供本服务基础参考规则；文档不能证明当前状态。"),
             definition("read_service_metrics", "读取当前窗口的订单和库存延迟、超时率，返回" + observation + "。"),
             definition("query_error_logs", "查询当前窗口的错误日志，最多返回三条" + logs + "错误事件。"));
     }

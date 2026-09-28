@@ -56,6 +56,10 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 
 新成功记录的 `modelExecution.nextChecks` 保存已校验的检查项代码；旧记录可能为 null。重复要求已完成的观测/规则查询，或关联不存在的日志 traceId，会以 `MODEL_CHECKS_MISMATCH` 失败。
 
+`MODEL_MISSING_EVIDENCE` 表示成功判断缺少必需观测或引用。预算允许时，应用最多发送一次 `EVIDENCE_FEEDBACK`；已收集的工具不会重复调用，仍不完整或预算不足则失败。格式错误、未知 ID 和观测矛盾不参与该反馈。
+
+`modelExecution.requestedNextChecks` 保留模型原始有效选项，`nextChecks` 为应用按观测排序后的最多两项。`CHECKS_PRIORITIZED` 标明应用排序；旧记录不会重新排序。LIVE 规则证据的 `queryMatched` 与 `serviceReference` 分别标明关键词命中与本服务基础参考。
+
 新版模型最终只选择判断类型、证据 ID 和检查项，成功解析后记录 `CONCLUSION_RENDERED`；窗口事实及关键诊断措辞由应用生成。对外 diagnosis 结构不变，内部选择格式见[模型判断契约](MODEL_OUTPUT.md)。旧历史不会重写。
 
 若模型调用工具后得到的窗口请求数为 0，应用记录 `EVIDENCE_GATE` 事件并直接返回 `INSUFFICIENT_EVIDENCE`，不再发起最终一轮模型请求。结果中的不确定性会说明结论由应用证据门槛生成。

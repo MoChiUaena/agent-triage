@@ -42,16 +42,17 @@ def correction_requested(messages):
                for message in messages[last_assistant + 1:] if message.get("role") == "tool")
 
 
-def calls_for(messages, corrected=False, invalid=False):
+def calls_for(messages, corrected=False, invalid=False, omit_rules=False):
     arguments = {"service": "order-service", "windowMinutes": 15}
     user = next((message.get("content", "") for message in messages if message.get("role") == "user"), "")
     query = "延迟" if "接口延迟原因" in str(user) else "订单 超时 正常"
     prefix = "corrected-" if corrected else ""
-    return [
+    calls = [
         tool_call(prefix + "docs", "search_runbooks", {**arguments, "query": query}),
         tool_call(prefix + "metrics", "read_service_metrics", {**arguments, "windowMinutes": "15" if invalid else 15}),
         tool_call(prefix + "logs", "query_error_logs", arguments),
     ]
+    return calls[1:] if omit_rules else calls
 
 
 def final_answer(evidence):
@@ -71,6 +72,7 @@ def final_answer(evidence):
 
 class Handler(BaseHTTPRequestHandler):
     invalid_first_arguments = False
+    omit_rules_first = False
     def do_POST(self):
         if self.path != "/chat/completions":
             self.send_error(404)
@@ -97,13 +99,26 @@ class Handler(BaseHTTPRequestHandler):
                 payload = response({"role": "assistant", "content": None, "tool_calls": calls_for(messages, corrected=True)}, "tool_calls")
             elif has_tools:
                 evidence = tool_results(messages)
-                answer = json.dumps(final_answer(evidence), ensure_ascii=False)
-                payload = response({"role": "assistant", "content": answer}, "stop")
+                has_rules = any(item["source"] == "search_runbooks" for item in evidence)
+                last_assistant = max(index for index, message in enumerate(messages) if message.get("role") == "assistant")
+                feedback = any(message.get("role") == "system" and "EVIDENCE_FEEDBACK" in str(message.get("content", ""))
+                               for message in messages[last_assistant + 1:])
+                if self.omit_rules_first and not has_rules and feedback:
+                    calls = [tool_call("required-docs", "search_runbooks", {"service": "order-service", "windowMinutes": 15, "query": "订单 正常 超时"})]
+                    payload = response({"role": "assistant", "content": None, "tool_calls": calls}, "tool_calls")
+                else:
+                    if self.omit_rules_first and not has_rules:
+                        metrics = next(item for item in evidence if item["source"] == "read_service_metrics")
+                        answer = {"assessment": "DOWNSTREAM_TIMEOUT_OBSERVED" if metrics["data"]["downstreamTimeoutRate"] > 0 else "NO_DOWNSTREAM_TIMEOUT_OBSERVED",
+                                  "evidenceIds": [item["id"] for item in evidence], "nextChecks": ["COLLECT_RESOURCE_METRICS"]}
+                    else:
+                        answer = final_answer(evidence)
+                    payload = response({"role": "assistant", "content": json.dumps(answer, ensure_ascii=False)}, "stop")
             else:
                 tools = json.dumps(request.get("tools", []), ensure_ascii=False)
                 if "实际请求" not in tools or "合成观测" in tools:
                     raise ValueError("LIVE tool descriptions are missing")
-                calls = calls_for(messages, invalid=self.invalid_first_arguments)
+                calls = calls_for(messages, invalid=self.invalid_first_arguments, omit_rules=self.omit_rules_first)
                 payload = response({"role": "assistant", "content": None, "tool_calls": calls}, "tool_calls")
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -123,8 +138,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=18100)
     parser.add_argument("--invalid-first-arguments", action="store_true", help="Inject a string window, then correct it after application feedback")
+    parser.add_argument("--omit-rules-first", action="store_true", help="Return a premature final answer, then collect the missing rule after feedback")
     args = parser.parse_args()
     Handler.invalid_first_arguments = args.invalid_first_arguments
+    Handler.omit_rules_first = args.omit_rules_first
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"Protocol stub listening on 127.0.0.1:{args.port}", flush=True)
     server.serve_forever()

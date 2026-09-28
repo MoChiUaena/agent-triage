@@ -17,6 +17,7 @@ import java.util.Map;
 public class RunbookSearchTool implements ReadOnlyTool {
     private record Document(String id, String title, String content, List<String> keywords, int version, boolean synthetic) {}
     private final List<Document> documents;
+    private final boolean serviceReferences;
 
     public RunbookSearchTool() throws IOException { this(false); }
 
@@ -24,6 +25,7 @@ public class RunbookSearchTool implements ReadOnlyTool {
     public RunbookSearchTool(ObservationSource source) throws IOException { this(!source.synthetic()); }
 
     private RunbookSearchTool(boolean live) throws IOException {
+        serviceReferences = live;
         documents = List.of(
             load(live ? "DOC-DOWNSTREAM-TIMEOUT#v2" : "DOC-DOWNSTREAM-TIMEOUT#v1", "下游超时排障",
                 live ? "downstream-timeout-live.md" : "downstream-timeout.md",
@@ -48,10 +50,17 @@ public class RunbookSearchTool implements ReadOnlyTool {
         if (query == null || query.isBlank() || query.length() > 200) throw new IllegalArgumentException("Query must contain 1..200 characters");
         String normalized = query.toLowerCase(Locale.ROOT);
         return documents.stream()
-            .filter(doc -> doc.keywords().stream().anyMatch(normalized::contains))
+            .filter(doc -> matches(doc, normalized) || serviceReferences && coreRule(doc))
             .limit(3)
             .map(doc -> new Evidence(doc.id(), name(), doc.title(), doc.content(),
-                Map.of("service", context.service(), "synthetic", doc.synthetic(), "retrieval", "keyword", "version", doc.version())))
+                Map.of("service", context.service(), "synthetic", doc.synthetic(),
+                    "retrieval", serviceReferences ? "keyword+service-reference" : "keyword", "version", doc.version(),
+                    "queryMatched", matches(doc, normalized), "serviceReference", serviceReferences && coreRule(doc))))
             .toList();
+    }
+
+    private boolean matches(Document doc, String query) { return doc.keywords().stream().anyMatch(query::contains); }
+    private boolean coreRule(Document doc) {
+        return doc.id().startsWith("DOC-DOWNSTREAM-TIMEOUT#") || doc.id().startsWith("DOC-HEALTHY-BASELINE#");
     }
 }
