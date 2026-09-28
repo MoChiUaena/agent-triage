@@ -78,6 +78,8 @@ class ModelIntegrationTest {
         assertThat(MODEL.requests).hasSize(2);
         JsonNode first = MODEL.requests.getFirst();
         assertThat(first.get("tools")).hasSize(3);
+        assertThat(first.path("tool_choice").asText()).isEqualTo("auto");
+        assertThat(MODEL.requests.get(1).path("tool_choice").asText()).isEqualTo("none");
         assertThat(first.get("model").asText()).isEqualTo("test-model");
         assertThat(first.at("/thinking/type").asText()).isEqualTo("disabled");
         assertThat(first.get("tools").get(0).at("/function/parameters/properties/service/const").asText()).isEqualTo("order-service");

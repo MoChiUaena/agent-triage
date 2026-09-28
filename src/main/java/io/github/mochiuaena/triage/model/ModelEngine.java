@@ -36,7 +36,6 @@ public final class ModelEngine implements TriageEngine {
                     "该问题超出当前排障范围；应用没有请求模型生成结论。"));
         }
         ModelTools tools = new ModelTools(session, json);
-        var options = OpenAiChatOptions.builder().toolCallbacks(tools.definitions()).internalToolExecutionEnabled(false).build();
         List<Message> messages = new ArrayList<>();
         messages.add(new SystemMessage(systemPrompt(session)));
         messages.add(new UserMessage(session.question()));
@@ -44,6 +43,8 @@ public final class ModelEngine implements TriageEngine {
         int argumentCorrections = 0;
         int evidenceFeedback = 0;
         while (true) {
+            var options = OpenAiChatOptions.builder().toolCallbacks(tools.definitions()).internalToolExecutionEnabled(false)
+                .toolChoice(missingTools(session.evidence()).isEmpty() ? "none" : "auto").build();
             Prompt prompt = new Prompt(List.copyOf(messages), options);
             ChatResponse response = session.callModel(() -> client.prompt(prompt).call().chatResponse(), settings.timeout(), settings.maxRounds());
             if (response == null || response.getResults().size() != 1 || response.getResult().getOutput() == null)
@@ -214,6 +215,7 @@ public final class ModelEngine implements TriageEngine {
             其他情况选择 INSUFFICIENT_EVIDENCE。成功判断必须选择本次返回的指标、日志和对应状态的排障规则。
             evidenceIds 只能使用本次工具返回的 ID；文档本身不能证明当前服务状态。
             只有指标和日志时不要提前输出成功判断；仍须检索对应排障规则。缺少证据或引用时应用最多反馈一次，不能提高调用限额。
+            已取得全部必需证据时，工具选择会关闭，请直接选择已有引用并输出最终 JSON，不再发起检索。
             nextChecks 只能选择当前允许的检查项。成功判断已有指标、日志和规则，不再选择 COLLECT_OBSERVATIONS 或 SEARCH_MATCHING_RULE。
             日志没有 traceId 时不选择 CORRELATE_TRACE；正常窗口可选择寻找具体慢请求、补充资源指标或核对库存实际处理耗时。
             应用会校验判断与检查项是否匹配观测，并生成可显示的结论。
