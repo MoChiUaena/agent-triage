@@ -17,8 +17,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -48,8 +48,8 @@ jobs:
           --health-cmd "pg_isready -U triage -d triage"
           --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -63,8 +63,8 @@ jobs:
     name: Live sample and model protocol integration
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -74,9 +74,9 @@ jobs:
           ./mvnw -B -ntp -f inventory-service/pom.xml verify
           ./mvnw -B -ntp -f sample-service/pom.xml verify
           ./mvnw -B -ntp -DskipTests package
-          java -jar inventory-service/target/triage-inventory-service-0.1.0-SNAPSHOT.jar > inventory.log 2>&1 &
-          java -jar sample-service/target/triage-sample-service-0.1.0-SNAPSHOT.jar > sample.log 2>&1 &
-          java -jar target/agent-triage-0.1.0-SNAPSHOT.jar --server.port=18083 '--spring.datasource.url=jdbc:h2:mem:live;DB_CLOSE_DELAY=-1' --triage.observation.source=LIVE --triage.settings.key-file=target/ci-live-key > agent.log 2>&1 &
+          java -jar inventory-service/target/triage-inventory-service-0.1.0.jar > inventory.log 2>&1 &
+          java -jar sample-service/target/triage-sample-service-0.1.0.jar > sample.log 2>&1 &
+          java -jar target/agent-triage-0.1.0.jar --server.port=18083 '--spring.datasource.url=jdbc:h2:mem:live;DB_CLOSE_DELAY=-1' --triage.observation.source=LIVE --triage.settings.key-file=target/ci-live-key > agent.log 2>&1 &
           for i in {1..40}; do
             if curl -fsS http://127.0.0.1:18084/lab/scenario > /dev/null && curl -fsS http://127.0.0.1:18082/lab/scenario > /dev/null && curl -fsS http://127.0.0.1:18083/api/config > /dev/null; then break; fi
             sleep 1
@@ -84,7 +84,7 @@ jobs:
           python3 scripts/live_smoke.py
           python3 scripts/model_protocol_stub.py --port 18100 > model-stub.log 2>&1 &
           stub_pid=$!
-          java -jar target/agent-triage-0.1.0-SNAPSHOT.jar --server.port=18085 '--spring.datasource.url=jdbc:h2:mem:live-model;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/ci-live-model-key --triage.observation.source=LIVE --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18100 --triage.model.api-key=test-only-local --triage.model.name=triage-stub --triage.model.timeout=5s > model-agent.log 2>&1 &
+          java -jar target/agent-triage-0.1.0.jar --server.port=18085 '--spring.datasource.url=jdbc:h2:mem:live-model;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/ci-live-model-key --triage.observation.source=LIVE --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18100 --triage.model.api-key=test-only-local --triage.model.name=triage-stub --triage.model.timeout=5s > model-agent.log 2>&1 &
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:18085/api/config > /dev/null; then break; fi
             sleep 1
@@ -104,3 +104,20 @@ jobs:
           python3 scripts/model_protocol_stub.py --port 18100 --omit-rules-first > evidence-stub.log 2>&1 &
           sleep 1
           python3 scripts/live_model_eval.py --allow-model-calls --mock-provider --expect-evidence-feedback --agent-url http://127.0.0.1:18085
+          python3 scripts/package_release.py
+          python3 -c "import zipfile; zipfile.ZipFile('target/release/agent-triage-0.1.0-demo.zip').extractall('target/bundle-smoke')"
+          bash target/bundle-smoke/agent-triage-0.1.0/start-demo.sh 18180 > bundle.log 2>&1 &
+          bundle_pid=$!
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:18180/api/config > /dev/null; then break; fi
+            sleep 1
+          done
+          python3 scripts/live_smoke.py --agent-url http://127.0.0.1:18180 --sample-url http://127.0.0.1:18182 --inventory-url http://127.0.0.1:18184
+          kill "$bundle_pid"
+          wait "$bundle_pid" || true
+          for port in 18180 18182 18184; do
+            if curl -fsS --max-time 2 "http://127.0.0.1:$port/actuator/health" > /dev/null; then
+              echo "Bundle service on $port did not stop" >&2
+              exit 1
+            fi
+          done

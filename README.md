@@ -10,6 +10,8 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。当前支持订�
 
 图中是 4 次实际处理的样例请求，其中 1 次库存调用超时，窗口超时率为 25%；数值随机器和运行次数变化。
 
+[50 秒演示录像](docs/assets/agent-triage-demo.mp4)：前半录制实际 HTTP 请求排查，后半回放百炼历史结果。无声字幕，完整标识符已脱敏；录制说明见[演示说明](docs/DEMO.md)。
+
 [v4 首次留出对照](docs/validation/2026-09-28-v4-holdout.md)的 6 个案例中，4 条符合证据契约，2 条由应用门槛返回证据不足，没有失败。应用提供服务参考规则，并从模型有效候选中排序、显示两项检查建议，保留原始选择。关键结论与排序由应用策略生成，这组小样本不代表模型自由归因能力或生产准确率。
 
 ## 功能
@@ -24,6 +26,14 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。当前支持订�
 - 在[模型设置页](http://127.0.0.1:18080/settings.html)添加、测试和选择模型服务；更改配置无需重启。
 
 ## 快速启动
+
+免构建的演示包在 [Releases](https://github.com/MoChiUaena/agent-triage/releases) 中提供。需要 JDK 21，完整解压后运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
+```
+
+macOS/Linux 使用 `bash start-demo.sh`，另需 curl。脚本启动三个服务，首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面是从源码启动的方式。
 
 需要 JDK 21+。仓库自带 Maven Wrapper，首次构建会下载 Maven 和依赖。
 
@@ -40,9 +50,7 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 打开 <http://127.0.0.1:18080>。默认使用 H2 文件数据库，记录保存在 `data/` 目录。按 `Ctrl+C` 停止服务。
 
-界面使用蓝白配色和微软雅黑字体，排查页与模型设置页保持一致。
-
-也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.1.0-SNAPSHOT.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
+也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.1.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
 
 ## 跑通本地真实请求
 
@@ -50,12 +58,12 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 ```powershell
 .\mvnw.cmd -f inventory-service/pom.xml verify
-java -jar inventory-service/target/triage-inventory-service-0.1.0-SNAPSHOT.jar
+java -jar inventory-service/target/triage-inventory-service-0.1.0.jar
 ```
 
 ```powershell
 .\mvnw.cmd -f sample-service/pom.xml verify
-java -jar sample-service/target/triage-sample-service-0.1.0-SNAPSHOT.jar
+java -jar sample-service/target/triage-sample-service-0.1.0.jar
 ```
 
 在第三个终端启动排障助手：
@@ -102,15 +110,13 @@ $env:SPRING_PROFILES_ACTIVE = 'postgres'
 
 打开[模型设置页](http://127.0.0.1:18080/settings.html)，选择 DeepSeek、阿里云百炼、智谱 GLM、Kimi、LM Studio 或自定义兼容接口，再填写 API Key。保存后可测试连接并设为当前模型。配置方法、调用限制和费用说明见[模型配置](docs/MODELS.md)。
 
-模型链路已通过本地模拟接口测试，也已用百炼模型在 LIVE 数据源下检查空窗口、正常与库存超时三条链路。调用状态和证据引用通过，但超时结论仍有需要人工修订的措辞；结果见[百炼 LIVE 检查记录](docs/validation/2026-09-27-bailian-live.md)。
+模型链路已通过本地模拟接口与真实百炼检查。新版模型只选择判断、工具、引用和候选检查项；应用校验当前观测并生成关键结论，原始与展示检查项分开保存。其他供应商预设尚未用真实凭据验证。
 
 配置模型并启用 LIVE 数据源后，可用 `python scripts/live_model_eval.py --allow-model-calls` 检查空窗口、正常与库存超时三条链路。脚本保存工具顺序、证据引用、模型轮次和用量；服务端可能计费。运行方法和模拟接口结果见[小规模评测](docs/EVALUATION.md#live-数据源与模型模式)。
 
 要比较“仅检索文档”和 Agent 的实际回答，可运行 `python scripts/compare_live_methods.py --allow-model-calls`。默认先跑四个调试案例，结果写入 `target/live-comparison/`；评审方法和留出集约束见[小规模评测](docs/EVALUATION.md#后续比较)。
 
-本项目已按固定标准完成 10 个调试例和 10 个留出例的[人工对照记录](docs/validation/2026-09-27-holdout-comparison.md)。Agent 能引用实时观测，但仍存在无效输出和正文证据误写；这些问题列在报告中，不计为诊断准确率。
-
-上述报告属于旧版自由文本输出。新版[模型判断契约](docs/MODEL_OUTPUT.md)不接收模型编写的数值、traceId 或诊断句子，旧历史仍可查看；新版本使用另一组案例验证。
+当前结果见 [v4 首次留出对照](docs/validation/2026-09-28-v4-holdout.md)。[旧版自由文本报告](docs/validation/2026-09-27-holdout-comparison.md)保留误写证据与过强归因等失败，新版不会改写旧历史。输出格式和反馈限额见[模型判断契约](docs/MODEL_OUTPUT.md)。
 
 ## 测试
 

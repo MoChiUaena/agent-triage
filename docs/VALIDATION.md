@@ -12,6 +12,10 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+v0.1.0 交付检查：主项目 138 项、订单与库存服务各 1 项测试通过。演示 ZIP 仅有 8 个许可条目，不含运行数据库、日志或凭据；从带空格和中文的本地路径解压后，PowerShell 与 Git Bash 启动均通过空窗口、正常和超时链路，Ctrl+C 后测试端口关闭，数据库保留。原始检查结果在忽略的 `target/live-smoke/`。
+
+约 50 秒 MP4 已完整解码检查，并抽帧核对操作、字幕、日志脱敏及模型历史回放标记。Linux 原生启动和退出另外由 CI 对解压包验证，不将 Git Bash 检查当成 Linux 验收。
+
 | 测试类 | 数量 | 覆盖内容 |
 |---|---|---|
 | `ToolsTest` | 7 | 服务与窗口参数、场景指标、日志范围、关键词与服务参考规则召回、LIVE 文档版本及观测地址限制 |
@@ -110,6 +114,6 @@ Spring AI 1.1.8 将服务端 `finish_reason=length` 转为大写 `LENGTH`。只�
 
 ## Windows 打包时提示无法重命名 JAR
 
-用 `java -jar target/agent-triage-0.1.0-SNAPSHOT.jar` 启动后，如果再次执行 package，Spring Boot repackage 可能报错：无法将 JAR 重命名为 `.jar.original`。
+用 `java -jar target/agent-triage-0.1.0.jar` 启动后，如果再次执行 package，Spring Boot repackage 可能报错：无法将 JAR 重命名为 `.jar.original`。
 
 原因是运行中的 Java 进程占用了该文件。停止进程后重新打包即可。开发时建议使用 `mvnw.cmd spring-boot:run`；需要同时运行和重新打包时，可从 JAR 副本启动。
