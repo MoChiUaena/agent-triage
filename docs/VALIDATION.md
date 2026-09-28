@@ -37,6 +37,10 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 浏览器在 1440px 与 390px 下验证历史和布局，参数拒绝事件不会被显示成工具正在执行。模拟器测试不代表真实模型纠错效果；真实模型检查使用 [v3 案例](evaluation/cases-v3.json)与[标准](evaluation/rubric-v3.md)。
 
+[真实模型 v3 调试](validation/2026-09-28-v3-dev.md)：3 条满足契约、1 条应用门槛。[首次留出对照](validation/2026-09-28-v3-holdout.md)：3 条满足契约、4 条应用门槛、1 条规则遗漏失败。两轮真实模型都没有触发参数更正；失败与不完整排查都保留在报告中。
+
+修订代码的 Windows、Ubuntu、PostgreSQL 和 LIVE 模型协议检查[全部通过](https://github.com/MoChiUaena/agent-triage/actions/runs/36391805165)，LIVE CI 包含主动注入无效参数后的纠正链路。
+
 ## 2026-09-28 证据约束输出
 
 主项目 `mvnw.cmd -B -ntp verify`：108 项通过。模型只选择判断类型、证据与检查项，应用核对观测后生成结论；旧历史记录仍可读取。
