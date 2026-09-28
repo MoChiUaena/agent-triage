@@ -73,6 +73,7 @@ jobs:
         run: |
           ./mvnw -B -ntp -f inventory-service/pom.xml verify
           ./mvnw -B -ntp -f sample-service/pom.xml verify
+          ./mvnw -B -ntp -f database-service/pom.xml verify
           ./mvnw -B -ntp -DskipTests package
           java -jar inventory-service/target/triage-inventory-service-0.1.0.jar > inventory.log 2>&1 &
           java -jar sample-service/target/triage-sample-service-0.1.0.jar > sample.log 2>&1 &

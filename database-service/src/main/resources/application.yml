@@ -1,0 +1,25 @@
+server:
+  address: 127.0.0.1
+  port: ${DATABASE_SAMPLE_PORT:18096}
+spring:
+  application:
+    name: triage-database-service
+  datasource:
+    url: jdbc:h2:mem:accounts;DB_CLOSE_DELAY=-1;LOCK_TIMEOUT=600
+    username: sa
+    password: ''
+    hikari:
+      maximum-pool-size: 2
+      minimum-idle: 2
+      connection-timeout: 350
+      pool-name: account-pool
+sample:
+  service-id: ${DATABASE_SAMPLE_SERVICE_ID:account-service}
+  database-id: ${DATABASE_SAMPLE_DATABASE_ID:accounts-db}
+  lab-enabled: ${DATABASE_SAMPLE_LAB_ENABLED:true}
+  error-log-file: ${DATABASE_SAMPLE_ERROR_LOG_FILE:./data/database-errors.jsonl}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
