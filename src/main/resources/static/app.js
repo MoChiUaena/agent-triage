@@ -583,6 +583,24 @@ function renderRun(run) {
   ];
   if (run.modelExecution) {
     const model = run.modelExecution;
+    if (model.assessment)
+      info.push([
+        "窗口判断",
+        {
+          DOWNSTREAM_TIMEOUT_OBSERVED: "发现库存调用超时",
+          NO_DOWNSTREAM_TIMEOUT_OBSERVED: "未发现库存调用超时",
+          INSUFFICIENT_EVIDENCE: "证据不足",
+        }[model.assessment] || "证据不足",
+      ]);
+    if (run.events.some((event) => event.type === "CONCLUSION_RENDERED"))
+      info.push(["结论生成", "模型选证据 · 应用生成措辞"]);
+    else if (
+      run.events.some((event) =>
+        ["SCOPE_GATE", "EVIDENCE_GATE"].includes(event.type),
+      )
+    )
+      info.push(["结论生成", "应用证据门槛"]);
+    else if (run.diagnosis) info.push(["结论生成", "旧版模型文本"]);
     if (model.source)
       info.push(
         ["模型服务", model.source.displayName],

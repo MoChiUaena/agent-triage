@@ -7,21 +7,23 @@ import io.github.mochiuaena.triage.domain.TriageModel.*;
 import io.github.mochiuaena.triage.execution.*;
 import org.springframework.ai.converter.BeanOutputConverter;
 import java.util.*;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+/** The model selects claims and evidence; only application code writes diagnostic text. */
 final class ModelOutput {
-    private static final Pattern TRACE_CANDIDATE = Pattern.compile(
-        "(?i)\\b[0-9a-f]{7,8}(?:-[0-9a-f]{4}){2,3}-[0-9a-f]{12}\\b");
-    enum Outcome { SUCCEEDED, INSUFFICIENT_EVIDENCE }
-    record Response(Outcome status, Diagnosis diagnosis) {}
+    enum Assessment { DOWNSTREAM_TIMEOUT_OBSERVED, NO_DOWNSTREAM_TIMEOUT_OBSERVED, INSUFFICIENT_EVIDENCE }
+    enum Check {
+        INSPECT_INVENTORY_LATENCY, CORRELATE_TRACE, VERIFY_REQUEST_TIMEOUT, COLLECT_RESOURCE_METRICS,
+        FIND_SLOW_REQUEST, COLLECT_OBSERVATIONS, SEARCH_MATCHING_RULE
+    }
+    record Response(Assessment assessment, List<String> evidenceIds, List<Check> nextChecks) {}
+    record Parsed(Assessment assessment, TriageEngine.Decision decision) {}
 
     private final ObjectMapper json;
     private final String format;
 
     ModelOutput(ObjectMapper mapper) {
         json = strictMapper(mapper);
-        // Use Spring AI for the schema, but parse locally: converter errors include raw model text in logs.
         format = new BeanOutputConverter<>(Response.class, json).getFormat();
     }
 
@@ -41,85 +43,98 @@ final class ModelOutput {
 
     String format() { return format; }
 
-    TriageEngine.Decision parse(String text, List<Evidence> evidence) {
+    Parsed parse(String text, List<Evidence> evidence) {
         try {
             if (text == null || text.length() > 16_000) throw new IllegalArgumentException();
             String content = text.strip();
             if ((content.startsWith("```json\n") || content.startsWith("```\n")) && content.endsWith("```"))
                 content = content.substring(content.indexOf('\n') + 1, content.length() - 3).strip();
             Response response = json.readValue(content, Response.class);
-            if (response == null || response.status() == null) throw new IllegalArgumentException();
-            if (response.status() == Outcome.SUCCEEDED) rejectEmptyWindow(evidence);
-            EvidenceValidator.validate(response.diagnosis(), evidence);
-            Diagnosis diagnosis = response.diagnosis();
-            validateTraceIds(diagnosis, evidence);
-            if (response.status() == Outcome.SUCCEEDED) validateSuccess(diagnosis, evidence);
-            else if (!diagnosis.possibleCauses().isEmpty()) throw new IllegalArgumentException();
-            return new TriageEngine.Decision(Status.valueOf(response.status().name()), diagnosis);
-        } catch (RunFailure e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RunFailure("INVALID_MODEL_OUTPUT", "模型结论的格式或证据引用无效，未保存为排查结果。");
+            if (response == null || response.assessment() == null || response.evidenceIds() == null
+                || response.evidenceIds().size() > 15 || new HashSet<>(response.evidenceIds()).size() != response.evidenceIds().size()
+                || response.nextChecks() == null || response.nextChecks().isEmpty() || response.nextChecks().size() > 5
+                || response.nextChecks().contains(null)
+                || new HashSet<>(response.nextChecks()).size() != response.nextChecks().size()) throw new IllegalArgumentException();
+            Map<String, Evidence> byId = evidence.stream().collect(Collectors.toMap(Evidence::id, item -> item));
+            if (!byId.keySet().containsAll(response.evidenceIds())) throw new IllegalArgumentException();
+            List<Evidence> selected = response.evidenceIds().stream().map(byId::get).toList();
+            if (response.assessment() != Assessment.INSUFFICIENT_EVIDENCE) validateAssessment(response.assessment(), selected);
+            Diagnosis diagnosis = render(response, selected);
+            EvidenceValidator.validate(diagnosis, evidence);
+            return new Parsed(response.assessment(), new TriageEngine.Decision(response.assessment() == Assessment.INSUFFICIENT_EVIDENCE
+                ? Status.INSUFFICIENT_EVIDENCE : Status.SUCCEEDED, diagnosis));
+        } catch (RunFailure e) { throw e; }
+        catch (Exception e) {
+            throw new RunFailure("INVALID_MODEL_OUTPUT", "模型判断类型、检查项或证据选择无效，未保存为排查结果。");
         }
     }
 
-    private void validateTraceIds(Diagnosis diagnosis, List<Evidence> evidence) {
-        Set<String> known = new HashSet<>();
-        for (Evidence item : evidence) {
-            if (!"query_error_logs".equals(item.source())) continue;
-            if (!(item.data().get("entries") instanceof List<?> entries)) continue;
-            for (Object entry : entries) {
-                if (entry instanceof Map<?, ?> values && values.get("traceId") instanceof String id)
-                    known.add(id.toLowerCase(Locale.ROOT));
-            }
-        }
-        List<String> texts = new ArrayList<>();
-        diagnosis.observations().forEach(finding -> texts.add(finding.text()));
-        diagnosis.possibleCauses().forEach(finding -> texts.add(finding.text()));
-        texts.addAll(diagnosis.nextSteps());
-        texts.add(diagnosis.uncertainty());
-        for (String text : texts) {
-            var matches = TRACE_CANDIDATE.matcher(text);
-            while (matches.find()) {
-                if (!known.contains(matches.group().toLowerCase(Locale.ROOT)))
-                    throw new RunFailure("MODEL_UNSUPPORTED_TRACE_ID", "模型结论写入了本次日志中不存在的 traceId，已拒绝。");
-            }
-        }
-    }
-
-    private void rejectEmptyWindow(List<Evidence> evidence) {
-        evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().ifPresent(metrics -> {
-            if (metrics.data().get("requestCount") instanceof Number count && count.intValue() <= 0)
-                throw new RunFailure("MODEL_NO_OBSERVATIONS", "模型试图在无请求窗口生成成功结论，已拒绝。");
-        });
-    }
-
-    private void validateSuccess(Diagnosis diagnosis, List<Evidence> evidence) {
-        if (diagnosis.observations().isEmpty() || diagnosis.possibleCauses().isEmpty()) throw new IllegalArgumentException();
-        Evidence metrics = evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElseThrow();
-        if (!(metrics.data().get("requestCount") instanceof Number count) || count.intValue() <= 0)
-            throw new IllegalArgumentException();
-        if (!(metrics.data().get("downstreamTimeoutRate") instanceof Number rate)) throw new IllegalArgumentException();
-        String requiredRule = rate.doubleValue() > 0 ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
-        Map<String, Evidence> byId = evidence.stream().collect(Collectors.toMap(Evidence::id, e -> e));
-        Set<String> citedSources = new HashSet<>();
-        for (Finding finding : diagnosis.observations()) {
-            Set<String> sources = sources(finding, byId);
-            if (Collections.disjoint(sources, Set.of("read_service_metrics", "query_error_logs"))) throw new IllegalArgumentException();
-            citedSources.addAll(sources);
-        }
-        for (Finding finding : diagnosis.possibleCauses()) {
-            Set<String> sources = sources(finding, byId);
-            if (!sources.contains("search_runbooks") || Collections.disjoint(sources, Set.of("read_service_metrics", "query_error_logs")))
-                throw new IllegalArgumentException();
-            if (finding.evidenceIds().stream().noneMatch(id -> id.startsWith(requiredRule))) throw new IllegalArgumentException();
-            citedSources.addAll(sources);
-        }
-        if (!citedSources.containsAll(Set.of("search_runbooks", "read_service_metrics", "query_error_logs")))
+    private void validateAssessment(Assessment assessment, List<Evidence> selected) {
+        Evidence metrics = one(selected, "read_service_metrics");
+        Evidence logs = one(selected, "query_error_logs");
+        if (!(metrics.data().get("requestCount") instanceof Number count) || count.longValue() <= 0)
+            throw new RunFailure("MODEL_NO_OBSERVATIONS", "模型试图在无请求窗口生成成功判断，已拒绝。");
+        double rate = number(metrics, "downstreamTimeoutRate");
+        if (rate > 1) throw new IllegalArgumentException();
+        number(metrics, "orderP95Ms");
+        number(metrics, "downstreamP95Ms");
+        if (!(logs.data().get("entries") instanceof List<?> entries)
+            || !(logs.data().get("returnedCount") instanceof Number returned)
+            || returned.intValue() != entries.size()
+            || !(logs.data().get("timeoutCount") instanceof Number timeouts)) throw new IllegalArgumentException();
+        boolean timeout = assessment == Assessment.DOWNSTREAM_TIMEOUT_OBSERVED;
+        if ((timeout && (rate <= 0 || timeouts.longValue() <= 0 || entries.isEmpty()))
+            || (!timeout && (rate != 0 || timeouts.longValue() != 0 || !entries.isEmpty())))
+            throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "模型判断与本窗口指标或错误事件不符，已拒绝。");
+        String rule = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
+        if (selected.stream().noneMatch(item -> item.source().equals("search_runbooks") && item.id().startsWith(rule)))
             throw new IllegalArgumentException();
     }
 
-    private Set<String> sources(Finding finding, Map<String, Evidence> evidence) {
-        return finding.evidenceIds().stream().map(id -> evidence.get(id).source()).collect(Collectors.toSet());
+    private Evidence one(List<Evidence> selected, String source) {
+        List<Evidence> matches = selected.stream().filter(item -> item.source().equals(source)).toList();
+        if (matches.size() != 1) throw new IllegalArgumentException();
+        return matches.getFirst();
+    }
+
+    private double number(Evidence evidence, String name) {
+        if (!(evidence.data().get(name) instanceof Number number)) throw new IllegalArgumentException();
+        double value = number.doubleValue();
+        if (!Double.isFinite(value) || value < 0) throw new IllegalArgumentException();
+        return value;
+    }
+
+    private Diagnosis render(Response response, List<Evidence> selected) {
+        List<Finding> observations = selected.stream()
+            .filter(item -> Set.of("read_service_metrics", "query_error_logs").contains(item.source()))
+            .map(item -> new Finding(item.summary(), List.of(item.id()))).toList();
+        List<Finding> causes = List.of();
+        String uncertainty = "本次证据仍不足以支持当前状态判断。模型只选择了证据和检查项，关键措辞由应用生成。";
+        if (response.assessment() != Assessment.INSUFFICIENT_EVIDENCE) {
+            boolean timeout = response.assessment() == Assessment.DOWNSTREAM_TIMEOUT_OBSERVED;
+            String required = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
+            Evidence rule = selected.stream().filter(item -> item.source().equals("search_runbooks") && item.id().startsWith(required))
+                .findFirst().orElseThrow();
+            List<String> ids = List.of(one(selected, "read_service_metrics").id(), one(selected, "query_error_logs").id(), rule.id());
+            causes = List.of(new Finding(timeout
+                ? "本窗口存在库存调用超时，可能影响订单查询；建议优先验证库存调用路径。"
+                : "本窗口未发现库存调用超时证据；其他延迟来源仍需补充观测。", ids));
+            uncertainty = "本次只覆盖查询窗口内已采集的订单请求、库存调用和错误事件。未采集库存内部、网络、数据库与连接池指标，"
+                + "不能确认内部根因或服务整体健康。模型选择判断类型与证据，关键结论由应用按证据生成。";
+        }
+        List<String> nextSteps = response.nextChecks().stream().map(this::checkText).toList();
+        return new Diagnosis(observations, causes, nextSteps, uncertainty);
+    }
+
+    private String checkText(Check check) {
+        return switch (check) {
+            case INSPECT_INVENTORY_LATENCY -> "核对同一窗口内库存接口的实际处理耗时和错误率。";
+            case CORRELATE_TRACE -> "使用错误事件中已有的 traceId 对照订单与库存请求的调用耗时。";
+            case VERIFY_REQUEST_TIMEOUT -> "核对订单客户端的请求总时限，并结合库存接口耗时验证。";
+            case COLLECT_RESOURCE_METRICS -> "补充库存服务 CPU、连接池、网络及数据库指标后再判断内部原因。";
+            case FIND_SLOW_REQUEST -> "找到具体慢请求的时间和 traceId，缩小查询范围。";
+            case COLLECT_OBSERVATIONS -> "补充当前窗口的订单指标和错误日志后再判断。";
+            case SEARCH_MATCHING_RULE -> "检索与本次正常或超时观测匹配的排障规则。";
+        };
     }
 }

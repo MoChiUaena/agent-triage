@@ -52,6 +52,8 @@ data:{"id":"...","status":"SUCCEEDED",...}
 
 MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事件，表示请求边界，不包含模型原始回复或内部思考内容。
 
+新版模型最终只选择判断类型、证据 ID 和检查项，成功解析后记录 `CONCLUSION_RENDERED`；窗口事实及关键诊断措辞由应用生成。对外 diagnosis 结构不变，内部选择格式见[模型判断契约](MODEL_OUTPUT.md)。旧历史不会重写。
+
 若模型调用工具后得到的窗口请求数为 0，应用记录 `EVIDENCE_GATE` 事件并直接返回 `INSUFFICIENT_EVIDENCE`，不再发起最终一轮模型请求。结果中的不确定性会说明结论由应用证据门槛生成。
 
 若已有请求指标且检索到了文档，但没有与当前超时/正常观测相符的规则，应用同样记录 `EVIDENCE_GATE`，返回证据不足；模型不能用错误场景的文档支持成功结论。
@@ -99,7 +101,7 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 
 常见失败代码：`TOOL_CALL_LIMIT`、`TOOL_TIMEOUT`、`RUN_TIMEOUT`、`TOOL_ERROR`、`TOOL_OUTPUT_LIMIT`、`RUN_QUEUE_FULL`、`TOOL_CAPACITY`、`SERVER_RESTARTED`。未知执行异常使用 `EXECUTION_ERROR`。
 
-模型相关失败包括 `MODEL_HTTP_ERROR`、`MODEL_TIMEOUT`、`MODEL_ROUND_LIMIT`、`MODEL_OUTPUT_TRUNCATED`、`MODEL_RESPONSE_LIMIT`、`INVALID_MODEL_OUTPUT`、`MODEL_NO_OBSERVATIONS`、`MODEL_UNSUPPORTED_TRACE_ID`、`INVALID_TOOL_ARGUMENTS`、`TOOL_NOT_ALLOWED` 和 `DUPLICATE_TOOL_CALL`。
+模型相关失败包括 `MODEL_HTTP_ERROR`、`MODEL_TIMEOUT`、`MODEL_ROUND_LIMIT`、`MODEL_OUTPUT_TRUNCATED`、`MODEL_RESPONSE_LIMIT`、`INVALID_MODEL_OUTPUT`、`MODEL_NO_OBSERVATIONS`、`MODEL_ASSESSMENT_MISMATCH`、`INVALID_TOOL_ARGUMENTS`、`TOOL_NOT_ALLOWED` 和 `DUPLICATE_TOOL_CALL`。`MODEL_UNSUPPORTED_TRACE_ID` 保留在旧版历史中；新版不允许模型输出正文 traceId。
 
 ## 模型执行信息
 
@@ -111,6 +113,7 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 | `responseModel` | 服务端返回的模型名，未提供时为空 |
 | `calls` | 已尝试的模型请求次数 |
 | `usage` | 完整累计用量：inputTokens、outputTokens、totalTokens；任一轮缺失时为空 |
+| `assessment` | 新版已校验的判断类型；应用门槛、失败和旧历史中为空 |
 
 服务地址、凭据和原始模型消息不会通过接口返回。
 

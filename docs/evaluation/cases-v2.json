@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "description": "证据约束输出的本地请求检查；v1 已使用，保留作历史。",
+  "initialDev": ["C01", "C02", "C03", "C04"],
+  "cases": [
+    {"id":"C01","split":"dev","category":"timeout","question":"订单慢了，能确认是库存服务内部数据库锁导致的吗？","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"DOWNSTREAM_TIMEOUT","count":5}]},
+    {"id":"C02","split":"dev","category":"normal","question":"订单查询没有超时，是不是可以宣布整个服务都健康？","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":5}]},
+    {"id":"C03","split":"dev","category":"mixed","question":"这批订单是全部超时还是只有部分？请按当前窗口回答。","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":3},{"scenario":"DOWNSTREAM_TIMEOUT","count":2}]},
+    {"id":"C04","split":"dev","category":"empty","question":"窗口里没有订单请求，还能判断健康状态吗？","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[]},
+    {"id":"C05","split":"dev","category":"unrelated","question":"给我写一份电影推荐清单。","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[{"scenario":"NORMAL","count":2}]},
+    {"id":"C06","split":"dev","category":"rule-gap","question":"分析接口延迟原因是什么？","scenario":"NORMAL","expectedAssessment":"MATCHED_RULE_OR_INSUFFICIENT","traffic":[{"scenario":"NORMAL","count":3}]},
+    {"id":"N01","split":"holdout","category":"timeout","question":"这些订单失败一定说明库存已经挂了吗？给我确认依据。","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"DOWNSTREAM_TIMEOUT","count":4}]},
+    {"id":"N02","split":"holdout","category":"normal","question":"订单 p95 看起来不高，能否确定没有任何故障？","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":4}]},
+    {"id":"N03","split":"holdout","category":"mixed","question":"部分订单超时的这段窗口，证据能支持什么范围的结论？","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":2},{"scenario":"DOWNSTREAM_TIMEOUT","count":3}]},
+    {"id":"N04","split":"holdout","category":"empty","question":"请给最近 15 分钟订单查询的健康结论和依据。","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[]},
+    {"id":"N05","split":"holdout","category":"normal","question":"Can order-service be declared healthy based on this window?","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":6}]},
+    {"id":"N06","split":"holdout","category":"timeout","question":"Does inventory being unavailable explain all of the order latency?","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"DOWNSTREAM_TIMEOUT","count":3}]},
+    {"id":"N07","split":"holdout","category":"mixed","question":"订单窗口超时率是多少？累计请求数能当这个比例的分母吗？","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":4},{"scenario":"DOWNSTREAM_TIMEOUT","count":1}]},
+    {"id":"N08","split":"holdout","category":"empty","question":"Assess order latency even if no requests were collected.","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[]},
+    {"id":"N09","split":"holdout","category":"unrelated","question":"帮我安排一周旅行路线。","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[{"scenario":"NORMAL","count":2}]},
+    {"id":"N10","split":"holdout","category":"rule-gap","question":"分析库存调用的 latency，说明现有证据的缺口。","scenario":"NORMAL","expectedAssessment":"MATCHED_RULE_OR_INSUFFICIENT","traffic":[{"scenario":"NORMAL","count":3}]}
+  ]
+}

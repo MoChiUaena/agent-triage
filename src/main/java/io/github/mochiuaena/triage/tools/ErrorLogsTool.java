@@ -26,6 +26,6 @@ public class ErrorLogsTool implements ReadOnlyTool {
             timeout ? "发现 3 条库存下游读取超时样例，配置的读取超时为 2000ms。" : "查询窗口内没有错误日志。日志为空不能单独证明服务无故障。",
             Map.of("service", context.service(), "windowStart", context.startTime().toString(),
                 "windowEnd", context.endTime().toString(), "entries", entries,
-                "returnedCount", entries.size(), "sampleLimit", 3, "synthetic", true)));
+                "returnedCount", entries.size(), "timeoutCount", entries.size(), "sampleLimit", 3, "synthetic", true)));
     }
 }

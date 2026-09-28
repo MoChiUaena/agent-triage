@@ -4,73 +4,101 @@ import com.fasterxml.jackson.databind.json.JsonMapper;
 import io.github.mochiuaena.triage.domain.TriageModel.*;
 import io.github.mochiuaena.triage.execution.RunFailure;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import java.util.List;
 import java.util.Map;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.*;
 
 class LiveModelOutputTest {
-    @Test void collectedSourceNamesDoNotJustifySuccessWhenNoRequestsWereObserved() throws Exception {
-        var json = JsonMapper.builder().findAndAddModules().build();
-        var evidence = List.of(
-            new Evidence("DOC-LIVE", "search_runbooks", "规则", "规则", Map.of()),
-            new Evidence("METRICS-LIVE", "read_service_metrics", "指标", "无请求", Map.of("requestCount", 0)),
-            new Evidence("LOGS-LIVE", "query_error_logs", "日志", "无错误", Map.of()));
-        var diagnosis = new Diagnosis(
-            List.of(new Finding("没有请求。", List.of("METRICS-LIVE")), new Finding("没有错误。", List.of("LOGS-LIVE"))),
-            List.of(new Finding("已经判断为正常。", List.of("DOC-LIVE", "METRICS-LIVE", "LOGS-LIVE"))),
-            List.of("继续观察。"), "缺少请求。");
-        String answer = json.writeValueAsString(Map.of("status", "SUCCEEDED", "diagnosis", diagnosis));
-        var output = new ModelOutput(json);
-        assertThatThrownBy(() -> output.parse(answer, evidence))
-            .isInstanceOfSatisfying(RunFailure.class, failure ->
-                org.assertj.core.api.Assertions.assertThat(failure.code()).isEqualTo("MODEL_NO_OBSERVATIONS"));
+    private final ModelOutput output = new ModelOutput(JsonMapper.builder().findAndAddModules().build());
+    private static final String TRACE = "1c9c272c-e593-46ad-9790-2d7021a14d48";
+
+    private List<Evidence> evidence(int count, double rate, boolean logs, String rule) {
+        var entries = logs ? List.of(Map.of("traceId", TRACE, "message", "request timeout after 300ms")) : List.of();
+        return List.of(
+            new Evidence(rule, "search_runbooks", "规则", "不是当前请求记录", Map.of()),
+            new Evidence("METRICS-LIVE", "read_service_metrics", "指标", "本窗口处理 " + count + " 个请求；超时率 " + rate + "。",
+                Map.of("requestCount", count, "downstreamTimeoutRate", rate, "orderP95Ms", 310.1, "downstreamP95Ms", 309.9)),
+            new Evidence("LOGS-LIVE", "query_error_logs", "日志", logs ? "本窗口记录库存请求超时。" : "本窗口未记录库存请求错误。",
+                Map.of("entries", entries, "returnedCount", entries.size(), "timeoutCount", logs ? 3 : 0)));
     }
 
-    @Test void successCannotCiteATimeoutRuleForANormalWindow() throws Exception {
-        var json = JsonMapper.builder().findAndAddModules().build();
-        var evidence = List.of(
-            new Evidence("DOC-DOWNSTREAM-TIMEOUT#v2", "search_runbooks", "超时规则", "规则", Map.of()),
-            new Evidence("METRICS-LIVE", "read_service_metrics", "指标", "有请求且无超时",
-                Map.of("requestCount", 5, "downstreamTimeoutRate", 0.0)),
-            new Evidence("LOGS-LIVE", "query_error_logs", "日志", "无错误", Map.of()));
-        var diagnosis = new Diagnosis(
-            List.of(new Finding("当前无超时。", List.of("METRICS-LIVE")), new Finding("日志为空。", List.of("LOGS-LIVE"))),
-            List.of(new Finding("本次窗口正常。", List.of("DOC-DOWNSTREAM-TIMEOUT#v2", "METRICS-LIVE"))),
-            List.of("继续观察。"), "缺少其他依赖数据。");
-        String answer = json.writeValueAsString(Map.of("status", "SUCCEEDED", "diagnosis", diagnosis));
-        var output = new ModelOutput(json);
-        assertThatThrownBy(() -> output.parse(answer, evidence))
-            .isInstanceOfSatisfying(RunFailure.class, failure ->
-                org.assertj.core.api.Assertions.assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT"));
+    private String answer(String assessment, String rule) {
+        return "{\"assessment\":\"" + assessment + "\",\"evidenceIds\":[\"METRICS-LIVE\",\"LOGS-LIVE\",\"" + rule
+            + "\"],\"nextChecks\":[\"INSPECT_INVENTORY_LATENCY\",\"CORRELATE_TRACE\"]}";
     }
 
-    @Test void quotedTraceIdMustExactlyMatchThisRunsErrorLog() throws Exception {
-        var json = JsonMapper.builder().findAndAddModules().build();
-        String correct = "1c9c272c-e593-46ad-9790-2d7021a14d48";
-        String mistyped = "1c9c272-e593-46ad-2d7021a14d48";
-        var evidence = List.of(
-            new Evidence("DOC-DOWNSTREAM-TIMEOUT#v2", "search_runbooks", "超时规则", "规则", Map.of()),
-            new Evidence("METRICS-LIVE", "read_service_metrics", "指标", "有请求且超时",
-                Map.of("requestCount", 5, "downstreamTimeoutRate", 1.0)),
-            new Evidence("LOGS-LIVE", "query_error_logs", "日志", "库存请求超时",
-                Map.of("entries", List.of(Map.of("traceId", correct)))));
-        var output = new ModelOutput(json);
-        var wrong = new Diagnosis(
-            List.of(new Finding("5 次请求全部超时。", List.of("METRICS-LIVE")),
-                new Finding("错误请求 traceId 为 " + mistyped + "。", List.of("LOGS-LIVE"))),
-            List.of(new Finding("库存调用可能超时。", List.of("DOC-DOWNSTREAM-TIMEOUT#v2", "METRICS-LIVE", "LOGS-LIVE"))),
-            List.of("检查库存服务。"), "缺少库存内部指标。");
-        String wrongAnswer = json.writeValueAsString(Map.of("status", "SUCCEEDED", "diagnosis", wrong));
-        assertThatThrownBy(() -> output.parse(wrongAnswer, evidence))
-            .isInstanceOfSatisfying(RunFailure.class, failure ->
-                org.assertj.core.api.Assertions.assertThat(failure.code()).isEqualTo("MODEL_UNSUPPORTED_TRACE_ID"));
+    @Test void timeoutTextCopiesObservedSummariesWithoutRewritingNumbersOrTraceIds() {
+        var evidence = evidence(5, 0.6, true, "DOC-DOWNSTREAM-TIMEOUT#v2");
+        var decision = output.parse(answer("DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id()), evidence).decision();
+        assertThat(decision.status()).isEqualTo(Status.SUCCEEDED);
+        assertThat(decision.diagnosis().observations()).extracting(Finding::text)
+            .containsExactly(evidence.get(1).summary(), evidence.get(2).summary());
+        assertThat(decision.diagnosis().possibleCauses().getFirst().text()).contains("可能影响")
+            .doesNotContain("不可用", "读取超时", "完全", TRACE);
+        assertThat(decision.diagnosis().nextSteps()).allSatisfy(step -> assertThat(step).doesNotContain(TRACE));
+    }
 
-        var correctAnswer = new Diagnosis(
-            List.of(new Finding("5 次请求全部超时。", List.of("METRICS-LIVE")),
-                new Finding("错误请求 traceId 为 " + correct + "。", List.of("LOGS-LIVE"))),
-            wrong.possibleCauses(), wrong.nextSteps(), wrong.uncertainty());
-        String valid = json.writeValueAsString(Map.of("status", "SUCCEEDED", "diagnosis", correctAnswer));
-        org.assertj.core.api.Assertions.assertThat(output.parse(valid, evidence).status())
-            .isEqualTo(io.github.mochiuaena.triage.domain.TriageModel.Status.SUCCEEDED);
+    @Test void noTimeoutDoesNotClaimOverallServiceHealth() {
+        var evidence = evidence(5, 0, false, "DOC-HEALTHY-BASELINE#v2");
+        var decision = output.parse(answer("NO_DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id()), evidence).decision();
+        assertThat(decision.diagnosis().possibleCauses().getFirst().text())
+            .contains("本窗口未发现库存调用超时", "仍需补充观测").doesNotContain("服务运行正常", "服务健康");
+    }
+
+    @Test void emptyWindowCannotBecomeAClaim() {
+        var evidence = evidence(0, 0, false, "DOC-HEALTHY-BASELINE#v2");
+        assertThatThrownBy(() -> output.parse(answer("NO_DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id()), evidence))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_NO_OBSERVATIONS"));
+    }
+
+    @Test void assessmentCannotContradictMetrics() {
+        var evidence = evidence(5, 1, true, "DOC-DOWNSTREAM-TIMEOUT#v2");
+        assertThatThrownBy(() -> output.parse(answer("NO_DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id()), evidence))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_ASSESSMENT_MISMATCH"));
+    }
+
+    @Test void timeoutNeedsBothMetricsAndActualErrorEvents() {
+        var evidence = evidence(5, 1, false, "DOC-DOWNSTREAM-TIMEOUT#v2");
+        assertThatThrownBy(() -> output.parse(answer("DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id()), evidence))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_ASSESSMENT_MISMATCH"));
+    }
+
+    @Test void wrongScenarioRuleCannotSupportASuccessfulClaim() {
+        var evidence = evidence(5, 0, false, "DOC-DOWNSTREAM-TIMEOUT#v2");
+        assertThatThrownBy(() -> output.parse(answer("NO_DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id()), evidence))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "{\"assessment\":\"INVENTORY_UNAVAILABLE\",\"evidenceIds\":[],\"nextChecks\":[\"COLLECT_OBSERVATIONS\"]}",
+        "{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[],\"nextChecks\":[\"RESTART_SERVICE\"]}",
+        "{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[],\"nextChecks\":[],\"answer\":\"服务完全正常\"}",
+        "{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[],\"nextChecks\":[\"COLLECT_OBSERVATIONS\"],\"traceId\":\"1c9c272-e593-46ad-2d7021a14d48\"}",
+        "{\"status\":\"SUCCEEDED\",\"diagnosis\":{\"text\":\"库存不可用\"}}",
+        "{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[\"missing\"],\"nextChecks\":[\"COLLECT_OBSERVATIONS\"]}",
+        "{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[],\"nextChecks\":[\"COLLECT_OBSERVATIONS\",\"COLLECT_OBSERVATIONS\"]}"
+    })
+    void unboundedClaimsTextOrInvalidSelectionsAreRejected(String answer) {
+        assertThatThrownBy(() -> output.parse(answer, evidence(5, 0, false, "DOC-HEALTHY-BASELINE#v2")))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT"));
+    }
+
+    @Test void insufficientEvidenceCanSelectDocumentsWithoutInventingObservations() {
+        var decision = output.parse("{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[\"DOC-HEALTHY-BASELINE#v2\"],"
+            + "\"nextChecks\":[\"COLLECT_OBSERVATIONS\"]}", evidence(5, 0, false, "DOC-HEALTHY-BASELINE#v2")).decision();
+        assertThat(decision.status()).isEqualTo(Status.INSUFFICIENT_EVIDENCE);
+        assertThat(decision.diagnosis().observations()).isEmpty();
+        assertThat(decision.diagnosis().possibleCauses()).isEmpty();
+    }
+
+    @Test void oldHistoryWithoutAnAssessmentRemainsReadable() throws Exception {
+        var json = JsonMapper.builder().findAndAddModules().build();
+        ModelExecution old = json.readValue("{\"configuredModel\":\"old-model\",\"responseModel\":null,\"calls\":2,\"usage\":null,\"source\":null}",
+            ModelExecution.class);
+        assertThat(old.calls()).isEqualTo(2);
+        assertThat(old.assessment()).isNull();
     }
 }

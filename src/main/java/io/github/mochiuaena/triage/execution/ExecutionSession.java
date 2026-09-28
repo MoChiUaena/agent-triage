@@ -55,6 +55,13 @@ public final class ExecutionSession {
         publish("EVIDENCE_GATE", null, "当前观测缺少对应排障规则，应用返回证据不足。", List.of());
     }
 
+    public void recordStructuredConclusion(String assessment) {
+        ModelExecution previous = state.modelExecution;
+        state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls(),
+            previous.usage(), previous.source(), assessment);
+        publish("CONCLUSION_RENDERED", null, "模型选择判断类型、证据和检查项，关键结论由应用按证据生成。", List.of());
+    }
+
     public void checkDeadline() {
         if (Thread.currentThread().isInterrupted()) throw new RunFailure("RUN_INTERRUPTED", "执行已中断。");
         if (System.nanoTime() >= deadline) throw new RunFailure("RUN_TIMEOUT", "已达到整体执行时长上限。");

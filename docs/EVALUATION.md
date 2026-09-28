@@ -1,8 +1,24 @@
 # 小规模评测
 
-案例集 [`cases-v1.json`](evaluation/cases-v1.json) 有 20 个问题，`dev` 和 `holdout` 各 10 个。两组都包含下游超时、正常、无关问题和缺少匹配排障规则的提问。场景数据是合成的，`expectedDemoStatus` 只用于检查固定规则的演示模式，不能当作模型答案的正确标签。
+## v2：证据约束输出
 
-目前只运行 `dev`。`holdout` 留到模型和对照方法确定后再首次运行；如果根据它的结果修改实现，应另建一组留出案例。公开的案例量很小，不能用来声称通用故障诊断准确率。
+v1 自由文本报告作为历史保留。2026-09-28 改为[模型判断契约](MODEL_OUTPUT.md)：模型选工具、判断类型、证据和检查项，应用生成窗口事实及关键措辞。需要评价系统是否守住证据边界，不能把更稳定的应用措辞称为模型自由归因能力提升。
+
+新建 [v2 案例](evaluation/cases-v2.json)有 6 个调试例、10 个留出例，包含混合请求与空窗口，并用[标准 v2](evaluation/rubric-v2.md)检查判断、事实与生成来源。脚本支持显式流量计划，两种方法回答前后会核对请求数与场景是否发生变化：
+
+```powershell
+python scripts/compare_live_methods.py --allow-model-calls --dataset docs/evaluation/cases-v2.json
+# 调试完成、标准固定后，首次运行新的留出集
+python scripts/compare_live_methods.py --allow-model-calls --dataset docs/evaluation/cases-v2.json --split holdout --allow-holdout
+```
+
+两条命令可能向已启用模型服务发起多轮计费请求。原始结果保存在被忽略的 `target/`，报告不包含 API Key、提供商配置 ID 和 traceId 明文。旧执行历史仍是旧版文本，页面会区分来源。
+
+## v1：历史记录
+
+案例集 [`cases-v1.json`](evaluation/cases-v1.json) 有 20 个问题，`dev` 和 `holdout` 各 10 个，两组已完成真实模型对照。固定规则的演示模式使用合成数据，真实模型对照使用 LIVE 请求；`expectedDemoStatus` 只用于演示模式的状态检查。
+
+v1 留出集已经使用，后续修改不能再用它证明独立效果。公开的案例量很小，不能用来声称通用故障诊断准确率。
 
 ## 运行演示模式检查
 
@@ -24,7 +40,7 @@ python scripts/evaluate_demo.py --split dev
 
 ## 后续比较
 
-下一步固定仅检索文档的对照方法，并对同一案例记录工具选择、引用、结果状态、耗时和失败样例。扩大真实模型评测时需记录具体模型与参数；模型返回完整 usage 时才统计 token。普通 CI 不调用付费模型。
+仅检索文档的对照方法已经固定，每例记录工具选择、引用、结果状态、耗时和失败样例。真实模型评测记录具体模型与参数；模型返回完整 usage 时才统计 token。普通 CI 不调用付费模型。
 
 现在可以运行 `scripts/compare_live_methods.py` 做小批量对照。脚本对同一问题和同一组本地请求，先调用仅文档入口，再运行可查询指标、错误日志和文档的 Agent；两条结果及模型 usage 分开保存。仅文档入口不会拿到当前请求数、p95、超时率或 traceId。默认选择调试集中的 D01、D04、D07、D09 四例，先检查流程与人工审阅标准：
 
@@ -52,4 +68,4 @@ python scripts/compare_live_methods.py --allow-model-calls
 python scripts/live_model_eval.py --allow-model-calls
 ```
 
-这会提交三个排查任务，每个任务可能多轮调用模型，费用取决于提供商。先用 `--case timeout` 可以只检查一条故障链路。脚本不会保存 API Key 或原始模型对话；完整排查记录和摘要写入 `target/live-model-eval/`。[百炼 LIVE 检查记录](validation/2026-09-27-bailian-live.md)保留了通过的链路、失败尝试和人工审阅发现的措辞问题。三案例只是链路验收，20 案例留出集与仅检索对照仍待执行。
+这会提交三个排查任务，每个任务可能多轮调用模型，费用取决于提供商。先用 `--case timeout` 可以只检查一条故障链路。脚本不会保存 API Key 或原始模型对话；完整排查记录和摘要写入 `target/live-model-eval/`。[百炼 LIVE 检查记录](validation/2026-09-27-bailian-live.md)保留了通过的链路、失败尝试和人工审阅发现的措辞问题。三案例只是链路验收；独立对照另见上面的版本化案例与评审记录。

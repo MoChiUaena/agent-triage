@@ -39,23 +39,14 @@ def final_answer(evidence):
     logs = next(item for item in evidence if item["source"] == "query_error_logs")
     count = metrics["data"]["requestCount"]
     if count == 0:
-        return {"status": "INSUFFICIENT_EVIDENCE", "diagnosis": {
-            "observations": [], "possibleCauses": [],
-            "nextSteps": ["先让订单服务处理一些请求，再重新排查。"],
-            "uncertainty": "窗口里没有请求，无法判断当前状态。"}}
+        return {"assessment": "INSUFFICIENT_EVIDENCE", "evidenceIds": [], "nextChecks": ["COLLECT_OBSERVATIONS"]}
     timed_out = metrics["data"]["downstreamTimeoutRate"] > 0
     doc_prefix = "DOC-DOWNSTREAM-TIMEOUT#" if timed_out else "DOC-HEALTHY-BASELINE#"
     rule = next(item for item in evidence if item["id"].startswith(doc_prefix))
-    cause = "库存调用超时可能拖慢订单查询。" if timed_out else "本次窗口未发现库存调用超时。"
-    return {"status": "SUCCEEDED", "diagnosis": {
-        "observations": [
-            {"text": metrics["summary"], "evidenceIds": [metrics["id"]]},
-            {"text": logs["summary"], "evidenceIds": [logs["id"]]},
-        ],
-        "possibleCauses": [{"text": cause, "evidenceIds": [metrics["id"], logs["id"], rule["id"]]}],
-        "nextSteps": ["检查同一窗口内库存服务的处理耗时和 traceId。"],
-        "uncertainty": "尚未采集网络、连接池和资源指标。",
-    }}
+    return {"assessment": "DOWNSTREAM_TIMEOUT_OBSERVED" if timed_out else "NO_DOWNSTREAM_TIMEOUT_OBSERVED",
+            "evidenceIds": [metrics["id"], logs["id"], rule["id"]],
+            "nextChecks": ["INSPECT_INVENTORY_LATENCY", "CORRELATE_TRACE"] if timed_out
+                          else ["FIND_SLOW_REQUEST", "COLLECT_RESOURCE_METRICS"]}
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -247,8 +247,8 @@ class ProviderSettingsTest {
                         JsonNode request = JSON.readTree(exchange.getRequestBody()); requests.add(request);
                         if (entered != null) entered.countDown();
                         if (release != null) { try { release.await(3, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }
-                        String content = request.has("tools") ? JSON.writeValueAsString(Map.of("status", "INSUFFICIENT_EVIDENCE", "diagnosis",
-                            new Diagnosis(List.of(), List.of(), List.of("需要更多观测。"), "本地协议测试。"))) : "mock-private-response";
+                        String content = request.has("tools") ? JSON.writeValueAsString(Map.of("assessment", "INSUFFICIENT_EVIDENCE",
+                            "evidenceIds", List.of(), "nextChecks", List.of("COLLECT_OBSERVATIONS"))) : "mock-private-response";
                         byte[] body = (status == 200 ? JSON.writeValueAsString(Map.of("id", "settings-test", "created", 1, "model", request.path("model").asText(),
                             "choices", List.of(Map.of("index", 0, "finish_reason", "stop", "message", Map.of("role", "assistant", "content", content)))))
                             : "mock-private-response").getBytes(StandardCharsets.UTF_8);

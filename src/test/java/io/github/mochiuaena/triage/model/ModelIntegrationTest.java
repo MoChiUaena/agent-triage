@@ -64,6 +64,9 @@ class ModelIntegrationTest {
         assertThat(run.mode()).isEqualTo("MODEL");
         assertThat(run.synthetic()).isTrue();
         assertThat(run.toolCalls()).isEqualTo(3);
+        assertThat(run.events()).extracting(Event::type).contains("CONCLUSION_RENDERED");
+        assertThat(run.diagnosis().observations().getFirst().text()).contains("2350ms");
+        assertThat(run.diagnosis().possibleCauses().getFirst().text()).contains("可能影响").doesNotContain("不可用", "读取超时");
         assertThat(run.events().stream().filter(e -> e.type().equals("TOOL_STARTED")))
             .extracting(Event::tool).containsExactly("query_error_logs", "read_service_metrics", "search_runbooks");
         assertThat(run.modelExecution().configuredModel()).isEqualTo("test-model");
@@ -122,9 +125,8 @@ class ModelIntegrationTest {
     @Test void aDocumentAloneCannotProveCurrentServiceState() throws Exception {
         MODEL.enqueue(toolResponse(true, call("one", "search_runbooks", arguments(true))));
         String id = "DOC-DOWNSTREAM-TIMEOUT#v1";
-        var diagnosis = new Diagnosis(List.of(new Finding("服务超时。", List.of(id))), List.of(new Finding("下游超时。", List.of(id))),
-            List.of("检查调用。"), "需要更多数据。");
-        MODEL.enqueue(completion(JSON.writeValueAsString(Map.of("status", "SUCCEEDED", "diagnosis", diagnosis)), true));
+        MODEL.enqueue(completion(JSON.writeValueAsString(Map.of("assessment", "DOWNSTREAM_TIMEOUT_OBSERVED",
+            "evidenceIds", List.of(id), "nextChecks", List.of("COLLECT_OBSERVATIONS"))), true));
         assertThat(execute().failure().code()).isEqualTo("INVALID_MODEL_OUTPUT");
     }
 
@@ -269,16 +271,14 @@ class ModelIntegrationTest {
 
     private static String answer(String metricId) throws Exception {
         String logId = "LOGS-ORDER-DOWNSTREAM_TIMEOUT";
-        var diagnosis = new Diagnosis(List.of(new Finding("订单 p95 为 2350ms。", List.of(metricId)),
-            new Finding("库存调用发生读取超时。", List.of(logId))),
-            List.of(new Finding("库存调用超时可能拖慢订单查询。", List.of(metricId, logId, "DOC-DOWNSTREAM-TIMEOUT#v1"))),
-            List.of("检查同一窗口内库存服务的处理耗时。"), "缺少网络和数据库指标。");
-        return JSON.writeValueAsString(Map.of("status", "SUCCEEDED", "diagnosis", diagnosis));
+        return JSON.writeValueAsString(Map.of("assessment", "DOWNSTREAM_TIMEOUT_OBSERVED",
+            "evidenceIds", List.of(metricId, logId, "DOC-DOWNSTREAM-TIMEOUT#v1"),
+            "nextChecks", List.of("INSPECT_INVENTORY_LATENCY", "CORRELATE_TRACE")));
     }
 
     private static String insufficient() throws Exception {
-        return JSON.writeValueAsString(Map.of("status", "INSUFFICIENT_EVIDENCE", "diagnosis",
-            new Diagnosis(List.of(), List.of(), List.of("提供订单服务的具体问题。"), "没有相关观测。")));
+        return JSON.writeValueAsString(Map.of("assessment", "INSUFFICIENT_EVIDENCE",
+            "evidenceIds", List.of(), "nextChecks", List.of("COLLECT_OBSERVATIONS")));
     }
 
     private record Reply(int status, String body, long delayMs) {}

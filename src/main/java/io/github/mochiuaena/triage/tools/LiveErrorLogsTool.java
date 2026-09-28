@@ -27,6 +27,7 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
         data.put("windowEnd", observation.windowEnd().toString());
         data.put("entries", entries);
         data.put("returnedCount", entries.size());
+        data.put("timeoutCount", observation.timeoutCount());
         data.put("sampleLimit", 3);
         data.put("synthetic", false);
         String summary = observation.timeoutCount() > 0

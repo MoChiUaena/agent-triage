@@ -68,9 +68,11 @@ def summarize(run, name, expected, elapsed_ms):
     citation_valid, cited_sources = citations(run)
     tools = [event["tool"] for event in run["events"] if event["type"] == "TOOL_STARTED"]
     no_data_gate = any(event["type"] == "EVIDENCE_GATE" for event in run["events"])
+    rendered = any(event["type"] == "CONCLUSION_RENDERED" for event in run["events"])
     unsafe_success = run["status"] == "SUCCEEDED" and metrics.get("requestCount") == 0
     accepted = (run["mode"] == "MODEL" and run["synthetic"] is False
-                and run["status"] == expected and citation_valid and not unsafe_success)
+                and run["status"] == expected and citation_valid and not unsafe_success
+                and (run["status"] != "SUCCEEDED" or rendered))
     return {
         "case": name, "question": run["question"], "expectedStatus": expected, "status": run["status"],
         "statusMatch": run["status"] == expected, "accepted": accepted,
@@ -79,9 +81,11 @@ def summarize(run, name, expected, elapsed_ms):
         "evidenceCount": len(run["evidence"]), "citationsValid": citation_valid,
         "citedSources": cited_sources, "unsafeSuccess": unsafe_success,
         "applicationNoDataGate": no_data_gate,
+        "conclusionRendered": rendered,
         "requestCount": metrics.get("requestCount"),
         "downstreamTimeoutRate": metrics.get("downstreamTimeoutRate"),
         "configuredModel": model.get("configuredModel"),
+        "assessment": model.get("assessment"),
         "responseModel": model.get("responseModel"), "modelCalls": model.get("calls"),
         "usage": model.get("usage"),
         "failureCode": (run.get("failure") or {}).get("code"),
