@@ -19,7 +19,7 @@ public class ObservationStore {
                                 boolean acquisitionTimeout, boolean acquisitionError, boolean queryError, ErrorEntry error) {}
     private record PoolSample(Instant timestamp, int active, int pending) {}
     public record PoolWindow(int maximumConnections, int peakActiveConnections, int peakPendingThreads,
-                             int poolSamples, int exhaustedSamples, int acquisitionTimeoutCount, int acquisitionErrorCount, int queryErrorCount,
+                             int poolSamples, int exhaustedSamples, int acquisitionTimeoutCount, int acquisitionErrorCount, int queryCount, int queryErrorCount,
                              double acquisitionP95Ms, double queryP95Ms) {}
     public record Snapshot(int schemaVersion, String kind, String service, String database, Instant windowStart, Instant windowEnd,
                            int requestCount, long recordedRequestCount, double requestP95Ms, Double baselineRequestP95Ms,
@@ -88,13 +88,14 @@ public class ObservationStore {
         var samples = requests.stream().filter(v -> !v.timestamp().isBefore(start) && !v.timestamp().isAfter(end)).toList();
         var poolSamples = pools.stream().filter(v -> !v.timestamp().isBefore(start) && !v.timestamp().isAfter(end)).toList();
         var normal = samples.stream().filter(v -> !v.acquisitionTimeout() && !v.acquisitionError() && !v.queryError()).toList();
+        var queries = samples.stream().filter(v -> !v.acquisitionTimeout() && !v.acquisitionError()).toList();
         int maximum = pool.getMaximumPoolSize();
         var window = new PoolWindow(maximum, poolSamples.stream().mapToInt(PoolSample::active).max().orElse(0),
             poolSamples.stream().mapToInt(PoolSample::pending).max().orElse(0), poolSamples.size(),
             (int) poolSamples.stream().filter(v -> v.active() == maximum && v.pending() > 0).count(),
             (int) samples.stream().filter(RequestSample::acquisitionTimeout).count(), (int) samples.stream().filter(RequestSample::acquisitionError).count(),
-            (int) samples.stream().filter(RequestSample::queryError).count(),
-            p95(samples.stream().map(RequestSample::acquisitionMs).toList()), p95(samples.stream().map(RequestSample::queryMs).toList()));
+            queries.size(), (int) samples.stream().filter(RequestSample::queryError).count(),
+            p95(samples.stream().map(RequestSample::acquisitionMs).toList()), p95(queries.stream().map(RequestSample::queryMs).toList()));
         return new Snapshot(2, "DATABASE_POOL", serviceId, databaseId, start, end, samples.size(), recorded,
             p95(samples.stream().map(RequestSample::requestMs).toList()), normal.isEmpty() ? null : p95(normal.stream().map(RequestSample::requestMs).toList()),
             window, errors(start, end), false);

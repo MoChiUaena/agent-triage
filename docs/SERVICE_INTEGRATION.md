@@ -2,20 +2,20 @@
 
 Agent 从启动配置读取服务白名单。页面选择服务后，只读工具访问该服务的观测接口，执行记录保留当时的服务名称和下游名称。
 
-目前支持本机 HTTP 服务，排查范围仍是请求延迟和单一下游 HTTP 超时。接入方需要把已有指标与错误事件转换为下面的 JSON；Agent 不会自动解析任意 Actuator 指标或日志文件。远程地址和需要鉴权的接口尚未支持。
+目前支持本机 HTTP 服务，可排查请求延迟、单一下游 HTTP 超时和数据库连接池耗尽。接入方需要把已有指标与错误事件转换为接口 JSON；Agent 不会自动解析任意 Actuator 指标或日志文件。远程地址和需要鉴权的接口尚未支持。
 
 ## 配置服务
 
-[examples/services.yml](../examples/services.yml) 登记了订单演示与结算接入示例。配置项如下：
+[examples/services.yml](../examples/services.yml) 登记了订单演示、结算接入和数据库样例。[数据库 V2 契约与启动方式](DATABASE_POOL.md)另有说明；本页下面的 JSON 为 HTTP V1 契约。配置项如下：
 
 | 配置 | 含义 |
 |---|---|
 | `id`、`name` | 服务标识和页面名称，标识须为小写字母、数字及连字符 |
 | `downstream-id`、`downstream-name` | 本次观测覆盖的下游 |
 | `base-url` | 带端口的本机 HTTP origin，不含路径、凭据或查询参数 |
-| `protocol` | 新服务用 `OBSERVATIONS_V1`；`LAB` 保留给原有订单演示 |
+| `protocol` | HTTP 下游观测用 `OBSERVATIONS_V1`；数据库观测用 `DATABASE_V2`；`LAB` 保留给原有订单演示 |
 | `max-window-minutes` | 允许查询的最长窗口，1–60，默认 60 |
-| `lab-enabled` | 默认关闭；只有 `LAB` 可显式开启演示流量控制 |
+| `lab-enabled` | 默认关闭；`LAB` 和 `DATABASE_V2` 可显式开启样例流量控制 |
 
 配置列表会替换默认服务。修改后重启 Agent 生效。不配置列表时，原有 `TRIAGE_OBSERVATION_SOURCE` 和 `TRIAGE_OBSERVATION_BASE_URL` 继续生效。
 

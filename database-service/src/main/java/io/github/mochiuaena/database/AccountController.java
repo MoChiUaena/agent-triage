@@ -27,7 +27,8 @@ public class AccountController {
         ObservationStore.ErrorEntry error = null;
         observations.samplePool();
         try (Connection connection = pool.getConnection()) {
-            acquisition = elapsed(started); acquired = true; queryStarted = System.nanoTime();
+            acquisition = elapsed(started); acquired = true;
+            observations.samplePool(); queryStarted = System.nanoTime();
             try (var statement = connection.prepareStatement("SELECT balance FROM demo_account WHERE id = ? FOR UPDATE")) {
                 statement.setInt(1, accountId);
                 try (var result = statement.executeQuery()) {

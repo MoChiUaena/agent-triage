@@ -19,3 +19,11 @@ triage:
       protocol: OBSERVATIONS_V1
       max-window-minutes: 15
       lab-enabled: false
+    - id: account-service
+      name: 数据库账户样例
+      downstream-id: accounts-db
+      downstream-name: 本地 H2 数据库
+      base-url: http://127.0.0.1:18096
+      protocol: DATABASE_V2
+      max-window-minutes: 15
+      lab-enabled: true

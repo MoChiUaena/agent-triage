@@ -18,6 +18,7 @@ public class RunbookSearchTool implements ReadOnlyTool {
     private record Document(String id, String title, String content, List<String> keywords, int version, boolean synthetic) {}
     private final List<Document> documents;
     private final List<Document> registeredDocuments;
+    private final List<Document> databaseDocuments;
     private final boolean serviceReferences;
 
     public RunbookSearchTool() throws IOException { this(false); }
@@ -42,6 +43,9 @@ public class RunbookSearchTool implements ReadOnlyTool {
                 List.of("超时", "timeout", "慢", "slow", "latency", "延迟"), 3, false),
             load("DOC-HEALTHY-BASELINE#v3", "无超时窗口对照", "healthy-baseline-registered.md",
                 List.of("正常", "健康", "healthy", "baseline"), 3, false), documents.get(2));
+        databaseDocuments = List.of(
+            load("DOC-DB-POOL-EXHAUSTION#v1", "连接池耗尽排查", "db-pool-exhaustion.md", List.of("数据库", "连接池", "超时", "database", "pool", "timeout"), 1, false),
+            load("DOC-DB-POOL-BASELINE#v1", "数据库窗口对照", "db-pool-baseline.md", List.of("数据库", "正常", "慢", "sql", "database", "baseline"), 1, false), documents.get(2));
     }
 
     private Document load(String id, String title, String file, List<String> keywords, int version, boolean synthetic) throws IOException {
@@ -57,6 +61,7 @@ public class RunbookSearchTool implements ReadOnlyTool {
         String normalized = query.toLowerCase(Locale.ROOT);
         List<Document> applicable = context.target() != null && context.target().protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V1
             ? registeredDocuments : documents;
+        if (context.target() != null && context.target().protocol() == ServiceRegistry.Protocol.DATABASE_V2) applicable = databaseDocuments;
         return applicable.stream()
             .filter(doc -> matches(doc, normalized) || serviceReferences && coreRule(doc))
             .limit(3)
@@ -69,6 +74,6 @@ public class RunbookSearchTool implements ReadOnlyTool {
 
     private boolean matches(Document doc, String query) { return doc.keywords().stream().anyMatch(query::contains); }
     private boolean coreRule(Document doc) {
-        return doc.id().startsWith("DOC-DOWNSTREAM-TIMEOUT#") || doc.id().startsWith("DOC-HEALTHY-BASELINE#");
+        return doc.id().startsWith("DOC-DOWNSTREAM-TIMEOUT#") || doc.id().startsWith("DOC-HEALTHY-BASELINE#") || doc.id().startsWith("DOC-DB-POOL-");
     }
 }

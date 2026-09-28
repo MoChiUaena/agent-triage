@@ -2,7 +2,7 @@
 
 [![Verify](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml)
 
-Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口指标、错误日志和排障文档，判断是否观察到下游 HTTP 调用超时，并给出验证建议。仓库提供订单演示，也支持通过配置和只读接口接入其他本地 Spring Boot 服务。
+Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口指标、错误日志和排障文档，排查下游 HTTP 超时和数据库连接池耗尽，并给出验证建议。仓库提供真实请求样例，也支持通过配置和只读接口接入其他本地 Spring Boot 服务。
 
 仓库带有两个独立运行的 Java 样例服务：订单服务通过 HTTP 调用库存服务。切换故障场景后，库存响应变慢，订单侧请求实际超时。排障助手读取窗口指标、Micrometer 计数和 JSON 错误日志，再给出带证据的判断。默认启动使用合成数据；模型模式中，模型选择工具、判断类型和证据，应用核对观测后生成关键结论措辞，避免自由归因超出证据范围。
 
@@ -18,6 +18,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 - 查询服务指标、近期错误日志，检索 Markdown 排障文档。
 - 通过服务白名单登记多个本地应用，在页面选择服务；接入接口与示例见[接入说明](docs/SERVICE_INTEGRATION.md)。
+- 用 HikariCP 与 H2 实际触发[数据库连接池耗尽](docs/DATABASE_POOL.md)，区分获取连接超时与 SQL 查询失败，并验证释放后的恢复。
 - 在页面生成正常请求或库存超时请求，排查真实的本地请求记录。
 - 通过 SSE 展示工具执行进度，点击结论中的引用可以查看证据原文。
 - 保存执行记录，支持历史查询和事件重放。
@@ -152,6 +153,7 @@ CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具
 - [架构](docs/ARCHITECTURE.md)
 - [本地真实请求链路](docs/LIVE_LAB.md)
 - [接入其他服务](docs/SERVICE_INTEGRATION.md)
+- [数据库连接池排查](docs/DATABASE_POOL.md)
 - [小规模评测](docs/EVALUATION.md)
 - [开发计划](docs/ROADMAP.md)
 - [贡献指南](CONTRIBUTING.md)

@@ -9,7 +9,7 @@ import java.util.UUID;
 public final class TriageModel {
     private TriageModel() {}
 
-    public enum Scenario { NORMAL, DOWNSTREAM_TIMEOUT, OBSERVED }
+    public enum Scenario { NORMAL, DOWNSTREAM_TIMEOUT, OBSERVED, DB_POOL_EXHAUSTED, DB_POOL_RECOVERY, DB_QUERY_LOCK_WAIT }
 
     public record ServiceInfo(String id, String name, String downstreamId, String downstreamName) {
         public static ServiceInfo order() { return new ServiceInfo("order-service", "订单服务", "inventory-service", "库存服务"); }

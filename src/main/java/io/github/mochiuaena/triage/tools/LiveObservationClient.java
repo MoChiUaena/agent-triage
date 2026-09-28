@@ -26,11 +26,26 @@ import java.util.concurrent.Flow;
 /** Reads only startup-registered loopback origins. Redirects and oversized bodies are rejected. */
 @Component
 public class LiveObservationClient {
-    public record ErrorEntry(Instant timestamp, String traceId, String level, String message) {}
+    public record ErrorEntry(Instant timestamp, String traceId, String level, String message, String code) {
+        public ErrorEntry(Instant timestamp, String traceId, String level, String message) { this(timestamp, traceId, level, message, null); }
+    }
     public record Snapshot(String service, Scenario scenario, Instant windowStart, Instant windowEnd,
                            int requestCount, int normalCount, int timeoutCount, long recordedRequestCount, double orderP95Ms,
                            double downstreamP95Ms, double downstreamTimeoutRate, Double baselineOrderP95Ms,
-                           List<ErrorEntry> errors, boolean synthetic) {}
+                           List<ErrorEntry> errors, boolean synthetic, DatabasePool databasePool) {
+        public Snapshot(String service, Scenario scenario, Instant windowStart, Instant windowEnd,
+                        int requestCount, int normalCount, int timeoutCount, long recordedRequestCount, double orderP95Ms,
+                        double downstreamP95Ms, double downstreamTimeoutRate, Double baselineOrderP95Ms, List<ErrorEntry> errors, boolean synthetic) {
+            this(service, scenario, windowStart, windowEnd, requestCount, normalCount, timeoutCount, recordedRequestCount, orderP95Ms,
+                downstreamP95Ms, downstreamTimeoutRate, baselineOrderP95Ms, errors, synthetic, null);
+        }
+    }
+    public record DatabasePool(Integer maximumConnections, Integer peakActiveConnections, Integer peakPendingThreads,
+                               Integer poolSamples, Integer exhaustedSamples, Integer acquisitionTimeoutCount, Integer acquisitionErrorCount,
+                               Integer queryCount, Integer queryErrorCount, Double acquisitionP95Ms, Double queryP95Ms) {}
+    public record DatabaseObservations(Integer schemaVersion, String kind, String service, String database, Instant windowStart, Instant windowEnd,
+                                       Integer requestCount, Long recordedRequestCount, Double requestP95Ms, Double baselineRequestP95Ms,
+                                       DatabasePool databasePool, List<ErrorEntry> errors, Boolean synthetic) {}
     public record ObservationsV1(Integer schemaVersion, String service, String downstreamService, Instant windowStart, Instant windowEnd,
                                  Integer requestCount, Integer timeoutCount, Long recordedRequestCount, Double requestP95Ms,
                                  Double downstreamP95Ms, Double downstreamTimeoutRate, Double baselineRequestP95Ms,
@@ -62,7 +77,7 @@ public class LiveObservationClient {
         if (target.protocol() != ServiceRegistry.Protocol.LAB) return Scenario.OBSERVED;
         try {
             Scenario scenario = Scenario.valueOf(json.readTree(get(target, "/lab/scenario")).path("scenario").asText());
-            if (scenario == Scenario.OBSERVED) throw new IllegalStateException("Unexpected lab scenario");
+            if (scenario != Scenario.NORMAL && scenario != Scenario.DOWNSTREAM_TIMEOUT) throw new IllegalStateException("Unexpected lab scenario");
             return scenario;
         } catch (IOException e) { throw new IllegalStateException("Invalid observation response", e); }
     }
@@ -84,10 +99,47 @@ public class LiveObservationClient {
                 snapshot = new Snapshot(value.service(), Scenario.OBSERVED, value.windowStart(), value.windowEnd(),
                     value.requestCount(), value.requestCount() - value.timeoutCount(), value.timeoutCount(), value.recordedRequestCount(),
                     value.requestP95Ms(), value.downstreamP95Ms(), value.downstreamTimeoutRate(), value.baselineRequestP95Ms(), value.errors(), false);
-            } else snapshot = json.readValue(response, Snapshot.class);
+            } else if (target.protocol() == ServiceRegistry.Protocol.DATABASE_V2) {
+                DatabaseObservations value = json.readValue(response, DatabaseObservations.class);
+                if (!Integer.valueOf(2).equals(value.schemaVersion()) || !"DATABASE_POOL".equals(value.kind())
+                    || !target.info().downstreamId().equals(value.database()) || !Boolean.FALSE.equals(value.synthetic())
+                    || value.requestCount() == null || value.recordedRequestCount() == null || value.requestP95Ms() == null) throw unexpected();
+                validateDatabase(value.databasePool(), value.requestCount(), value.errors());
+                var pool = value.databasePool();
+                snapshot = new Snapshot(value.service(), Scenario.OBSERVED, value.windowStart(), value.windowEnd(), value.requestCount(),
+                    value.requestCount() - pool.acquisitionTimeoutCount() - pool.acquisitionErrorCount() - pool.queryErrorCount(), 0,
+                    value.recordedRequestCount(), value.requestP95Ms(), 0, 0, value.baselineRequestP95Ms(), value.errors(), false, pool);
+            } else {
+                snapshot = json.readValue(response, Snapshot.class);
+                if (snapshot.databasePool() != null) throw unexpected();
+            }
             validate(snapshot, context);
             return snapshot;
         } catch (IOException e) { throw new IllegalStateException("Invalid observation response", e); }
+    }
+
+    private void validateDatabase(DatabasePool pool, int requests, List<ErrorEntry> errors) {
+        if (pool == null || java.util.Arrays.stream(new Object[]{pool.maximumConnections(), pool.peakActiveConnections(), pool.peakPendingThreads(),
+            pool.poolSamples(), pool.exhaustedSamples(), pool.acquisitionTimeoutCount(), pool.acquisitionErrorCount(), pool.queryCount(), pool.queryErrorCount(),
+            pool.acquisitionP95Ms(), pool.queryP95Ms()}).anyMatch(java.util.Objects::isNull)) throw unexpected();
+        if (pool.maximumConnections() < 1 || pool.maximumConnections() > 64 || pool.peakActiveConnections() < 0
+            || pool.peakActiveConnections() > pool.maximumConnections() || pool.peakPendingThreads() < 0
+            || pool.poolSamples() < 0 || pool.exhaustedSamples() < 0 || pool.exhaustedSamples() > pool.poolSamples()
+            || pool.acquisitionTimeoutCount() < 0 || pool.acquisitionErrorCount() < 0 || pool.queryErrorCount() < 0
+            || (long) pool.acquisitionTimeoutCount() + pool.acquisitionErrorCount() + pool.queryErrorCount() > requests
+            || pool.queryCount() != (long) requests - pool.acquisitionTimeoutCount() - pool.acquisitionErrorCount()
+            || pool.queryCount() == 0 && pool.queryP95Ms() != 0
+            || !metric(pool.acquisitionP95Ms()) || !metric(pool.queryP95Ms())
+            || requests == 0 && (pool.acquisitionP95Ms() != 0 || pool.queryP95Ms() != 0)
+            || pool.poolSamples() == 0 && (pool.peakActiveConnections() != 0 || pool.peakPendingThreads() != 0)
+            || pool.exhaustedSamples() > 0 && (pool.peakActiveConnections() != pool.maximumConnections().intValue() || pool.peakPendingThreads() == 0)
+            || errors == null) throw unexpected();
+        for (ErrorEntry error : errors) {
+            if (error == null || error.code() == null || !List.of("DB_CONNECTION_ACQUIRE_TIMEOUT", "DB_CONNECTION_ACQUIRE_FAILED", "SQL_QUERY_FAILED").contains(error.code())) throw unexpected();
+        }
+        if (errors.stream().filter(e -> "DB_CONNECTION_ACQUIRE_TIMEOUT".equals(e.code())).count() > pool.acquisitionTimeoutCount()
+            || errors.stream().filter(e -> "DB_CONNECTION_ACQUIRE_FAILED".equals(e.code())).count() > pool.acquisitionErrorCount()
+            || errors.stream().filter(e -> "SQL_QUERY_FAILED".equals(e.code())).count() > pool.queryErrorCount()) throw unexpected();
     }
 
     private void validate(Snapshot value, ToolContext context) {

@@ -12,10 +12,12 @@ import java.util.stream.Collectors;
 
 /** The model selects claims and evidence; only application code writes diagnostic text. */
 final class ModelOutput {
-    enum Assessment { DOWNSTREAM_TIMEOUT_OBSERVED, NO_DOWNSTREAM_TIMEOUT_OBSERVED, INSUFFICIENT_EVIDENCE }
+    enum Assessment { DOWNSTREAM_TIMEOUT_OBSERVED, NO_DOWNSTREAM_TIMEOUT_OBSERVED,
+        DB_POOL_EXHAUSTION_OBSERVED, NO_DB_POOL_EXHAUSTION_OBSERVED, INSUFFICIENT_EVIDENCE }
     enum Check {
         INSPECT_INVENTORY_LATENCY, CORRELATE_TRACE, VERIFY_REQUEST_TIMEOUT, COLLECT_RESOURCE_METRICS,
-        FIND_SLOW_REQUEST, COLLECT_OBSERVATIONS, SEARCH_MATCHING_RULE
+        FIND_SLOW_REQUEST, COLLECT_OBSERVATIONS, SEARCH_MATCHING_RULE,
+        INSPECT_DB_CONNECTION_HOLDERS, VERIFY_DB_POOL_LIMITS, INSPECT_DB_QUERIES
     }
     record Response(Assessment assessment, List<String> evidenceIds, List<Check> nextChecks) {}
     record Parsed(Assessment assessment, List<Check> requestedNextChecks, List<Check> nextChecks, TriageEngine.Decision decision) {}
@@ -53,7 +55,22 @@ final class ModelOutput {
         return copy;
     }
 
-    String format() { return format; }
+    String format() { return format(false); }
+    String format(boolean database) {
+        try {
+            var schema = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(format);
+            var assessments = ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("assessment")).putArray("enum");
+            Arrays.stream(Assessment.values()).filter(value -> value == Assessment.INSUFFICIENT_EVIDENCE || database == databaseAssessment(value))
+                .forEach(value -> assessments.add(value.name()));
+            var checks = ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("nextChecks").path("items")).putArray("enum");
+            Arrays.stream(Check.values()).filter(check -> database ? check != Check.INSPECT_INVENTORY_LATENCY && check != Check.VERIFY_REQUEST_TIMEOUT
+                : !Set.of(Check.INSPECT_DB_CONNECTION_HOLDERS, Check.VERIFY_DB_POOL_LIMITS, Check.INSPECT_DB_QUERIES).contains(check)).forEach(check -> checks.add(check.name()));
+            return json.writeValueAsString(schema);
+        } catch (JsonProcessingException e) { throw new IllegalStateException("Cannot build observation-specific schema", e); }
+    }
+    static boolean databaseAssessment(Assessment assessment) {
+        return assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED || assessment == Assessment.NO_DB_POOL_EXHAUSTION_OBSERVED;
+    }
 
     Parsed parse(String text, List<Evidence> evidence) {
         return parse(text, evidence, ServiceInfo.order());
@@ -111,8 +128,12 @@ final class ModelOutput {
                 Check.VERIFY_REQUEST_TIMEOUT, Check.COLLECT_RESOURCE_METRICS, Check.FIND_SLOW_REQUEST);
             case NO_DOWNSTREAM_TIMEOUT_OBSERVED -> List.of(Check.COLLECT_RESOURCE_METRICS, Check.FIND_SLOW_REQUEST,
                 Check.INSPECT_INVENTORY_LATENCY);
+            case DB_POOL_EXHAUSTION_OBSERVED -> List.of(Check.CORRELATE_TRACE, Check.INSPECT_DB_CONNECTION_HOLDERS,
+                Check.VERIFY_DB_POOL_LIMITS, Check.INSPECT_DB_QUERIES, Check.COLLECT_RESOURCE_METRICS, Check.FIND_SLOW_REQUEST);
+            case NO_DB_POOL_EXHAUSTION_OBSERVED -> List.of(Check.INSPECT_DB_QUERIES, Check.COLLECT_RESOURCE_METRICS,
+                Check.FIND_SLOW_REQUEST, Check.VERIFY_DB_POOL_LIMITS);
             case INSUFFICIENT_EVIDENCE -> List.of(Check.COLLECT_OBSERVATIONS, Check.SEARCH_MATCHING_RULE,
-                Check.CORRELATE_TRACE, Check.FIND_SLOW_REQUEST, Check.COLLECT_RESOURCE_METRICS);
+                Check.CORRELATE_TRACE, Check.INSPECT_DB_QUERIES, Check.FIND_SLOW_REQUEST, Check.COLLECT_RESOURCE_METRICS);
         };
         return order.stream().filter(requested::contains).limit(2).toList();
     }
@@ -121,20 +142,28 @@ final class ModelOutput {
         EnumSet<Check> checks = EnumSet.of(Check.FIND_SLOW_REQUEST, Check.COLLECT_RESOURCE_METRICS);
         Evidence metrics = evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElse(null);
         Evidence logs = evidence.stream().filter(item -> item.source().equals("query_error_logs")).findFirst().orElse(null);
+        boolean database = EvidenceRules.database(metrics);
+        if (assessment != Assessment.INSUFFICIENT_EVIDENCE && database != databaseAssessment(assessment)) return Set.of();
         boolean hasRequests = metrics != null && metrics.data().get("requestCount") instanceof Number count && count.longValue() > 0;
         if (assessment != Assessment.INSUFFICIENT_EVIDENCE) {
-            checks.add(Check.INSPECT_INVENTORY_LATENCY);
-            if (assessment == Assessment.DOWNSTREAM_TIMEOUT_OBSERVED) checks.add(Check.VERIFY_REQUEST_TIMEOUT);
+            if (database) {
+                checks.add(Check.INSPECT_DB_QUERIES); checks.add(Check.VERIFY_DB_POOL_LIMITS);
+                if (assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED) checks.add(Check.INSPECT_DB_CONNECTION_HOLDERS);
+            } else {
+                checks.add(Check.INSPECT_INVENTORY_LATENCY);
+                if (assessment == Assessment.DOWNSTREAM_TIMEOUT_OBSERVED) checks.add(Check.VERIFY_REQUEST_TIMEOUT);
+            }
         } else {
             if (!hasRequests || logs == null) checks.add(Check.COLLECT_OBSERVATIONS);
-            String rule = metrics != null && metrics.data().get("downstreamTimeoutRate") instanceof Number rate
-                ? rate.doubleValue() > 0 ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#" : null;
+            String rule = EvidenceRules.required(metrics);
             boolean matched = evidence.stream().anyMatch(item -> item.source().equals("search_runbooks")
                 && (rule == null ? item.id().startsWith("DOC-DOWNSTREAM-TIMEOUT#") || item.id().startsWith("DOC-HEALTHY-BASELINE#")
                     : item.id().startsWith(rule)));
             if (!matched) checks.add(Check.SEARCH_MATCHING_RULE);
+            if (database && EvidenceRules.pool(metrics).get("queryP95Ms") instanceof Number query && query.doubleValue() > 0)
+                checks.add(Check.INSPECT_DB_QUERIES);
         }
-        if (assessment != Assessment.NO_DOWNSTREAM_TIMEOUT_OBSERVED && logs != null
+        if (assessment != Assessment.NO_DOWNSTREAM_TIMEOUT_OBSERVED && assessment != Assessment.NO_DB_POOL_EXHAUSTION_OBSERVED && logs != null
             && logs.data().get("entries") instanceof List<?> entries
             && entries.stream().anyMatch(entry -> entry instanceof Map<?, ?> data
                 && data.get("traceId") instanceof String trace && !trace.isBlank())) checks.add(Check.CORRELATE_TRACE);
@@ -146,6 +175,18 @@ final class ModelOutput {
         Evidence logs = one(selected, "query_error_logs");
         if (!(metrics.data().get("requestCount") instanceof Number count) || count.longValue() <= 0)
             throw new RunFailure("MODEL_NO_OBSERVATIONS", "模型试图在无请求窗口生成成功判断，已拒绝。");
+        if (EvidenceRules.database(metrics)) {
+            if (!databaseAssessment(assessment) || !"DATABASE_POOL".equals(logs.data().get("observationType"))
+                || !(logs.data().get("entries") instanceof List<?> entries) || EvidenceRules.count(logs.data(), "returnedCount") != entries.size()
+                || (assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED ? !EvidenceRules.exhausted(metrics, logs) : !EvidenceRules.noDatabaseTimeout(metrics, logs)))
+                throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "模型判断与数据库连接获取阶段、池采样或错误事件不符，已拒绝。");
+            number(metrics, "requestP95Ms");
+            String rule = assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED ? EvidenceRules.DB_TIMEOUT : EvidenceRules.DB_BASELINE;
+            if (selected.stream().noneMatch(item -> item.source().equals("search_runbooks") && item.id().startsWith(rule)))
+                throw new RunFailure("MODEL_MISSING_EVIDENCE", "模型没有选择与数据库观测对应的排障规则。");
+            return;
+        }
+        if (databaseAssessment(assessment)) throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "HTTP 观测不能支持数据库连接池判断。");
         double rate = number(metrics, "downstreamTimeoutRate");
         if (rate > 1) throw new IllegalArgumentException();
         number(metrics, "orderP95Ms");
@@ -180,6 +221,11 @@ final class ModelOutput {
     private Diagnosis render(Response response, List<Evidence> selected, List<Check> prioritized, ServiceInfo info) {
         String service = info.equals(ServiceInfo.order()) ? "订单" : info.name();
         String downstream = info.equals(ServiceInfo.order()) ? "库存" : info.downstreamName();
+        if (selected.stream().anyMatch(EvidenceRules::database))
+            return DatabaseDiagnosis.render(selected, info, response.assessment() == Assessment.DB_POOL_EXHAUSTION_OBSERVED,
+                response.assessment() != Assessment.INSUFFICIENT_EVIDENCE,
+                prioritized.stream().map(check -> check == Check.CORRELATE_TRACE ? "使用错误事件中的 traceId 核对请求的连接获取阶段耗时。"
+                    : checkText(check, service, downstream, info.downstreamName())).toList());
         List<Finding> observations = selected.stream()
             .filter(item -> Set.of("read_service_metrics", "query_error_logs").contains(item.source()))
             .map(item -> new Finding(item.summary(), List.of(item.id()))).toList();
@@ -210,6 +256,9 @@ final class ModelOutput {
             case FIND_SLOW_REQUEST -> "找到具体慢请求的时间和 traceId，缩小查询范围。";
             case COLLECT_OBSERVATIONS -> "补充当前窗口的" + service + "指标和错误日志后再判断。";
             case SEARCH_MATCHING_RULE -> "检索与本次正常或超时观测匹配的排障规则。";
+            case INSPECT_DB_CONNECTION_HOLDERS -> "对照获取连接超时的 traceId，检查持有连接的请求、长事务和连接释放情况。";
+            case VERIFY_DB_POOL_LIMITS -> "核对池容量、获取连接时限和实际并发量，验证释放连接后请求是否恢复。";
+            case INSPECT_DB_QUERIES -> "核对 SQL 执行耗时、锁等待和事务状态，区分查询阶段与获取连接阶段。";
         };
     }
 }

@@ -50,7 +50,7 @@ def main():
     assert status == 200 and config["protocol"] == "OBSERVATIONS_V1" and not config["labEnabled"]
     if config["mode"] != "DEMO" and not args.mock_provider:
         parser.error("Use DEMO mode, or --mock-provider with a local protocol stub")
-    assert {item["id"] for item in config["services"]} == {"order-service", "checkout-service"}
+    assert {"order-service", "checkout-service"} <= {item["id"] for item in config["services"]}
     assert "baseUrl" not in json.dumps(config) and "base-url" not in json.dumps(config)
     assert request(checkout, "/lab/scenario")[0] == 404
     for body in (

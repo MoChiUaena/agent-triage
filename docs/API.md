@@ -32,7 +32,7 @@
 | `GET /api/runs/{uuid}` | 完整执行记录，包含事件、证据、结论或失败信息 |
 | `GET /api/runs/{uuid}/events` | SSE 事件流，支持 `Last-Event-ID` 重放 |
 
-运行模式由服务端配置，提交请求不能切换模式。执行记录和列表摘要的 `mode` 为 `DEMO` 或 `MODEL`。默认合成数据源下 `synthetic` 为 true；启用 LIVE 数据源后为 false。旧 `LAB` 协议读取订单样例当前场景；新 `OBSERVATIONS_V1` 协议只调用观测接口，场景保存为 `OBSERVED`。LIVE 提交体中的 `scenario` 不决定观测值。
+运行模式由服务端配置，提交请求不能切换模式。执行记录和列表摘要的 `mode` 为 `DEMO` 或 `MODEL`。默认合成数据源下 `synthetic` 为 true；启用 LIVE 数据源后为 false。旧 `LAB` 协议读取订单样例当前场景；`OBSERVATIONS_V1` 和 `DATABASE_V2` 只调用观测接口，场景保存为 `OBSERVED`。LIVE 提交体中的 `scenario` 不决定观测值。
 
 新记录和摘要包含 `serviceInfo`，保留执行时的服务与下游名称。旧历史中的该字段可为空，仍能读取。观测地址不会出现在公共配置和执行记录中。[接口契约与接入配置](SERVICE_INTEGRATION.md)另见说明。
 
@@ -86,6 +86,8 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 证据包含 `id`、`source`、`title`、`summary` 和 `data`，其中 data 带有 synthetic 标记。LIVE 数据源使用 v2 排障文档；合成模式保留 v1。观测 ID 只在本次执行内解析。工具由执行器调用，没有单独的 HTTP 接口。
 
 ## 本地样例控制
+
+数据库样例使用 `service: account-service`，场景为 `NORMAL`、`DB_POOL_EXHAUSTED`、`DB_POOL_RECOVERY`；`DB_QUERY_LOCK_WAIT` 用于 SQL 阶段误判检查。恢复操作先验证一次获取连接超时，再释放连接并生成新的正常窗口。响应包含 `acquisitionTimeoutCount`、`queryErrorCount` 和 `recoveryVerified`。这些操作需要该服务显式开启控制权限；完整语义见[数据库连接池说明](DATABASE_POOL.md)。
 
 仅当 `TRIAGE_OBSERVATION_SOURCE=LIVE` 时提供 `POST /api/live-lab/traffic`。同源本地页面发送 `X-Triage-Lab: 1`，请求体为 `{"service":"order-service","scenario":"NORMAL","count":5}`，也可选择 `DOWNSTREAM_TIMEOUT`；省略服务时使用默认服务。`count` 范围 1–10。目标必须显式开放 `labEnabled`，只读接入服务返回 403。接口先清空样例观测、设置场景，再向样例订单接口发出指定数量的请求，返回实际请求数、超时次数和 p95。它是显式实验控制，不属于 Agent 的只读工具。
 

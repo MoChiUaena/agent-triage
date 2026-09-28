@@ -135,8 +135,10 @@ class LiveModelOutputTest {
     }
 
     @Test void schemaExposesEveryAllowedSelectionToTheProvider() throws Exception {
-        for (var value : ModelOutput.Assessment.values()) assertThat(output.format()).contains(value.name());
-        for (var value : ModelOutput.Check.values()) assertThat(output.format()).contains(value.name());
+        for (var value : ModelOutput.Assessment.values()) assertThat(output.format() + output.format(true)).contains(value.name());
+        for (var value : ModelOutput.Check.values()) assertThat(output.format() + output.format(true)).contains(value.name());
+        assertThat(output.format()).doesNotContain("DB_POOL_EXHAUSTION_OBSERVED", "INSPECT_DB_QUERIES");
+        assertThat(output.format(true)).doesNotContain("DOWNSTREAM_TIMEOUT_OBSERVED", "INSPECT_INVENTORY_LATENCY");
         var schema = JsonMapper.builder().build().readTree(output.format());
         assertThat(schema.path("required").toString()).contains("assessment", "evidenceIds", "nextChecks");
         assertThat(schema.path("additionalProperties").booleanValue()).isFalse();

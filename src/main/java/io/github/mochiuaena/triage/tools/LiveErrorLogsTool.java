@@ -18,9 +18,12 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
 
     @Override public List<Evidence> execute(ToolContext context, String query) {
         LiveObservationClient.Snapshot observation = client.snapshot(context);
-        List<Map<String, Object>> entries = observation.errors().stream().map(error -> Map.<String, Object>of(
-            "timestamp", error.timestamp().toString(), "traceId", error.traceId(),
-            "level", error.level(), "message", error.message())).toList();
+        List<Map<String, Object>> entries = observation.errors().stream().map(error -> {
+            Map<String, Object> entry = new LinkedHashMap<>(Map.of("timestamp", error.timestamp().toString(), "traceId", error.traceId(),
+                "level", error.level(), "message", error.message()));
+            if (error.code() != null) entry.put("code", error.code());
+            return entry;
+        }).toList();
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("service", observation.service());
         data.put("windowStart", observation.windowStart().toString());
@@ -30,6 +33,16 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
         data.put("timeoutCount", observation.timeoutCount());
         data.put("sampleLimit", 3);
         data.put("synthetic", false);
+        if (observation.databasePool() != null) {
+            data.put("observationType", "DATABASE_POOL");
+            data.put("requestCount", observation.requestCount());
+            data.put("acquisitionTimeoutCount", observation.databasePool().acquisitionTimeoutCount());
+            data.put("acquisitionErrorCount", observation.databasePool().acquisitionErrorCount());
+            data.put("queryErrorCount", observation.databasePool().queryErrorCount());
+            data.remove("timeoutCount");
+            return List.of(new Evidence("LOGS-DB-" + context.endTime().toEpochMilli(), name(), "数据库错误事件（最多 3 条）",
+                entries.isEmpty() ? "本窗口没有记录数据库错误事件。" : "展示本窗口最近 " + entries.size() + " 条数据库错误事件；获取连接失败与 SQL 查询失败分别记录。", data));
+        }
         String summary = observation.timeoutCount() > 0
             ? "该窗口记录了 " + observation.timeoutCount() + " 次" + context.serviceInfo().downstreamName() + "请求超时，展示最近 " + entries.size() + " 条错误事件。"
             : !entries.isEmpty()

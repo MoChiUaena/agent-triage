@@ -46,7 +46,7 @@ public class RunController {
         ServiceRegistry.Target target = registry.require(request.service());
         if (request.windowMinutes() > target.maxWindowMinutes())
             throw new ResponseStatusException(BAD_REQUEST, "时间窗口超过所选服务允许的 " + target.maxWindowMinutes() + " 分钟。");
-        if (observation.synthetic() && (request.scenario() == null || request.scenario() == Scenario.OBSERVED))
+        if (observation.synthetic() && request.scenario() != Scenario.NORMAL && request.scenario() != Scenario.DOWNSTREAM_TIMEOUT)
             throw new ResponseStatusException(BAD_REQUEST, "请选择 NORMAL 或 DOWNSTREAM_TIMEOUT 演示场景。");
         Scenario scenario;
         try { scenario = observation.synthetic() ? request.scenario() : live.scenario(target); }
@@ -82,7 +82,7 @@ public class RunController {
         if (!observation.synthetic()) {
             try {
                 Scenario scenario = live.scenario(target);
-                if (target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V1)
+                if (target.protocol() != ServiceRegistry.Protocol.LAB)
                     live.snapshot(new ToolContext(target.info().id(), Math.min(15, target.maxWindowMinutes()), scenario, Instant.now(), target));
                 config.put("scenario", scenario); config.put("observationAvailable", true);
             }

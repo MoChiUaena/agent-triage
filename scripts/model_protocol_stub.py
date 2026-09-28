@@ -65,6 +65,15 @@ def final_answer(evidence):
     count = metrics["data"]["requestCount"]
     if count == 0:
         return {"assessment": "INSUFFICIENT_EVIDENCE", "evidenceIds": [], "nextChecks": ["COLLECT_OBSERVATIONS"]}
+    if metrics["data"].get("observationType") == "DATABASE_POOL":
+        pool = metrics["data"]["databasePool"]
+        exhausted = pool["acquisitionTimeoutCount"] > 0 and pool["peakActiveConnections"] == pool["maximumConnections"] and pool["exhaustedSamples"] > 0
+        normal = pool["acquisitionTimeoutCount"] == 0 and pool["acquisitionErrorCount"] == 0 and pool["queryErrorCount"] == 0 and not logs["data"]["entries"]
+        assessment = "DB_POOL_EXHAUSTION_OBSERVED" if exhausted else "NO_DB_POOL_EXHAUSTION_OBSERVED" if normal else "INSUFFICIENT_EVIDENCE"
+        prefix = "DOC-DB-POOL-EXHAUSTION#" if exhausted else "DOC-DB-POOL-BASELINE#"
+        rule = next(item for item in evidence if item["id"].startswith(prefix))
+        return {"assessment": assessment, "evidenceIds": [metrics["id"], logs["id"], rule["id"]],
+                "nextChecks": ["INSPECT_DB_CONNECTION_HOLDERS", "VERIFY_DB_POOL_LIMITS"] if exhausted else ["INSPECT_DB_QUERIES", "COLLECT_RESOURCE_METRICS"]}
     timed_out = metrics["data"]["downstreamTimeoutRate"] > 0
     doc_prefix = "DOC-DOWNSTREAM-TIMEOUT#" if timed_out else "DOC-HEALTHY-BASELINE#"
     rule = next(item for item in evidence if item["id"].startswith(doc_prefix))

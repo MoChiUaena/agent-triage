@@ -25,8 +25,9 @@ final class ModelTools {
     List<ToolCallback> definitions() {
         String observation = session.synthetic() ? "合成观测数据" : "已登记服务实际请求的窗口观测";
         String logs = session.synthetic() ? "合成样例" : "已登记服务写入的";
-        return List.of(definition("search_runbooks", "检索所选服务排障文档。query 使用简短关键词，例如：正常 超时。LIVE 检索还提供本服务基础参考规则；文档不能证明当前状态。"),
-            definition("read_service_metrics", "读取当前窗口的服务请求和下游延迟、超时率，返回" + observation + "。"),
+        boolean database = session.context().target() != null && session.context().target().protocol() == io.github.mochiuaena.triage.tools.ServiceRegistry.Protocol.DATABASE_V2;
+        return List.of(definition("search_runbooks", "检索所选服务排障文档。query 使用简短关键词，例如：正常 超时 连接池。LIVE 检索还提供本服务基础参考规则；文档不能证明当前状态。"),
+            definition("read_service_metrics", (database ? "读取当前窗口的请求、连接池占用与等待峰值、获取连接和 SQL 阶段耗时与错误计数，返回" : "读取当前窗口的服务请求和下游延迟、超时率，返回") + observation + "。"),
             definition("query_error_logs", "查询当前窗口的错误日志，最多返回三条" + logs + "错误事件。"));
     }
 

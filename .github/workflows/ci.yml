@@ -102,6 +102,12 @@ jobs:
             sleep 1
           done
           python3 scripts/service_integration_smoke.py --mock-provider
+          java -jar database-service/target/triage-database-service-0.1.0.jar > database.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:18096/actuator/health > /dev/null; then break; fi
+            sleep 1
+          done
+          python3 scripts/db_pool_smoke.py --mock-provider
           kill "$stub_pid"
           wait "$stub_pid" || true
           python3 scripts/model_protocol_stub.py --port 18100 --invalid-first-arguments > correction-stub.log 2>&1 &

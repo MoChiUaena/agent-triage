@@ -12,7 +12,7 @@ import java.util.*;
 /** Startup-owned allowlist. Addresses never come from a run or a model tool call. */
 @Component
 public final class ServiceRegistry {
-    public enum Protocol { LAB, OBSERVATIONS_V1 }
+    public enum Protocol { LAB, OBSERVATIONS_V1, DATABASE_V2 }
     public record Config(String id, String name, String downstreamId, String downstreamName,
                          String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled) {}
     public record Target(ServiceInfo info, URI baseUrl, Protocol protocol, int maxWindowMinutes, boolean labEnabled) {}
@@ -41,7 +41,8 @@ public final class ServiceRegistry {
                 if (window < 1 || window > 60) throw new IllegalArgumentException("Service window must be 1..60 minutes");
                 if (protocol == Protocol.LAB && (!id.equals("order-service") || !downstream.equals("inventory-service")))
                     throw new IllegalArgumentException("LAB protocol is reserved for the legacy order sample");
-                if (lab && protocol != Protocol.LAB) throw new IllegalArgumentException("Lab controls require the LAB protocol");
+                if (lab && protocol != Protocol.LAB && protocol != Protocol.DATABASE_V2)
+                    throw new IllegalArgumentException("Lab controls require an explicit lab protocol");
                 Target target = new Target(new ServiceInfo(id, label(config.name(), id), downstream,
                     label(config.downstreamName(), downstream)), ObservationSource.origin(config.baseUrl()), protocol, window, lab);
                 if (values.putIfAbsent(id, target) != null) throw new IllegalArgumentException("Duplicate registered service");
@@ -74,8 +75,11 @@ public final class ServiceRegistry {
     public ToolContext freeze(ToolContext context) {
         Target target = require(context.service());
         if (context.target() != null && !context.target().equals(target)) throw new IllegalArgumentException("Service configuration mismatch");
-        if ((target.protocol() == Protocol.OBSERVATIONS_V1) != (context.scenario() == io.github.mochiuaena.triage.domain.TriageModel.Scenario.OBSERVED))
+        if ((target.protocol() != Protocol.LAB) != (context.scenario() == io.github.mochiuaena.triage.domain.TriageModel.Scenario.OBSERVED))
             throw new IllegalArgumentException("Scenario does not match the observation protocol");
+        if (target.protocol() == Protocol.LAB && context.scenario() != io.github.mochiuaena.triage.domain.TriageModel.Scenario.NORMAL
+            && context.scenario() != io.github.mochiuaena.triage.domain.TriageModel.Scenario.DOWNSTREAM_TIMEOUT)
+            throw new IllegalArgumentException("Unsupported legacy lab scenario");
         return new ToolContext(context.service(), context.windowMinutes(), context.scenario(), context.endTime(), target);
     }
 }

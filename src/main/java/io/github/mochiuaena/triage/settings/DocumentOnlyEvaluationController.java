@@ -20,6 +20,8 @@ public class DocumentOnlyEvaluationController {
 
     @PostMapping("/document-only")
     public DocumentOnlyEvaluationService.Result documentOnly(@Valid @RequestBody Input input) {
+        if (input.scenario() != Scenario.NORMAL && input.scenario() != Scenario.DOWNSTREAM_TIMEOUT)
+            throw new IllegalArgumentException("Document-only comparison supports the original HTTP scenarios");
         return evaluation.evaluate(input.question().strip(), input.scenario(), input.expectedSelection());
     }
 }

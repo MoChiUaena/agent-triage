@@ -23,6 +23,7 @@ public class LiveMetricsTool implements ReadOnlyTool {
         data.put("windowStart", observation.windowStart().toString());
         data.put("windowEnd", observation.windowEnd().toString());
         data.put("requestCount", observation.requestCount());
+        if (observation.databasePool() != null) return database(context, observation, data);
         data.put("micrometerRecordedRequestCount", observation.recordedRequestCount());
         data.put("orderP95Ms", observation.orderP95Ms());
         data.put("requestP95Ms", observation.orderP95Ms());
@@ -41,5 +42,23 @@ public class LiveMetricsTool implements ReadOnlyTool {
                 + Math.round(observation.downstreamTimeoutRate() * 1000) / 10.0 + "%。";
         return List.of(new Evidence("METRICS-LIVE-" + context.endTime().toEpochMilli(), name(),
             context.serviceInfo().name() + "窗口指标（实际请求）", summary, data));
+    }
+
+    private List<Evidence> database(ToolContext context, LiveObservationClient.Snapshot value, Map<String, Object> data) {
+        var pool = value.databasePool();
+        data.put("observationType", "DATABASE_POOL");
+        data.put("requestP95Ms", value.orderP95Ms()); data.put("baselineRequestP95Ms", value.baselineOrderP95Ms());
+        data.put("recordedRequestCount", value.recordedRequestCount()); data.put("synthetic", false);
+        Map<String, Object> poolData = new LinkedHashMap<>(Map.of("maximumConnections", pool.maximumConnections(), "peakActiveConnections", pool.peakActiveConnections(),
+            "peakPendingThreads", pool.peakPendingThreads(), "poolSamples", pool.poolSamples(), "exhaustedSamples", pool.exhaustedSamples(),
+            "acquisitionTimeoutCount", pool.acquisitionTimeoutCount(), "acquisitionErrorCount", pool.acquisitionErrorCount(), "queryErrorCount", pool.queryErrorCount(),
+            "acquisitionP95Ms", pool.acquisitionP95Ms(), "queryP95Ms", pool.queryP95Ms()));
+        poolData.put("queryCount", pool.queryCount()); data.put("databasePool", poolData);
+        String summary = value.requestCount() == 0 ? "该时间窗口没有数据库请求，不能判断连接等待情况。"
+            : "本窗口处理 " + value.requestCount() + " 个请求，获取连接超时 " + pool.acquisitionTimeoutCount() + " 次，获取连接失败 "
+                + pool.acquisitionErrorCount() + " 次，SQL 查询失败 " + pool.queryErrorCount() + " 次；获取连接 p95 为 " + pool.acquisitionP95Ms()
+                + "ms，" + (pool.queryCount() == 0 ? "本窗口未执行 SQL 查询" : "SQL 查询 p95 为 " + pool.queryP95Ms() + "ms") + "。连接使用峰值 " + pool.peakActiveConnections() + "/" + pool.maximumConnections()
+                + "，等待线程峰值 " + pool.peakPendingThreads() + "。";
+        return List.of(new Evidence("METRICS-DB-" + context.endTime().toEpochMilli(), name(), context.serviceInfo().name() + "数据库窗口指标", summary, data));
     }
 }

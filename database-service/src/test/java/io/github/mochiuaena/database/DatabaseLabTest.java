@@ -34,6 +34,8 @@ class DatabaseLabTest {
         assertThat(value.service()).isEqualTo("account-service"); assertThat(value.schemaVersion()).isEqualTo(2);
         assertThat(value.requestCount()).isEqualTo(1); assertThat(value.synthetic()).isFalse();
         assertThat(value.databasePool().acquisitionTimeoutCount()).isZero(); assertThat(value.errors()).isEmpty();
+        assertThat(value.databasePool().queryCount()).isEqualTo(1);
+        assertThat(value.databasePool().peakActiveConnections()).isGreaterThanOrEqualTo(1);
         assertThat(value.databasePool().poolSamples()).isPositive();
     }
     @Test void poolExhaustionTimesOutAndClosingHeldConnectionsRestoresRequests() {
@@ -44,6 +46,7 @@ class DatabaseLabTest {
         assertThat(value.databasePool().peakActiveConnections()).isEqualTo(2);
         assertThat(value.databasePool().peakPendingThreads()).isPositive(); assertThat(value.databasePool().exhaustedSamples()).isPositive();
         assertThat(value.databasePool().acquisitionTimeoutCount()).isEqualTo(1);
+        assertThat(value.databasePool().queryCount()).isZero(); assertThat(value.databasePool().queryP95Ms()).isZero();
         assertThat(value.databasePool().acquisitionP95Ms()).isGreaterThanOrEqualTo(250);
         assertThat(value.errors()).hasSize(1).allSatisfy(error -> assertThat(error.code()).isEqualTo("DB_CONNECTION_ACQUIRE_TIMEOUT"));
         assertThat(post("/lab/scenario", Map.of("scenario", "NORMAL")).getStatusCode()).isEqualTo(HttpStatus.OK);

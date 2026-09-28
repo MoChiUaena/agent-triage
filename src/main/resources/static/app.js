@@ -66,6 +66,7 @@ async function loadConfiguration(serviceId = $("#service").value) {
     $("#window").value = String(windows.includes(previousWindow) ? previousWindow : Math.min(15, config.maxWindowMinutes));
     const live = config.observationSource === "LIVE";
     $("#live-lab").hidden = !config.labEnabled;
+    configureLab(config);
     $("#scenario").disabled = live;
     $("#scenario-label").textContent = live ? "当前场景" : "场景";
     if (live && config.scenario) $("#scenario").value = config.scenario;
@@ -133,6 +134,24 @@ function element(tag, className, text) {
   return node;
 }
 
+function configureLab(config) {
+  const database = config.protocol === "DATABASE_V2";
+  $("#live-lab-title").textContent = database ? "数据库连接池样例" : "本地订单样例";
+  $("#live-lab").setAttribute("aria-label", database ? "数据库连接池样例" : "本地订单样例");
+  $("#live-lab-description").textContent = database
+    ? "请求会实际获取数据库连接并执行查询。可以触发连接等待，再释放连接验证恢复。"
+    : "订单接口会实际调用库存接口。先生成一组请求，再查看 Agent 读取的指标和错误事件。";
+  $("#live-lab-status").textContent = "等待生成请求";
+  const choices = database ? [["NORMAL", "生成正常请求"], ["DB_POOL_EXHAUSTED", "触发连接池耗尽"], ["DB_POOL_RECOVERY", "释放连接并验证恢复"]]
+    : [["NORMAL", "生成正常请求"], ["DOWNSTREAM_TIMEOUT", "触发库存超时"]];
+  $(".live-lab-actions").replaceChildren(...choices.map(([scenario, text], index) => {
+    const button = element("button", index === 1 ? "primary" : "secondary", text);
+    button.type = "button"; button.dataset.labScenario = scenario;
+    button.addEventListener("click", () => generateLabTraffic(scenario));
+    return button;
+  }));
+}
+
 function icon(name, className = "") {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("class", "icon " + className);
@@ -187,7 +206,7 @@ async function generateLabTraffic(scenario) {
   $("#submit-button").disabled = true;
   const buttons = document.querySelectorAll("[data-lab-scenario]");
   buttons.forEach((button) => (button.disabled = true));
-  $("#live-lab-status").textContent = "正在产生订单请求…";
+  $("#live-lab-status").textContent = "正在产生实际请求…";
   try {
     const result = await request("/api/live-lab/traffic", {
       method: "POST",
@@ -196,7 +215,10 @@ async function generateLabTraffic(scenario) {
     });
     runtimeConfig.scenario = result.scenario;
     $("#scenario").value = result.scenario;
-    $("#live-lab-status").textContent =
+    $("#live-lab-status").textContent = runtimeConfig.protocol === "DATABASE_V2"
+      ? (result.recoveryVerified ? "已验证连接释放后的恢复。" : "") + "已处理 " + result.requestCount + " 个数据库请求，获取连接超时 "
+        + result.acquisitionTimeoutCount + " 次，SQL 查询失败 " + result.queryErrorCount + " 次。现在可以开始排查。"
+      :
       "已处理 " +
       result.requestCount +
       " 个订单请求，库存超时 " +
@@ -385,6 +407,23 @@ function renderMetrics(run) {
   $("#metrics").hidden = !evidence;
   if (!evidence) return;
   const data = evidence.data;
+  if (data.observationType === "DATABASE_POOL") {
+    const pool = data.databasePool;
+    const values = [["请求 p95", data.requestCount ? data.requestP95Ms : null, "ms", "最近 " + run.windowMinutes + " 分钟"],
+      ["获取连接 p95", data.requestCount ? pool.acquisitionP95Ms : null, "ms", "与 SQL 执行阶段分开统计"],
+      ["SQL 查询 p95", pool.queryCount ? pool.queryP95Ms : null, "ms", pool.queryCount ? "实际查询数 " + pool.queryCount : "本窗口未执行 SQL 查询"],
+      ["连接占用峰值", pool.peakActiveConnections, "", "池上限 " + pool.maximumConnections],
+      ["等待线程峰值", pool.peakPendingThreads, "", "窗口内采样峰值"],
+      ["获取连接超时", pool.acquisitionTimeoutCount, "次", "窗口内请求数 " + data.requestCount]];
+    for (const [label, value, unit, caption] of values) {
+      const card = element("div", "metric" + (pool.acquisitionTimeoutCount > 0 && label !== "SQL 查询 p95" ? " warning" : ""));
+      const number = element("div", "metric-value", value == null ? "—" : Number(value).toLocaleString("zh-CN"));
+      if (value != null && unit) number.append(element("small", "", unit));
+      card.append(element("div", "metric-label", label), number, element("div", "metric-caption", caption));
+      $("#metrics").append(card);
+    }
+    return;
+  }
   const hasRequests = data.requestCount > 0;
   const labels = serviceInfo(run);
   const requestP95 = data.requestP95Ms ?? data.orderP95Ms;
@@ -543,7 +582,15 @@ function renderEvidence(run) {
     if (evidence.source === "read_service_metrics") {
       const data = evidence.data;
       const table = element("dl", "metric-table");
-      [
+      const rows = data.observationType === "DATABASE_POOL" ? [
+        ["请求 p95", data.requestP95Ms + " ms"], ["获取连接 p95", data.databasePool.acquisitionP95Ms + " ms"],
+        ["SQL 查询 p95", data.databasePool.queryCount ? data.databasePool.queryP95Ms + " ms" : "未执行"],
+        ["实际 SQL 查询数", data.databasePool.queryCount], ["连接占用峰值 / 上限", data.databasePool.peakActiveConnections + " / " + data.databasePool.maximumConnections],
+        ["等待线程峰值", data.databasePool.peakPendingThreads], ["连接池满载且有等待的采样数", data.databasePool.exhaustedSamples],
+        ["获取连接超时 / 失败", data.databasePool.acquisitionTimeoutCount + " / " + data.databasePool.acquisitionErrorCount],
+        ["SQL 查询失败", data.databasePool.queryErrorCount], ["窗口内请求数", data.requestCount],
+        ["查询窗口", timeText(data.windowStart) + " – " + timeText(data.windowEnd)],
+      ] : [
         ["服务请求 p95", (data.requestP95Ms ?? data.orderP95Ms) + " ms"],
         ["下游调用 p95", data.downstreamP95Ms + " ms"],
         [
@@ -555,7 +602,8 @@ function renderEvidence(run) {
           "查询窗口",
           timeText(data.windowStart) + " – " + timeText(data.windowEnd),
         ],
-      ].forEach(([label, value]) => {
+      ];
+      rows.forEach(([label, value]) => {
         const row = element("div");
         row.append(element("dt", "", label), element("dd", "", value));
         table.append(row);
@@ -637,6 +685,8 @@ function renderRun(run) {
           DOWNSTREAM_TIMEOUT_OBSERVED: "发现下游调用超时",
           NO_DOWNSTREAM_TIMEOUT_OBSERVED: "未发现下游调用超时",
           INSUFFICIENT_EVIDENCE: "证据不足",
+          DB_POOL_EXHAUSTION_OBSERVED: "发现连接池耗尽的超时证据",
+          NO_DB_POOL_EXHAUSTION_OBSERVED: "未发现连接池耗尽的超时证据",
         }[model.assessment] || "证据不足",
       ]);
     if (run.events.some((event) => event.type === "CONCLUSION_RENDERED"))

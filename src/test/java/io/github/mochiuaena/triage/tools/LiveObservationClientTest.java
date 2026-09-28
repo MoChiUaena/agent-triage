@@ -40,6 +40,46 @@ class LiveObservationClientTest {
     }
     @AfterEach void stop() { server.stop(0); }
 
+    private ObjectNode databaseResponse() {
+        var node = json.createObjectNode();
+        node.put("schemaVersion", 2).put("kind", "DATABASE_POOL").put("service", "account-service").put("database", "accounts-db")
+            .put("windowStart", end.minusSeconds(300).toString()).put("windowEnd", end.toString()).put("requestCount", 5)
+            .put("recordedRequestCount", 5).put("requestP95Ms", 5).putNull("baselineRequestP95Ms").put("synthetic", false);
+        node.putArray("errors");
+        node.putObject("databasePool").put("maximumConnections", 2).put("peakActiveConnections", 1).put("peakPendingThreads", 0)
+            .put("poolSamples", 20).put("exhaustedSamples", 0).put("acquisitionTimeoutCount", 0).put("acquisitionErrorCount", 0)
+            .put("queryCount", 5).put("queryErrorCount", 0).put("acquisitionP95Ms", 1).put("queryP95Ms", 3);
+        return node;
+    }
+    private void databaseClient() {
+        String origin = "http://127.0.0.1:" + server.getAddress().getPort();
+        registry = new ServiceRegistry(new ObservationSource("LIVE", origin), List.of(new ServiceRegistry.Config(
+            "account-service", "账户服务", "accounts-db", "数据库", origin, ServiceRegistry.Protocol.DATABASE_V2, 5, false)));
+        client = new LiveObservationClient(registry, json);
+        context = new ToolContext("account-service", 5, Scenario.OBSERVED, end, registry.defaultTarget());
+    }
+    @Test void databaseContractUsesItsOwnIdentityAndDoesNotPretendToBeHttpMetrics() throws Exception {
+        databaseClient(); response.set(json.writeValueAsBytes(databaseResponse()));
+        var evidence = new LiveMetricsTool(client).execute(context, "").getFirst();
+        assertThat(evidence.data()).containsEntry("observationType", "DATABASE_POOL").containsKey("databasePool")
+            .doesNotContainKeys("downstreamTimeoutRate", "downstreamP95Ms", "orderP95Ms");
+        assertThat(client.scenario(registry.defaultTarget())).isEqualTo(Scenario.OBSERVED);
+    }
+    @Test void rejectsIncompletePoolValuesWrongStagesAndInconsistentQueryCounts() throws Exception {
+        databaseClient();
+        List<Consumer<ObjectNode>> changes = List.of(node -> node.put("database", "inventory-service"), node -> node.put("kind", "HTTP"),
+            node -> ((ObjectNode) node.path("databasePool")).remove("queryErrorCount"), node -> ((ObjectNode) node.path("databasePool")).put("maximumConnections", 0),
+            node -> ((ObjectNode) node.path("databasePool")).put("peakActiveConnections", 3), node -> ((ObjectNode) node.path("databasePool")).put("peakPendingThreads", -1),
+            node -> ((ObjectNode) node.path("databasePool")).put("exhaustedSamples", 3), node -> ((ObjectNode) node.path("databasePool")).put("queryCount", 4),
+            node -> ((ObjectNode) node.path("databasePool")).put("acquisitionP95Ms", "1"),
+            node -> node.withArray("errors").addObject().put("timestamp", end.toString()).put("traceId", "fixture").put("level", "ERROR")
+                .put("message", "Database error").put("code", "DB_CONNECTION_ACQUIRE_TIMEOUT"));
+        for (var change : changes) {
+            var value = databaseResponse(); change.accept(value); response.set(json.writeValueAsBytes(value));
+            assertThatThrownBy(() -> client.snapshot(context)).isInstanceOf(IllegalStateException.class);
+        }
+    }
+
     private ObjectNode valid() {
         var node = json.createObjectNode();
         node.put("schemaVersion", 1).put("service", "checkout-service").put("downstreamService", "stock-service")
