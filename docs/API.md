@@ -87,7 +87,7 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 
 ## 本地样例控制
 
-仅当 `TRIAGE_OBSERVATION_SOURCE=LIVE` 时提供 `POST /api/live-lab/traffic`。同源本地页面发送 `X-Triage-Lab: 1`，请求体为 `{"scenario":"NORMAL","count":5}` 或 `{"scenario":"DOWNSTREAM_TIMEOUT","count":5}`。`count` 范围 1–10。接口先清空样例观测、设置场景，再向样例订单接口发出指定数量的请求，返回实际请求数、超时次数和 p95。它是显式实验控制，不属于 Agent 的只读工具。
+仅当 `TRIAGE_OBSERVATION_SOURCE=LIVE` 时提供 `POST /api/live-lab/traffic`。同源本地页面发送 `X-Triage-Lab: 1`，请求体为 `{"service":"order-service","scenario":"NORMAL","count":5}`，也可选择 `DOWNSTREAM_TIMEOUT`；省略服务时使用默认服务。`count` 范围 1–10。目标必须显式开放 `labEnabled`，只读接入服务返回 403。接口先清空样例观测、设置场景，再向样例订单接口发出指定数量的请求，返回实际请求数、超时次数和 p95。它是显式实验控制，不属于 Agent 的只读工具。
 
 ## 仅文档对照评测
 

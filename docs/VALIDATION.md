@@ -16,6 +16,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 `scripts/service_integration_smoke.py` 用两个样例 JVM 与独立下游验证实际 HTTP 请求：空窗口、正常请求、下游超时、订单演示兼容、两边计数互不混用以及历史身份。固定规则与本地模型协议模拟器分别运行；模拟器结果只证明调用链路，不代表真实模型效果。原始执行 JSON 仅保存在忽略的 `target/service-integration/`。页面已检查服务切换、窗口选项、服务名称、只读接入隐藏流量按钮和历史回放。
 
+[服务接入 CI](https://github.com/MoChiUaena/agent-triage/actions/runs/36417454810)的 Windows、Ubuntu、PostgreSQL 和 LIVE 集成全部通过，其中 LIVE 作业实际运行了双服务与模型协议模拟器检查。
+
 v0.1.0 交付检查：主项目 138 项、订单与库存服务各 1 项测试通过。演示 ZIP 仅有 8 个许可条目，不含运行数据库、日志或凭据；从带空格和中文的本地路径解压后，PowerShell 与 Git Bash 启动均通过空窗口、正常和超时链路，Ctrl+C 后测试端口关闭，数据库保留。原始检查结果在忽略的 `target/live-smoke/`。
 
 约 50 秒 MP4 已完整解码检查，并抽帧核对操作、字幕、日志脱敏及模型历史回放标记。Linux 原生启动和退出另外由 CI 对解压包验证，不将 Git Bash 检查当成 Linux 验收。
