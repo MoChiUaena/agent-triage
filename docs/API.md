@@ -30,6 +30,7 @@
 | `GET /api/demo` | `/api/config` 的兼容入口 |
 | `GET /api/runs?limit=20` | 最近执行摘要，limit 为 1–50 |
 | `GET /api/runs/{uuid}` | 完整执行记录，包含事件、证据、结论或失败信息 |
+| `POST /api/runs/{uuid}/cancel` | 本机同源请求带 `X-Triage-Run: 1`，取消排队或运行中的任务并返回保存后的记录 |
 | `GET /api/runs/{uuid}/events` | SSE 事件流，支持 `Last-Event-ID` 重放 |
 
 运行模式由服务端配置，提交请求不能切换模式。执行记录和列表摘要的 `mode` 为 `DEMO` 或 `MODEL`。默认合成数据源下 `synthetic` 为 true；启用 LIVE 数据源后为 false。旧 `LAB` 协议读取订单样例当前场景；`OBSERVATIONS_V1` 和 `DATABASE_V2` 只调用观测接口，场景保存为 `OBSERVED`。LIVE 提交体中的 `scenario` 不决定观测值。
@@ -37,6 +38,8 @@
 新记录和摘要包含 `serviceInfo`，保留执行时的服务与下游名称。旧历史中的该字段可为空，仍能读取。观测地址不会出现在公共配置和执行记录中。[接口契约与接入配置](SERVICE_INTEGRATION.md)另见说明。
 
 不存在的记录返回 404，非法 UUID 返回 400。错误使用 `application/problem+json`，不回显用户问题或工具原始异常。
+
+取消状态为 `CANCELLED`，SSE 先发送 `RUN_CANCELLED`，再以 `complete` 结束；证据、历史和已知用量保留。重复取消不追加事件，已完成或失败时返回原记录。`modelExecution.knownUsage`、`completedCalls` 和 `usageReportedCalls` 为可选覆盖字段，完整总计仍使用 `usage`；旧记录可为空。[取消与计费边界](RUN_CONTROLS.md)另有说明。
 
 SSE `progress` 事件的 `id` 是从 1 开始的本次事件序号。以下省略部分 JSON 字段：
 

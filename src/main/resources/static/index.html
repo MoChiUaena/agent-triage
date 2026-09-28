@@ -189,11 +189,15 @@
           <section class="results" aria-label="排查结果">
             <div class="results-heading">
               <h2 id="result-title">排查结果</h2>
+              <div class="result-actions">
+              <button id="cancel-run" class="secondary" type="button" hidden>取消排查</button>
               <span id="run-status" class="status neutral" role="status"
                 >未开始</span
               >
+              </div>
             </div>
             <p id="result-question" class="result-question" hidden></p>
+            <p id="cancel-note" class="context-note" hidden></p>
             <div class="tabs" role="tablist" aria-label="结果视图">
               <button
                 id="tab-overview"
@@ -288,6 +292,11 @@
               <p class="source-note" id="source-note" aria-live="polite">
                 尚未调用工具
               </p>
+            </section>
+            <section class="model-usage" id="model-usage" hidden aria-label="模型用量">
+              <h2>模型用量<span id="usage-coverage"></span></h2>
+              <dl id="usage-values"></dl>
+              <p class="source-note" id="usage-note"></p>
             </section>
             <section class="run-info">
               <h2>执行信息</h2>

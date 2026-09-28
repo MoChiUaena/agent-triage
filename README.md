@@ -24,6 +24,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 - 保存执行记录，支持历史查询和事件重放。
 - 概览、证据、执行记录分开查看，支持搜索历史记录。
 - 限制工具调用次数和执行时间，分别处理执行失败与证据不足。
+- 支持[主动取消排查](docs/RUN_CONTROLS.md)，保留已有证据；展示输入、输出 Token 和用量完整程度，并提供失败后的检查提示。
 - 模型模式校验工具参数和结果引用，记录调用轮数及服务端返回的 token 用量。
 - 在[模型设置页](http://127.0.0.1:18080/settings.html)添加、测试和选择模型服务；更改配置无需重启。
 
@@ -154,6 +155,7 @@ CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具
 - [本地真实请求链路](docs/LIVE_LAB.md)
 - [接入其他服务](docs/SERVICE_INTEGRATION.md)
 - [数据库连接池排查](docs/DATABASE_POOL.md)
+- [取消、失败提示与用量](docs/RUN_CONTROLS.md)
 - [小规模评测](docs/EVALUATION.md)
 - [开发计划](docs/ROADMAP.md)
 - [贡献指南](CONTRIBUTING.md)

@@ -109,6 +109,16 @@ body {
   white-space: nowrap;
 }
 
+.result-actions { display: flex; align-items: center; gap: 10px; }
+.result-actions button { padding: 6px 12px; font-size: 12px; }
+.model-usage { padding: 20px; border-radius: 12px; background: #fff; border: 1px solid #e5edf7; }
+.model-usage h2 { display: flex; justify-content: space-between; gap: 8px; margin: 0 0 14px; font-size: 14px; }
+#usage-coverage { color: #64809d; font-size: 11px; font-weight: 400; }
+#usage-values { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 10px; margin: 0; }
+#usage-values dt { color: #6d7e90; font-size: 12px; }
+#usage-values dd { margin: 5px 0 0; color: #213b5c; font-size: 19px; font-weight: 600; }
+.failure-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
 .primary {
   background: var(--accent);
   border-color: #246bd6;

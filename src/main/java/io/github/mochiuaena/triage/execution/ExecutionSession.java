@@ -68,13 +68,13 @@ public final class ExecutionSession {
 
     public void recordStructuredConclusion(String assessment, List<String> requestedNextChecks, List<String> nextChecks) {
         synchronized (state) {
-        control.checkCancelled();
-        ModelExecution previous = state.modelExecution;
-        state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls(),
-            previous.usage(), previous.source(), assessment, List.copyOf(nextChecks), List.copyOf(requestedNextChecks),
-            previous.knownUsage(), previous.completedCalls(), previous.usageReportedCalls());
-        publish("CHECKS_PRIORITIZED", null, "应用按当前证据排列模型选中的检查项，展示前两项；原始选择已保留。", List.of());
-        publish("CONCLUSION_RENDERED", null, "模型选择判断类型、证据和检查项，关键结论由应用按证据生成。", List.of());
+            control.checkCancelled();
+            ModelExecution previous = state.modelExecution;
+            state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls(),
+                previous.usage(), previous.source(), assessment, List.copyOf(nextChecks), List.copyOf(requestedNextChecks),
+                previous.knownUsage(), previous.completedCalls(), previous.usageReportedCalls());
+            publish("CHECKS_PRIORITIZED", null, "应用按当前证据排列模型选中的检查项，展示前两项；原始选择已保留。", List.of());
+            publish("CONCLUSION_RENDERED", null, "模型选择判断类型、证据和检查项，关键结论由应用按证据生成。", List.of());
         }
     }
 
@@ -97,35 +97,35 @@ public final class ExecutionSession {
     public List<Evidence> callTool(String name, String query) {
         Future<List<Evidence>> future;
         synchronized (state) {
-        checkDeadline();
-        ReadOnlyTool tool = tools.get(name);
-        if (tool == null) throw new RunFailure("TOOL_NOT_ALLOWED", "请求了未注册的工具。");
-        if (state.toolCalls >= limits.maxToolCalls()) throw new RunFailure("TOOL_CALL_LIMIT", "已达到工具调用次数上限。");
-        String normalized = query == null ? "" : query.strip();
-        if (!requests.add(name + "\0" + normalized.toLowerCase(Locale.ROOT)))
-            throw new RunFailure("DUPLICATE_TOOL_CALL", "同一工具收到重复参数，已停止执行。");
-        state.toolCalls++;
-        publish("TOOL_STARTED", name, "工具调用开始。", List.of());
-        try { future = workers.submit(() -> { control.checkCancelled(); return tool.execute(context, normalized); }); control.attach(future, workers); }
-        catch (RejectedExecutionException e) { throw new RunFailure("TOOL_CAPACITY", "工具工作队列已满。"); }
+            checkDeadline();
+            ReadOnlyTool tool = tools.get(name);
+            if (tool == null) throw new RunFailure("TOOL_NOT_ALLOWED", "请求了未注册的工具。");
+            if (state.toolCalls >= limits.maxToolCalls()) throw new RunFailure("TOOL_CALL_LIMIT", "已达到工具调用次数上限。");
+            String normalized = query == null ? "" : query.strip();
+            if (!requests.add(name + "\0" + normalized.toLowerCase(Locale.ROOT)))
+                throw new RunFailure("DUPLICATE_TOOL_CALL", "同一工具收到重复参数，已停止执行。");
+            state.toolCalls++;
+            publish("TOOL_STARTED", name, "工具调用开始。", List.of());
+            try { future = workers.submit(() -> { control.checkCancelled(); return tool.execute(context, normalized); }); control.attach(future, workers); }
+            catch (RejectedExecutionException e) { throw new RunFailure("TOOL_CAPACITY", "工具工作队列已满。"); }
         }
         long remaining = deadline - System.nanoTime();
         boolean overallFirst = remaining <= limits.toolTimeout().toNanos();
         try {
             List<Evidence> result = future.get(Math.max(1, Math.min(remaining, limits.toolTimeout().toNanos())), TimeUnit.NANOSECONDS);
             synchronized (state) {
-            checkDeadline();
-            if (result == null || result.size() > 5) throw new RunFailure("TOOL_OUTPUT_LIMIT", "工具返回超过允许的证据数量。");
-            for (Evidence item : result) {
-                if (item == null || item.id() == null || item.id().isBlank() || item.summary() == null || item.data() == null)
-                    throw new RunFailure("INVALID_TOOL_OUTPUT", "工具返回了无效证据。");
-                Evidence previous = state.evidence.stream().filter(e -> e.id().equals(item.id())).findFirst().orElse(null);
-                if (previous != null && !previous.equals(item))
-                    throw new RunFailure("INVALID_TOOL_OUTPUT", "同一个证据 ID 对应了不同内容。");
-                if (previous == null) state.evidence.add(item);
-            }
-            publish("TOOL_COMPLETED", name, "工具返回 " + result.size() + " 条证据。", result.stream().map(Evidence::id).toList());
-            return List.copyOf(result);
+                checkDeadline();
+                if (result == null || result.size() > 5) throw new RunFailure("TOOL_OUTPUT_LIMIT", "工具返回超过允许的证据数量。");
+                for (Evidence item : result) {
+                    if (item == null || item.id() == null || item.id().isBlank() || item.summary() == null || item.data() == null)
+                        throw new RunFailure("INVALID_TOOL_OUTPUT", "工具返回了无效证据。");
+                    Evidence previous = state.evidence.stream().filter(e -> e.id().equals(item.id())).findFirst().orElse(null);
+                    if (previous != null && !previous.equals(item))
+                        throw new RunFailure("INVALID_TOOL_OUTPUT", "同一个证据 ID 对应了不同内容。");
+                    if (previous == null) state.evidence.add(item);
+                }
+                publish("TOOL_COMPLETED", name, "工具返回 " + result.size() + " 条证据。", result.stream().map(Evidence::id).toList());
+                return List.copyOf(result);
             }
         } catch (TimeoutException e) {
             RunControl.stop(future, workers);
@@ -143,9 +143,9 @@ public final class ExecutionSession {
 
     private void publish(String type, String tool, String message, List<String> ids) {
         synchronized (state) {
-        control.checkCancelled();
-        state.event(type, tool, message, ids);
-        repository.save(state.snapshot());
+            control.checkCancelled();
+            state.event(type, tool, message, ids);
+            repository.save(state.snapshot());
         }
     }
 
@@ -156,29 +156,29 @@ public final class ExecutionSession {
     public <T> T callModel(Callable<T> action, Duration timeout, int maxRounds, java.util.function.Consumer<T> onReply) {
         Future<T> future;
         synchronized (state) {
-        checkDeadline();
-        ModelExecution previous = state.modelExecution;
-        if (previous == null) throw new RunFailure("MODEL_NOT_CONFIGURED", "没有配置模型。");
-        if (previous.calls() >= maxRounds) throw new RunFailure("MODEL_ROUND_LIMIT", "模型调用已达到轮次上限。");
-        state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls() + 1, null, previous.source(),
-            null, null, null, previous.knownUsage(), completedCalls, usageReportedCalls);
-        publish("MODEL_STARTED", null, "请求模型，第 " + state.modelExecution.calls() + " 轮。", List.of());
-        try { future = modelWorkers.submit(() -> { control.checkCancelled(); return action.call(); }); control.attach(future, modelWorkers); }
-        catch (RejectedExecutionException e) { throw new RunFailure("MODEL_CAPACITY", "模型工作队列已满。"); }
+            checkDeadline();
+            ModelExecution previous = state.modelExecution;
+            if (previous == null) throw new RunFailure("MODEL_NOT_CONFIGURED", "没有配置模型。");
+            if (previous.calls() >= maxRounds) throw new RunFailure("MODEL_ROUND_LIMIT", "模型调用已达到轮次上限。");
+            state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls() + 1, null, previous.source(),
+                null, null, null, previous.knownUsage(), completedCalls, usageReportedCalls);
+            publish("MODEL_STARTED", null, "请求模型，第 " + state.modelExecution.calls() + " 轮。", List.of());
+            try { future = modelWorkers.submit(() -> { control.checkCancelled(); return action.call(); }); control.attach(future, modelWorkers); }
+            catch (RejectedExecutionException e) { throw new RunFailure("MODEL_CAPACITY", "模型工作队列已满。"); }
         }
         long remaining = deadline - System.nanoTime();
         boolean overallFirst = remaining <= timeout.toNanos();
         try {
             T result = future.get(Math.max(1, Math.min(remaining, timeout.toNanos())), TimeUnit.NANOSECONDS);
             synchronized (state) {
-            checkDeadline();
-            completedCalls++;
-            ModelExecution previous = state.modelExecution;
-            state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls(), null, previous.source(),
-                null, null, null, previous.knownUsage(), completedCalls, usageReportedCalls);
-            onReply.accept(result);
-            publish("MODEL_COMPLETED", null, "模型已返回。", List.of());
-            return result;
+                checkDeadline();
+                completedCalls++;
+                ModelExecution previous = state.modelExecution;
+                state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls(), null, previous.source(),
+                    null, null, null, previous.knownUsage(), completedCalls, usageReportedCalls);
+                onReply.accept(result);
+                publish("MODEL_COMPLETED", null, "模型已返回。", List.of());
+                return result;
             }
         } catch (TimeoutException e) {
             RunControl.stop(future, modelWorkers);
@@ -202,22 +202,22 @@ public final class ExecutionSession {
 
     public void recordModelUsage(String responseModel, TokenUsage usage) {
         synchronized (state) {
-        control.checkCancelled();
-        if (usage != null && (usage.inputTokens() < 0 || usage.outputTokens() < 0 || usage.totalTokens() < 0)) usage = null;
-        if (usage == null) usageComplete = false;
-        else {
-            try {
-                totalUsage = new TokenUsage(Math.addExact(totalUsage.inputTokens(), usage.inputTokens()),
-                    Math.addExact(totalUsage.outputTokens(), usage.outputTokens()), Math.addExact(totalUsage.totalTokens(), usage.totalTokens()));
-                usageReportedCalls++;
-            } catch (ArithmeticException e) { usageComplete = false; }
-        }
-        ModelExecution previous = state.modelExecution;
-        String reported = responseModel != null && responseModel.matches("[A-Za-z0-9._:/-]{1,120}") ? responseModel : null;
-        state.modelExecution = new ModelExecution(previous.configuredModel(), reported, previous.calls(),
-            usageComplete && usageReportedCalls == previous.calls() && completedCalls == previous.calls() ? totalUsage : null, previous.source(),
-            previous.assessment(), previous.nextChecks(), previous.requestedNextChecks(), usageReportedCalls == 0 ? null : totalUsage, completedCalls, usageReportedCalls);
-        repository.save(state.snapshot());
+            control.checkCancelled();
+            if (usage != null && (usage.inputTokens() < 0 || usage.outputTokens() < 0 || usage.totalTokens() < 0)) usage = null;
+            if (usage == null) usageComplete = false;
+            else {
+                try {
+                    totalUsage = new TokenUsage(Math.addExact(totalUsage.inputTokens(), usage.inputTokens()),
+                        Math.addExact(totalUsage.outputTokens(), usage.outputTokens()), Math.addExact(totalUsage.totalTokens(), usage.totalTokens()));
+                    usageReportedCalls++;
+                } catch (ArithmeticException e) { usageComplete = false; }
+            }
+            ModelExecution previous = state.modelExecution;
+            String reported = responseModel != null && responseModel.matches("[A-Za-z0-9._:/-]{1,120}") ? responseModel : null;
+            state.modelExecution = new ModelExecution(previous.configuredModel(), reported, previous.calls(),
+                usageComplete && usageReportedCalls == previous.calls() && completedCalls == previous.calls() ? totalUsage : null, previous.source(),
+                previous.assessment(), previous.nextChecks(), previous.requestedNextChecks(), usageReportedCalls == 0 ? null : totalUsage, completedCalls, usageReportedCalls);
+            repository.save(state.snapshot());
         }
     }
 }

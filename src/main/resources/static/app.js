@@ -7,6 +7,7 @@ const statusText = {
   SUCCEEDED: "已完成",
   INSUFFICIENT_EVIDENCE: "证据不足",
   FAILED: "执行失败",
+  CANCELLED: "已取消",
 };
 const tools = {
   search_runbooks: { label: "排障文档", kind: "文档", icon: "file" },
@@ -23,6 +24,7 @@ let submitting = false;
 let runtimeConfig = null;
 let configVersion = 0;
 let labBusy = false;
+let cancellingRun = null;
 
 function serviceInfo(run) {
   return run.serviceInfo || { id: run.service, name: run.service === "order-service" ? "订单服务" : run.service,
@@ -301,6 +303,9 @@ function emptyResult(heading, message) {
 }
 
 function resetResult() {
+  $("#cancel-run").hidden = true;
+  $("#cancel-note").hidden = true;
+  $("#model-usage").hidden = true;
   activeRun = null;
   displayedEvents = new Set();
   $("#events").replaceChildren(
@@ -504,15 +509,38 @@ function citation(run, id) {
 function renderDiagnosis(run) {
   const target = $("#diagnosis");
   target.replaceChildren();
+  if (run.status === "CANCELLED") {
+    emptyResult("本次排查已取消", "已采集的证据保留在本条记录中，可以继续查看。");
+    if (run.mode === "MODEL") target.append(element("p", "panel-empty", "已发出的模型请求可能继续执行并计费；这里只展示已返回的用量。"));
+    return;
+  }
   if (run.failure) {
+    const tips = failureHelp(run.failure.code);
+    target.append(element("h3", "result-heading", tips[0]));
     target.append(
       element("p", "error-banner", run.failure.message),
       element(
         "p",
         "panel-empty",
-        "错误代码：" + run.failure.code + "。可在执行记录中查看失败步骤。",
+        tips[1],
       ),
     );
+    const actions = element("div", "failure-actions");
+    const events = element("button", "secondary", "查看失败步骤"); events.type = "button"; events.addEventListener("click", () => showTab("events"));
+    const retry = element("button", "secondary", "用此问题新建排查"); retry.type = "button";
+    retry.addEventListener("click", async () => {
+      newRun();
+      if (runtimeConfig?.services.some(target => target.id === run.service)) await loadConfiguration(run.service);
+      $("#question").value = run.question;
+      if (run.windowMinutes <= runtimeConfig?.maxWindowMinutes) {
+        const value = String(run.windowMinutes);
+        if (![...$("#window").options].some(option => option.value === value)) { const option = element("option", "", "最近 " + value + " 分钟"); option.value = value; $("#window").append(option); }
+        $("#window").value = value;
+      }
+      if (runtimeConfig?.observationSource !== "LIVE") $("#scenario").value = run.scenario;
+      $("#question").focus();
+    });
+    actions.append(events, retry); target.append(actions, element("p", "panel-empty", "错误代码：" + run.failure.code));
     return;
   }
   if (!run.diagnosis) {
@@ -550,6 +578,53 @@ function renderDiagnosis(run) {
     document.createTextNode(run.diagnosis.uncertainty),
   );
   target.append(next, note);
+}
+
+function failureHelp(code) {
+  if (["RUN_TIMEOUT", "TOOL_TIMEOUT"].includes(code)) return ["排查超过等待时限", "检查所选服务是否可访问，确认查询窗口；必要时在本地配置中调整执行时限后重试。"];
+  if (code === "MODEL_TIMEOUT") return ["模型响应超时", "到模型设置页检查响应时限和服务连接，稍后重新排查。"];
+  if (code === "MODEL_HTTP_ERROR") return ["模型服务返回错误", "查看上方服务状态，核对启用的服务、Key、配额与服务可用性后重试。"];
+  if (["MODEL_ERROR", "MODEL_NOT_CONFIGURED"].includes(code)) return ["模型请求未完成", "到模型设置页核对已启用的服务、地址、Key 和额度，并测试连接。"];
+  if (["RUN_QUEUE_FULL", "MODEL_CAPACITY", "TOOL_CAPACITY"].includes(code)) return ["执行资源暂时已满", "等待其他任务结束，或取消不再需要的排查后重试。"];
+  if (code === "SERVER_RESTARTED" || code === "RUN_INTERRUPTED") return ["排查已中断", "已采集的证据仍可查看；用原问题新建一条排查记录。"];
+  if (code === "TOOL_ERROR") return ["读取观测失败", "检查所选服务的观测接口是否运行、是否符合接入契约，再重新排查。"];
+  if (code.startsWith("MODEL_") || code.startsWith("INVALID_MODEL") || code === "INVALID_TOOL_ARGUMENTS") return ["模型结果未通过校验", "查看执行记录中的具体原因，核对模型配置后重试；当前回复没有保存为排障结论。"];
+  return ["本次排查未完成", "查看失败步骤，检查本地配置和存储后重新排查。"];
+}
+
+function renderUsage(run) {
+  const model = run.modelExecution;
+  $("#model-usage").hidden = !model;
+  if (!model) return;
+  const known = model.knownUsage || model.usage;
+  const completed = model.completedCalls ?? (model.usage ? model.calls : null);
+  const reported = model.usageReportedCalls ?? (model.usage ? model.calls : null);
+  const complete = terminal(run) && !!model.usage;
+  $("#usage-coverage").textContent = complete ? "完整返回" : known ? "部分已知" : "尚无用量";
+  $("#usage-values").replaceChildren(...[["输入 Token", known?.inputTokens], ["输出 Token", known?.outputTokens],
+    [complete ? "合计 Token" : "已知 Token", known?.totalTokens], ["启动轮次", model.calls]].map(([label, value]) => {
+    const cell = element("div"); cell.append(element("dt", "", label), element("dd", "", value == null ? "—" : Number(value).toLocaleString("zh-CN"))); return cell;
+  }));
+  $("#usage-note").textContent = model.calls === 0 ? "本次未调用模型。" :
+    (completed == null ? "旧记录未保存返回轮次。" : "已返回 " + completed + "/" + model.calls + " 轮，用量已返回 " + reported + " 轮。") +
+    (complete ? " 数值来自模型服务返回，费用以服务方账单为准。" : " 未返回部分不计入已知值，总用量和费用尚不能确认。");
+}
+
+async function cancelRun() {
+  const run = activeRun;
+  if (!run || terminal(run) || cancellingRun === run.id) return;
+  const version = selectionVersion; cancellingRun = run.id;
+  $("#cancel-run").disabled = true; $("#cancel-run").textContent = "正在取消…";
+  try {
+    const result = await request("/api/runs/" + run.id + "/cancel", { method: "POST", headers: { "X-Triage-Run": "1" } });
+    if (version !== selectionVersion || activeRun?.id !== run.id) return;
+    closeStream(); renderRun(result); refreshHistory();
+    if (result.status !== "CANCELLED") showError("排查已结束，当前结果已保留。");
+  } catch (error) { if (version === selectionVersion) showError(error.message); }
+  finally {
+    if (cancellingRun === run.id) cancellingRun = null;
+    $("#cancel-run").disabled = false; $("#cancel-run").textContent = "取消排查";
+  }
 }
 
 function renderEvidence(run) {
@@ -648,11 +723,17 @@ function renderEvidence(run) {
 }
 
 function renderRun(run) {
+  if (activeRun?.id === run.id && (terminal(activeRun) && !terminal(run) || run.events.length < activeRun.events.length)) return;
   activeRun = run;
   $("#result-question").textContent = run.question;
   $("#result-question").hidden = false;
   run.events.forEach(addEvent);
   setStatus(run.status);
+  $("#cancel-run").hidden = terminal(run);
+  $("#cancel-run").disabled = cancellingRun === run.id;
+  $("#cancel-note").hidden = terminal(run) || run.mode !== "MODEL";
+  $("#cancel-note").textContent = "取消会停止后续排查；已发出的模型请求可能继续执行并计费。";
+  renderUsage(run);
   renderMetrics(run);
   renderDiagnosis(run);
   renderEvidence(run);
@@ -715,7 +796,7 @@ function renderRun(run) {
         "Token 用量",
         model.usage
           ? model.usage.totalTokens.toLocaleString("zh-CN")
-          : "未返回完整用量",
+          : model.knownUsage ? "已知 " + model.knownUsage.totalTokens.toLocaleString("zh-CN") + " · 不完整" : "未返回完整用量",
       ],
     );
     if (model.responseModel && model.responseModel !== model.configuredModel)
@@ -726,7 +807,7 @@ function renderRun(run) {
     document.querySelectorAll("[data-tool]").forEach((node) => {
       if (node.classList.contains("active")) {
         node.className = "tool-row failed";
-        node.querySelector(".tool-state").textContent = "未完成";
+        node.querySelector(".tool-state").textContent = run.status === "CANCELLED" ? "已停止" : "未完成";
       } else if (node.className === "tool-row")
         node.querySelector(".tool-state").textContent = "未调用";
     });
@@ -748,8 +829,25 @@ function connect(run, version) {
     }
   };
   source.addEventListener("progress", (event) => {
-    if (version === selectionVersion) addEvent(JSON.parse(event.data));
+    if (version !== selectionVersion || activeRun?.id === run.id && terminal(activeRun)) return;
+    const progress = JSON.parse(event.data); addEvent(progress);
+    if (["MODEL_STARTED", "MODEL_COMPLETED", "MODEL_FAILED", "TOOL_COMPLETED"].includes(progress.type)) refreshSnapshot();
   });
+  let refreshing = false, refreshAgain = false;
+  async function refreshSnapshot() {
+    if (refreshing) { refreshAgain = true; return; }
+    refreshing = true;
+    try {
+      do {
+        refreshAgain = false;
+        const latest = await request("/api/runs/" + run.id);
+        if (version !== selectionVersion || activeRun?.id !== run.id || terminal(activeRun)) return;
+        renderRun(latest);
+        if (terminal(latest)) { source.close(); refreshHistory(); return; }
+      } while (refreshAgain);
+    } catch (_) { /* SSE reconnect also refreshes the persisted snapshot. */ }
+    finally { refreshing = false; }
+  }
   source.addEventListener("complete", (event) => {
     source.close();
     if (version !== selectionVersion) return;
@@ -973,6 +1071,7 @@ $("#question").addEventListener("keydown", (event) => {
   }
 });
 $("#new-run").addEventListener("click", newRun);
+$("#cancel-run").addEventListener("click", cancelRun);
 document.querySelectorAll("[data-lab-scenario]").forEach((button) => {
   button.addEventListener("click", () =>
     generateLabTraffic(button.dataset.labScenario),

@@ -108,6 +108,12 @@ jobs:
             sleep 1
           done
           python3 scripts/db_pool_smoke.py --mock-provider
+          java -jar target/agent-triage-0.1.0.jar --server.port=18087 '--spring.datasource.url=jdbc:h2:mem:run-controls;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/ci-run-controls-key --triage.observation.source=LIVE --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18102 --triage.model.api-key=test-only-local --triage.model.name=controls-stub --triage.model.timeout=10s --triage.run-timeout=30s > controls-agent.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:18087/api/config > /dev/null; then break; fi
+            sleep 1
+          done
+          python3 scripts/run_controls_smoke.py
           kill "$stub_pid"
           wait "$stub_pid" || true
           python3 scripts/model_protocol_stub.py --port 18100 --invalid-first-arguments > correction-stub.log 2>&1 &
