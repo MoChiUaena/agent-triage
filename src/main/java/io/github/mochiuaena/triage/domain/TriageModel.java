@@ -9,7 +9,11 @@ import java.util.UUID;
 public final class TriageModel {
     private TriageModel() {}
 
-    public enum Scenario { NORMAL, DOWNSTREAM_TIMEOUT }
+    public enum Scenario { NORMAL, DOWNSTREAM_TIMEOUT, OBSERVED }
+
+    public record ServiceInfo(String id, String name, String downstreamId, String downstreamName) {
+        public static ServiceInfo order() { return new ServiceInfo("order-service", "订单服务", "inventory-service", "库存服务"); }
+    }
 
     public enum Status {
         QUEUED, RUNNING, SUCCEEDED, INSUFFICIENT_EVIDENCE, FAILED;
@@ -53,7 +57,13 @@ public final class TriageModel {
     public record Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
                       String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
                       int toolCalls, List<Event> events, List<Evidence> evidence,
-                      Diagnosis diagnosis, Failure failure, ModelExecution modelExecution) {
+                      Diagnosis diagnosis, Failure failure, ModelExecution modelExecution, ServiceInfo serviceInfo) {
+        public Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
+                   String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
+                   int toolCalls, List<Event> events, List<Evidence> evidence, Diagnosis diagnosis, Failure failure, ModelExecution modelExecution) {
+            this(id, question, service, windowMinutes, scenario, mode, synthetic, status, createdAt, finishedAt,
+                toolCalls, events, evidence, diagnosis, failure, modelExecution, null);
+        }
         public Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
                    String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
                    int toolCalls, List<Event> events, List<Evidence> evidence, Diagnosis diagnosis, Failure failure) {
@@ -63,5 +73,9 @@ public final class TriageModel {
     }
 
     public record RunSummary(UUID id, String question, Scenario scenario, Status status,
-                             Instant createdAt, int toolCalls, String mode) {}
+                             Instant createdAt, int toolCalls, String mode, String service, ServiceInfo serviceInfo) {
+        public RunSummary(UUID id, String question, Scenario scenario, Status status, Instant createdAt, int toolCalls, String mode) {
+            this(id, question, scenario, status, createdAt, toolCalls, mode, null, null);
+        }
+    }
 }

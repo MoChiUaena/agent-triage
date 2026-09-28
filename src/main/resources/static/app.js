@@ -21,16 +21,48 @@ let historyRuns = [];
 let displayedEvents = new Set();
 let submitting = false;
 let runtimeConfig = null;
+let configVersion = 0;
+let labBusy = false;
 
-async function loadConfiguration() {
+function serviceInfo(run) {
+  return run.serviceInfo || { id: run.service, name: run.service === "order-service" ? "订单服务" : run.service,
+    downstreamId: "inventory-service", downstreamName: "库存服务" };
+}
+function scenarioText(scenario) {
+  return scenario === "OBSERVED" ? "实际观测" : scenario === "NORMAL" ? "正常对照" : "下游超时";
+}
+
+async function loadConfiguration(serviceId = $("#service").value) {
+  const version = ++configVersion;
+  runtimeConfig = null;
+  $("#submit-button").disabled = true;
+  document.querySelectorAll("[data-lab-scenario]").forEach(button => button.disabled = true);
   $("#config-retry").disabled = true;
   try {
-    const config = await request("/api/config");
+    const config = await request("/api/config" + (serviceId ? "?service=" + encodeURIComponent(serviceId) : ""));
+    if (version !== configVersion) return;
     if (!["DEMO", "MODEL"].includes(config.mode))
       throw new Error("运行模式无效。");
     runtimeConfig = config;
+    $("#service").replaceChildren(...config.services.map(target => {
+      const option = element("option", "", target.name + " · " + target.id);
+      option.value = target.id;
+      return option;
+    }));
+    $("#service").value = config.service;
+    $("#workspace-service").textContent = config.service;
+    $("#question").placeholder = "描述问题，例如：" + config.serviceInfo.name + "请求为什么变慢了？";
+    const previousWindow = Number($("#window").value);
+    const windows = [5, 15, 60].filter(value => value <= config.maxWindowMinutes);
+    if (!windows.includes(config.maxWindowMinutes)) windows.push(config.maxWindowMinutes);
+    $("#window").replaceChildren(...windows.sort((a, b) => a - b).map(value => {
+      const option = element("option", "", "最近 " + value + " 分钟");
+      option.value = String(value);
+      return option;
+    }));
+    $("#window").value = String(windows.includes(previousWindow) ? previousWindow : Math.min(15, config.maxWindowMinutes));
     const live = config.observationSource === "LIVE";
-    $("#live-lab").hidden = !live;
+    $("#live-lab").hidden = !config.labEnabled;
     $("#scenario").disabled = live;
     $("#scenario-label").textContent = live ? "当前场景" : "场景";
     if (live && config.scenario) $("#scenario").value = config.scenario;
@@ -38,15 +70,15 @@ async function loadConfiguration() {
       config.mode === "MODEL" ? "模型模式" : live ? "实测演示" : "演示模式";
     if (live) {
       $("#mode-description").textContent = !config.observationAvailable
-        ? "本地订单样例服务未运行。请先启动 sample-service。"
+        ? "所选服务的观测接口未连接，请检查服务是否运行。"
         : config.mode === "MODEL"
-          ? "读取本地订单服务的实际请求数据，并发送给模型 " +
+          ? "读取 " + config.serviceInfo.name + " 的实际请求数据，并发送给模型 " +
             config.model +
             "。"
-          : "读取本地订单服务的实际请求数据，按固定规则生成结论。";
+          : "读取所选服务的实际请求数据，按固定规则生成结论。";
       $("#composer-note").textContent = config.observationAvailable
-        ? "先生成请求，再排查实际观测"
-        : "请先启动本地订单样例服务";
+        ? config.labEnabled ? "先生成请求，再排查实际观测" : "读取所选服务的实际观测"
+        : "所选服务的观测接口未连接";
     } else {
       $("#mode-description").textContent =
         config.mode === "MODEL"
@@ -60,7 +92,7 @@ async function loadConfiguration() {
           : "仅查询所选服务的演示数据";
     }
     $("#context-note").textContent = live
-      ? "指标和错误事件来自本地订单样例的实际请求。"
+      ? "指标和错误事件来自 " + config.serviceInfo.name + " 的实际请求。"
       : "演示数据仅供本地测试。";
     $("#config-retry").hidden = !live || config.observationAvailable;
     document.querySelectorAll("[data-lab-scenario]").forEach((button) => {
@@ -69,9 +101,10 @@ async function loadConfiguration() {
     if (live && !config.observationAvailable)
       $("#live-lab-status").textContent = "样例服务未连接";
     $("#submit-button").disabled =
-      submitting || (live && !config.observationAvailable);
+      submitting || labBusy || (live && !config.observationAvailable);
     $("#form-error").hidden = true;
   } catch (error) {
+    if (version !== configVersion) return;
     runtimeConfig = null;
     const needsProvider = error.message.includes("环境变量中的模型配置不可用");
     $("#mode-label").textContent = needsProvider ? "需要模型配置" : "连接失败";
@@ -86,7 +119,7 @@ async function loadConfiguration() {
         : "无法读取运行配置，请确认服务已启动后重新连接。",
     );
   } finally {
-    $("#config-retry").disabled = false;
+    if (version === configVersion) $("#config-retry").disabled = false;
   }
 }
 
@@ -145,7 +178,10 @@ async function request(path, options) {
 }
 
 async function generateLabTraffic(scenario) {
-  if (submitting || !runtimeConfig?.observationAvailable) return;
+  if (submitting || labBusy || !runtimeConfig?.labEnabled || !runtimeConfig.observationAvailable) return;
+  labBusy = true;
+  $("#service").disabled = true;
+  $("#submit-button").disabled = true;
   const buttons = document.querySelectorAll("[data-lab-scenario]");
   buttons.forEach((button) => (button.disabled = true));
   $("#live-lab-status").textContent = "正在产生订单请求…";
@@ -153,7 +189,7 @@ async function generateLabTraffic(scenario) {
     const result = await request("/api/live-lab/traffic", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Triage-Lab": "1" },
-      body: JSON.stringify({ scenario, count: 5 }),
+      body: JSON.stringify({ scenario, count: 5, service: runtimeConfig.service }),
     });
     runtimeConfig.scenario = result.scenario;
     $("#scenario").value = result.scenario;
@@ -168,6 +204,9 @@ async function generateLabTraffic(scenario) {
     $("#live-lab-status").textContent = "请求生成失败";
     showError(error.message);
   } finally {
+    labBusy = false;
+    $("#service").disabled = false;
+    $("#submit-button").disabled = submitting || !runtimeConfig?.observationAvailable;
     buttons.forEach((button) => (button.disabled = false));
   }
 }
@@ -267,8 +306,8 @@ function newRun() {
   closeStream();
   $("#form-error").hidden = true;
   resetResult();
-  $("#question").value = "订单查询接口为什么变慢了？";
-  $("#window").value = "15";
+  $("#question").value = (runtimeConfig?.serviceInfo.name || "服务") + "请求为什么变慢了？";
+  $("#window").value = String(Math.min(15, runtimeConfig?.maxWindowMinutes || 60));
   $("#scenario").value =
     runtimeConfig?.observationSource === "LIVE"
       ? runtimeConfig.scenario || "NORMAL"
@@ -344,20 +383,22 @@ function renderMetrics(run) {
   if (!evidence) return;
   const data = evidence.data;
   const hasRequests = data.requestCount > 0;
-  const baseline = data.baselineOrderP95Ms;
+  const labels = serviceInfo(run);
+  const requestP95 = data.requestP95Ms ?? data.orderP95Ms;
+  const baseline = data.baselineRequestP95Ms ?? data.baselineOrderP95Ms;
   const values = [
     [
-      "订单查询 p95",
-      hasRequests ? data.orderP95Ms : null,
+      labels.name + "请求 p95",
+      hasRequests ? requestP95 : null,
       "ms",
       baseline == null ? "正常基线未采集" : "基线 " + baseline + " ms",
-      baseline != null && data.orderP95Ms > baseline,
+      baseline != null && requestP95 > baseline,
     ],
     [
-      "库存调用 p95",
+      "下游调用 p95",
       hasRequests ? data.downstreamP95Ms : null,
       "ms",
-      "inventory-service",
+      labels.downstreamId,
       false,
     ],
     [
@@ -389,7 +430,7 @@ function renderMetrics(run) {
 
 function evidenceTitle(evidence) {
   return evidence.source === "read_service_metrics"
-    ? "订单服务指标"
+    ? "服务窗口指标"
     : evidence.source === "query_error_logs"
       ? "近期错误日志"
       : evidence.title;
@@ -500,8 +541,8 @@ function renderEvidence(run) {
       const data = evidence.data;
       const table = element("dl", "metric-table");
       [
-        ["订单查询 p95", data.orderP95Ms + " ms"],
-        ["库存调用 p95", data.downstreamP95Ms + " ms"],
+        ["服务请求 p95", (data.requestP95Ms ?? data.orderP95Ms) + " ms"],
+        ["下游调用 p95", data.downstreamP95Ms + " ms"],
         [
           "下游超时率",
           Number((data.downstreamTimeoutRate * 100).toFixed(2)) + "%",
@@ -569,10 +610,10 @@ function renderRun(run) {
     : null;
   const info = [
     ["运行模式", run.mode === "MODEL" ? "模型" : "演示"],
-    ["数据来源", run.synthetic ? "合成演示" : "本地订单请求"],
+    ["数据来源", run.synthetic ? "合成演示" : "实际服务请求"],
     ["服务", run.service],
     ["时间窗口", "最近 " + run.windowMinutes + " 分钟"],
-    ["场景", run.scenario === "NORMAL" ? "正常对照" : "下游超时"],
+    ["场景", scenarioText(run.scenario)],
     ["执行时间", dateText(run.createdAt)],
     [
       "耗时",
@@ -590,8 +631,8 @@ function renderRun(run) {
       info.push([
         "窗口判断",
         {
-          DOWNSTREAM_TIMEOUT_OBSERVED: "发现库存调用超时",
-          NO_DOWNSTREAM_TIMEOUT_OBSERVED: "未发现库存调用超时",
+          DOWNSTREAM_TIMEOUT_OBSERVED: "发现下游调用超时",
+          NO_DOWNSTREAM_TIMEOUT_OBSERVED: "未发现下游调用超时",
           INSUFFICIENT_EVIDENCE: "证据不足",
         }[model.assessment] || "证据不足",
       ]);
@@ -693,17 +734,20 @@ async function selectRun(id) {
     if (version !== selectionVersion) return;
     resetResult();
     $("#question").value = run.question;
-    $("#service").value = run.service;
+    const registered = runtimeConfig?.services.some(target => target.id === run.service);
+    if (registered) await loadConfiguration(run.service);
+    if (version !== selectionVersion) return;
     const windowValue = String(run.windowMinutes);
     if (
+      registered && run.windowMinutes <= runtimeConfig?.maxWindowMinutes &&
       ![...$("#window").options].some((option) => option.value === windowValue)
     ) {
       const option = element("option", "", "最近 " + windowValue + " 分钟");
       option.value = windowValue;
       $("#window").append(option);
     }
-    $("#window").value = windowValue;
-    $("#scenario").value = run.scenario;
+    if (registered && run.windowMinutes <= runtimeConfig?.maxWindowMinutes) $("#window").value = windowValue;
+    if (runtimeConfig?.observationSource !== "LIVE") $("#scenario").value = run.scenario;
     renderRun(run);
     connect(run, version);
   } catch (error) {
@@ -714,7 +758,7 @@ async function selectRun(id) {
 function renderHistory() {
   const query = $("#history-search").value.trim().toLocaleLowerCase();
   const runs = historyRuns.filter((run) =>
-    run.question.toLocaleLowerCase().includes(query),
+    (run.question + " " + (run.service || "order-service") + " " + (run.serviceInfo?.name || "")).toLocaleLowerCase().includes(query),
   );
   const target = $("#history");
   target.replaceChildren();
@@ -755,7 +799,7 @@ function renderHistory() {
         "span",
         "",
         (run.mode === "MODEL" ? "模型 · " : "") +
-          (run.scenario === "NORMAL" ? "正常" : "超时") +
+          (run.service || "order-service") + " · " + scenarioText(run.scenario) +
           " · " +
           statusText[run.status],
       ),
@@ -784,8 +828,9 @@ async function refreshHistory() {
 
 $("#investigate-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (submitting) return;
+  if (submitting || labBusy) return;
   if (!runtimeConfig) return showError("请先连接服务，确认运行模式。");
+  if (runtimeConfig.service !== $("#service").value) return showError("服务配置正在切换，请稍后重试。");
   const question = $("#question").value.trim();
   if (!question) return showError("请输入排查问题。");
   const version = ++selectionVersion;
@@ -837,8 +882,8 @@ $("#investigate-form").addEventListener("submit", async (event) => {
   } finally {
     submitting = false;
     $("#submit-button").disabled =
-      runtimeConfig?.observationSource === "LIVE" &&
-      !runtimeConfig.observationAvailable;
+      !runtimeConfig || labBusy ||
+      (runtimeConfig.observationSource === "LIVE" && !runtimeConfig.observationAvailable);
     $("#submit-button span").textContent = "开始排查";
   }
 });
@@ -881,7 +926,14 @@ document.querySelectorAll("[data-lab-scenario]").forEach((button) => {
   );
 });
 $("#refresh-history").addEventListener("click", refreshHistory);
-$("#config-retry").addEventListener("click", loadConfiguration);
+$("#config-retry").addEventListener("click", () => loadConfiguration());
+$("#service").addEventListener("change", () => {
+  selectionVersion++;
+  closeStream();
+  resetResult();
+  renderHistory();
+  loadConfiguration();
+});
 $("#history-search").addEventListener("input", renderHistory);
 $("#sidebar-toggle").addEventListener("click", () =>
   setSidebar(!document.body.classList.contains("sidebar-open")),

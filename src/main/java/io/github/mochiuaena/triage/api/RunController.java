@@ -7,6 +7,7 @@ import io.github.mochiuaena.triage.store.RunRepository;
 import io.github.mochiuaena.triage.tools.ToolContext;
 import io.github.mochiuaena.triage.tools.ObservationSource;
 import io.github.mochiuaena.triage.tools.LiveObservationClient;
+import io.github.mochiuaena.triage.tools.ServiceRegistry;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.springframework.http.ResponseEntity;
@@ -23,8 +24,8 @@ import static org.springframework.http.HttpStatus.*;
 @RequestMapping("/api")
 public class RunController {
     public record CreateRun(@NotBlank @Size(max = 200) String question,
-                            @NotNull @Pattern(regexp = "order-service") String service,
-                            @Min(1) @Max(60) int windowMinutes, @NotNull Scenario scenario,
+                            @NotBlank @Pattern(regexp = "[a-z][a-z0-9-]{0,63}") String service,
+                            @Min(1) @Max(60) int windowMinutes, Scenario scenario,
                             @Size(max = 240) String expectedSelection) {}
 
     private final RunService service;
@@ -32,19 +33,26 @@ public class RunController {
     private final TriageEngine engine;
     private final ObservationSource observation;
     private final LiveObservationClient live;
+    private final ServiceRegistry registry;
     public RunController(RunService service, RunRepository repository, TriageEngine engine,
-                         ObservationSource observation, LiveObservationClient live) {
+                         ObservationSource observation, LiveObservationClient live, ServiceRegistry registry) {
         this.service = service; this.repository = repository; this.engine = engine;
         this.observation = observation; this.live = live;
+        this.registry = registry;
     }
 
     @PostMapping("/runs")
     public ResponseEntity<Run> create(@Valid @RequestBody CreateRun request) {
+        ServiceRegistry.Target target = registry.require(request.service());
+        if (request.windowMinutes() > target.maxWindowMinutes())
+            throw new ResponseStatusException(BAD_REQUEST, "时间窗口超过所选服务允许的 " + target.maxWindowMinutes() + " 分钟。");
+        if (observation.synthetic() && (request.scenario() == null || request.scenario() == Scenario.OBSERVED))
+            throw new ResponseStatusException(BAD_REQUEST, "请选择 NORMAL 或 DOWNSTREAM_TIMEOUT 演示场景。");
         Scenario scenario;
-        try { scenario = observation.synthetic() ? request.scenario() : live.scenario(); }
-        catch (RuntimeException e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, "本地订单样例服务不可用，请先启动样例服务。"); }
+        try { scenario = observation.synthetic() ? request.scenario() : live.scenario(target); }
+        catch (RuntimeException e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, "所选服务的观测接口不可用，请检查服务是否启动。"); }
         Run run = service.submit(request.question().strip(),
-            new ToolContext(request.service(), request.windowMinutes(), scenario, Instant.now()),
+            new ToolContext(request.service(), request.windowMinutes(), scenario, Instant.now(), target),
             request.expectedSelection());
         return ResponseEntity.accepted().location(URI.create("/api/runs/" + run.id())).body(run);
     }
@@ -53,20 +61,31 @@ public class RunController {
     public List<RunSummary> list(@RequestParam(defaultValue = "20") int limit) {
         if (limit < 1 || limit > 50) throw new ResponseStatusException(BAD_REQUEST, "limit 必须为 1–50。");
         return repository.recent(limit).stream().map(run -> new RunSummary(run.id(), run.question(), run.scenario(),
-            run.status(), run.createdAt(), run.toolCalls(), run.mode())).toList();
+            run.status(), run.createdAt(), run.toolCalls(), run.mode(), run.service(), run.serviceInfo())).toList();
     }
 
     @GetMapping("/runs/{id}")
     public Run get(@PathVariable UUID id) { return repository.find(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "执行记录不存在。")); }
 
     @GetMapping({"/demo", "/config"})
-    public Map<String, Object> demo() {
+    public Map<String, Object> demo(@RequestParam(required = false, name = "service") String serviceId) {
+        ServiceRegistry.Target target = serviceId == null ? registry.defaultTarget() : registry.require(serviceId);
         TriageEngine current = engine.snapshot();
-        Map<String, Object> config = new java.util.LinkedHashMap<>(Map.of("mode", current.mode(), "synthetic", observation.synthetic(), "service", "order-service",
-            "scenarios", Scenario.values(), "tools", List.of("search_runbooks", "read_service_metrics", "query_error_logs")));
+        Map<String, Object> config = new java.util.LinkedHashMap<>(Map.of("mode", current.mode(), "synthetic", observation.synthetic(), "service", target.info().id(),
+            "scenarios", List.of(Scenario.NORMAL, Scenario.DOWNSTREAM_TIMEOUT), "tools", List.of("search_runbooks", "read_service_metrics", "query_error_logs")));
+        config.put("services", registry.views());
+        config.put("serviceInfo", target.info());
+        config.put("protocol", target.protocol());
+        config.put("maxWindowMinutes", target.maxWindowMinutes());
+        config.put("labEnabled", target.labEnabled());
         config.put("observationSource", observation.kind().name());
         if (!observation.synthetic()) {
-            try { config.put("scenario", live.scenario()); config.put("observationAvailable", true); }
+            try {
+                Scenario scenario = live.scenario(target);
+                if (target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V1)
+                    live.snapshot(new ToolContext(target.info().id(), Math.min(15, target.maxWindowMinutes()), scenario, Instant.now(), target));
+                config.put("scenario", scenario); config.put("observationAvailable", true);
+            }
             catch (RuntimeException e) { config.put("observationAvailable", false); }
         }
         if (current.modelName() != null) config.put("model", current.modelName());

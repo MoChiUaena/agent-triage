@@ -14,7 +14,12 @@ public class ObservationSource {
     public ObservationSource(@Value("${triage.observation.source:SYNTHETIC}") String source,
                              @Value("${triage.observation.base-url:http://127.0.0.1:18082}") String url) {
         this.kind = Kind.valueOf(source);
-        this.baseUrl = URI.create(url);
+        this.baseUrl = origin(url);
+    }
+
+    public static URI origin(String url) {
+        if (url == null) throw new IllegalArgumentException("Observation origin is required");
+        URI baseUrl = URI.create(url);
         String host = baseUrl.getHost();
         if (!"http".equals(baseUrl.getScheme()) || host == null
             || !Set.of("127.0.0.1", "localhost", "[::1]").contains(host)
@@ -22,6 +27,7 @@ public class ObservationSource {
             || baseUrl.getUserInfo() != null || baseUrl.getQuery() != null || baseUrl.getFragment() != null
             || !(baseUrl.getPath().isEmpty() || "/".equals(baseUrl.getPath())))
             throw new IllegalArgumentException("Observation base URL must be a loopback HTTP origin with an explicit port");
+        return baseUrl;
     }
 
     public Kind kind() { return kind; }

@@ -1,6 +1,7 @@
 package io.github.mochiuaena.sample;
 
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -16,6 +17,7 @@ import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 
 @RestController
 @RequestMapping("/lab")
+@ConditionalOnProperty(name = "sample.lab-enabled", havingValue = "true", matchIfMissing = true)
 public class LabController {
     public record ScenarioRequest(String scenario) {}
     private final ObservationStore store;

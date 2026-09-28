@@ -17,7 +17,7 @@
 
 返回 `202 Accepted`，响应头 `Location` 指向 `/api/runs/{id}`，响应体为提交时的 QUEUED 记录。任务异步执行，随后查询时可能已经完成。
 
-问题须为 1–200 字符且不能全为空白；服务只支持 `order-service`，窗口范围 1–60 分钟，场景为 `NORMAL` 或 `DOWNSTREAM_TIMEOUT`。参数错误返回 400，队列满返回 429。
+问题须为 1–200 字符且不能全为空白；服务必须已在启动配置中登记，窗口范围为 1–60 分钟且不能超过该服务的限制。默认合成演示的场景为 `NORMAL` 或 `DOWNSTREAM_TIMEOUT`；LIVE 接入时可省略场景。参数错误返回 400，队列满返回 429。
 
 每次运行以提交时刻为窗口终点，起点为终点减去 windowMinutes。
 
@@ -26,12 +26,15 @@
 | 请求 | 结果 |
 |---|---|
 | `GET /api/config` | 当前模式、模型名称（MODEL 模式）、观测来源与可用状态、服务、场景和工具列表 |
+| `GET /api/config?service=checkout-service` | 所选服务的配置与接口可用状态；`services` 提供全部可选服务，`labEnabled` 表示是否允许演示控制 |
 | `GET /api/demo` | `/api/config` 的兼容入口 |
 | `GET /api/runs?limit=20` | 最近执行摘要，limit 为 1–50 |
 | `GET /api/runs/{uuid}` | 完整执行记录，包含事件、证据、结论或失败信息 |
 | `GET /api/runs/{uuid}/events` | SSE 事件流，支持 `Last-Event-ID` 重放 |
 
-运行模式由服务端配置，提交请求不能切换模式。执行记录和列表摘要的 `mode` 为 `DEMO` 或 `MODEL`。默认合成数据源下 `synthetic` 为 true；启用 LIVE 数据源后为 false。LIVE 模式下，服务端读取样例服务当前场景，提交体中的 `scenario` 仅为兼容字段，不决定观测值。
+运行模式由服务端配置，提交请求不能切换模式。执行记录和列表摘要的 `mode` 为 `DEMO` 或 `MODEL`。默认合成数据源下 `synthetic` 为 true；启用 LIVE 数据源后为 false。旧 `LAB` 协议读取订单样例当前场景；新 `OBSERVATIONS_V1` 协议只调用观测接口，场景保存为 `OBSERVED`。LIVE 提交体中的 `scenario` 不决定观测值。
+
+新记录和摘要包含 `serviceInfo`，保留执行时的服务与下游名称。旧历史中的该字段可为空，仍能读取。观测地址不会出现在公共配置和执行记录中。[接口契约与接入配置](SERVICE_INTEGRATION.md)另见说明。
 
 不存在的记录返回 404，非法 UUID 返回 400。错误使用 `application/problem+json`，不回显用户问题或工具原始异常。
 

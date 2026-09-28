@@ -42,14 +42,18 @@ def correction_requested(messages):
                for message in messages[last_assistant + 1:] if message.get("role") == "tool")
 
 
-def calls_for(messages, corrected=False, invalid=False, omit_rules=False):
-    arguments = {"service": "order-service", "windowMinutes": 15}
+def arguments_for(request):
+    properties = request["tools"][0]["function"]["parameters"]["properties"]
+    return {"service": properties["service"]["const"], "windowMinutes": properties["windowMinutes"]["const"]}
+
+
+def calls_for(messages, arguments, corrected=False, invalid=False, omit_rules=False):
     user = next((message.get("content", "") for message in messages if message.get("role") == "user"), "")
     query = "延迟" if "接口延迟原因" in str(user) else "订单 超时 正常"
     prefix = "corrected-" if corrected else ""
     calls = [
         tool_call(prefix + "docs", "search_runbooks", {**arguments, "query": query}),
-        tool_call(prefix + "metrics", "read_service_metrics", {**arguments, "windowMinutes": "15" if invalid else 15}),
+        tool_call(prefix + "metrics", "read_service_metrics", {**arguments, "windowMinutes": str(arguments["windowMinutes"]) if invalid else arguments["windowMinutes"]}),
         tool_call(prefix + "logs", "query_error_logs", arguments),
     ]
     return calls[1:] if omit_rules else calls
@@ -96,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
                 payload = response({"role": "assistant", "content": json.dumps(answer, ensure_ascii=False)}, "stop")
             elif has_tools and correction_requested(messages):
-                payload = response({"role": "assistant", "content": None, "tool_calls": calls_for(messages, corrected=True)}, "tool_calls")
+                payload = response({"role": "assistant", "content": None, "tool_calls": calls_for(messages, arguments_for(request), corrected=True)}, "tool_calls")
             elif has_tools:
                 evidence = tool_results(messages)
                 has_rules = any(item["source"] == "search_runbooks" for item in evidence)
@@ -104,7 +108,7 @@ class Handler(BaseHTTPRequestHandler):
                 feedback = any(message.get("role") == "system" and "EVIDENCE_FEEDBACK" in str(message.get("content", ""))
                                for message in messages[last_assistant + 1:])
                 if self.omit_rules_first and not has_rules and feedback:
-                    calls = [tool_call("required-docs", "search_runbooks", {"service": "order-service", "windowMinutes": 15, "query": "订单 正常 超时"})]
+                    calls = [tool_call("required-docs", "search_runbooks", {**arguments_for(request), "query": "正常 超时"})]
                     payload = response({"role": "assistant", "content": None, "tool_calls": calls}, "tool_calls")
                 else:
                     if self.omit_rules_first and not has_rules:
@@ -118,7 +122,7 @@ class Handler(BaseHTTPRequestHandler):
                 tools = json.dumps(request.get("tools", []), ensure_ascii=False)
                 if "实际请求" not in tools or "合成观测" in tools:
                     raise ValueError("LIVE tool descriptions are missing")
-                calls = calls_for(messages, invalid=self.invalid_first_arguments, omit_rules=self.omit_rules_first)
+                calls = calls_for(messages, arguments_for(request), invalid=self.invalid_first_arguments, omit_rules=self.omit_rules_first)
                 payload = response({"role": "assistant", "content": None, "tool_calls": calls}, "tool_calls")
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)

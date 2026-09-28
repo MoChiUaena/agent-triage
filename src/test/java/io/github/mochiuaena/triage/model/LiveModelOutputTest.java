@@ -11,6 +11,24 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.*;
 
 class LiveModelOutputTest {
+    @Test void registeredLabelsComeFromTheServerAndReplaceOrderSpecificWording() {
+        var evidence = evidence(5, 1, true, "DOC-DOWNSTREAM-TIMEOUT#v3");
+        var info = new ServiceInfo("checkout-service", "结算服务", "stock-service", "商品服务");
+        var result = output.parse(answer("DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id()), evidence, info).decision().diagnosis();
+        assertThat(result.possibleCauses().getFirst().text()).contains("商品服务", "结算服务").doesNotContain("订单", "库存");
+        assertThat(result.nextSteps()).allSatisfy(step -> assertThat(step).doesNotContain("订单", "库存"));
+    }
+
+    @Test void oldRunWithoutServiceInfoRemainsReadable() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        var old = new Run(java.util.UUID.randomUUID(), "订单为何变慢", "order-service", 15, Scenario.NORMAL,
+            "DEMO", false, Status.SUCCEEDED, java.time.Instant.now(), null, 0, List.of(), List.of(), null, null);
+        var tree = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.valueToTree(old);
+        tree.remove("serviceInfo");
+        var decoded = mapper.treeToValue(tree, Run.class);
+        assertThat(decoded.service()).isEqualTo("order-service");
+        assertThat(decoded.serviceInfo()).isNull();
+    }
     private final ModelOutput output = new ModelOutput(JsonMapper.builder().findAndAddModules().build());
     private static final String TRACE = "1c9c272c-e593-46ad-9790-2d7021a14d48";
 

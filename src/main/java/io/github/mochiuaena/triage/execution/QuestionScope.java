@@ -13,4 +13,10 @@ public final class QuestionScope {
         String normalized = question.toLowerCase(Locale.ROOT);
         return TERMS.stream().anyMatch(normalized::contains);
     }
+    public static boolean supports(String question, io.github.mochiuaena.triage.tools.ToolContext context) {
+        String normalized = question.toLowerCase(Locale.ROOT);
+        var info = context.serviceInfo();
+        return supports(question) || List.of(info.id(), info.name(), info.downstreamId(), info.downstreamName())
+            .stream().map(value -> value.toLowerCase(Locale.ROOT)).anyMatch(normalized::contains);
+    }
 }

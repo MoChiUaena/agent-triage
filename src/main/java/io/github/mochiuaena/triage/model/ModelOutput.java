@@ -56,6 +56,10 @@ final class ModelOutput {
     String format() { return format; }
 
     Parsed parse(String text, List<Evidence> evidence) {
+        return parse(text, evidence, ServiceInfo.order());
+    }
+
+    Parsed parse(String text, List<Evidence> evidence, ServiceInfo info) {
         try {
             if (text == null || text.length() > 16_000) throw new IllegalArgumentException();
             String content = text.strip();
@@ -77,7 +81,7 @@ final class ModelOutput {
             if (!allowedChecks(response.assessment(), evidence).containsAll(response.nextChecks()))
                 throw new RunFailure("MODEL_CHECKS_MISMATCH", "模型检查项重复已有查询，或缺少对应观测，未保存为排查结果。");
             List<Check> prioritized = prioritize(response.assessment(), response.nextChecks());
-            Diagnosis diagnosis = render(response, selected, prioritized);
+            Diagnosis diagnosis = render(response, selected, prioritized, info);
             EvidenceValidator.validate(diagnosis, evidence);
             return new Parsed(response.assessment(), List.copyOf(response.nextChecks()), prioritized, new TriageEngine.Decision(response.assessment() == Assessment.INSUFFICIENT_EVIDENCE
                 ? Status.INSUFFICIENT_EVIDENCE : Status.SUCCEEDED, diagnosis));
@@ -173,7 +177,9 @@ final class ModelOutput {
         return value;
     }
 
-    private Diagnosis render(Response response, List<Evidence> selected, List<Check> prioritized) {
+    private Diagnosis render(Response response, List<Evidence> selected, List<Check> prioritized, ServiceInfo info) {
+        String service = info.equals(ServiceInfo.order()) ? "订单" : info.name();
+        String downstream = info.equals(ServiceInfo.order()) ? "库存" : info.downstreamName();
         List<Finding> observations = selected.stream()
             .filter(item -> Set.of("read_service_metrics", "query_error_logs").contains(item.source()))
             .map(item -> new Finding(item.summary(), List.of(item.id()))).toList();
@@ -186,23 +192,23 @@ final class ModelOutput {
                 .findFirst().orElseThrow();
             List<String> ids = List.of(one(selected, "read_service_metrics").id(), one(selected, "query_error_logs").id(), rule.id());
             causes = List.of(new Finding(timeout
-                ? "本窗口存在库存调用超时，可能影响订单查询；建议优先验证库存调用路径。"
-                : "本窗口未发现库存调用超时证据；其他延迟来源仍需补充观测。", ids));
-            uncertainty = "本次只覆盖查询窗口内已采集的订单请求、库存调用和错误事件。未采集库存内部、网络、数据库与连接池指标，"
+                ? "本窗口存在" + downstream + "调用超时，可能影响" + service + "请求；建议优先验证下游调用路径。"
+                : "本窗口未发现" + downstream + "调用超时证据；其他延迟来源仍需补充观测。", ids));
+            uncertainty = "本次只覆盖查询窗口内已采集的服务请求、下游调用和错误事件。未采集下游内部、网络、数据库与连接池指标，"
                 + "不能确认内部根因或服务整体健康。模型选择判断类型与证据，关键结论由应用按证据生成。";
         }
-        List<String> nextSteps = prioritized.stream().map(this::checkText).toList();
+        List<String> nextSteps = prioritized.stream().map(check -> checkText(check, service, downstream)).toList();
         return new Diagnosis(observations, causes, nextSteps, uncertainty);
     }
 
-    private String checkText(Check check) {
+    private String checkText(Check check, String service, String downstream) {
         return switch (check) {
-            case INSPECT_INVENTORY_LATENCY -> "核对同一窗口内库存接口的实际处理耗时和错误率。";
-            case CORRELATE_TRACE -> "使用错误事件中已有的 traceId 对照订单与库存请求的调用耗时。";
-            case VERIFY_REQUEST_TIMEOUT -> "核对订单客户端的请求总时限，并结合库存接口耗时验证。";
-            case COLLECT_RESOURCE_METRICS -> "补充库存服务 CPU、连接池、网络及数据库指标后再判断内部原因。";
+            case INSPECT_INVENTORY_LATENCY -> "核对同一窗口内" + downstream + "接口的实际处理耗时和错误率。";
+            case CORRELATE_TRACE -> "使用错误事件中已有的 traceId 对照" + service + "与" + downstream + "请求的调用耗时。";
+            case VERIFY_REQUEST_TIMEOUT -> "核对" + service + "客户端的请求总时限，并结合下游接口耗时验证。";
+            case COLLECT_RESOURCE_METRICS -> "补充" + downstream + "服务 CPU、连接池、网络及数据库指标后再判断内部原因。";
             case FIND_SLOW_REQUEST -> "找到具体慢请求的时间和 traceId，缩小查询范围。";
-            case COLLECT_OBSERVATIONS -> "补充当前窗口的订单指标和错误日志后再判断。";
+            case COLLECT_OBSERVATIONS -> "补充当前窗口的" + service + "指标和错误日志后再判断。";
             case SEARCH_MATCHING_RULE -> "检索与本次正常或超时观测匹配的排障规则。";
         };
     }

@@ -31,11 +31,11 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
         data.put("sampleLimit", 3);
         data.put("synthetic", false);
         String summary = observation.timeoutCount() > 0
-            ? "该窗口记录了 " + observation.timeoutCount() + " 次库存请求超时，展示最近 " + entries.size() + " 条错误事件。"
+            ? "该窗口记录了 " + observation.timeoutCount() + " 次" + context.serviceInfo().downstreamName() + "请求超时，展示最近 " + entries.size() + " 条错误事件。"
             : !entries.isEmpty()
-                ? "该窗口记录了 " + entries.size() + " 条库存请求错误，尚不能确定是否为超时。"
-            : "该窗口没有库存请求超时错误；日志为空不能单独证明服务无故障。";
+                ? "该窗口记录了 " + entries.size() + " 条下游请求错误，尚不能确定是否为超时。"
+            : "该窗口没有下游请求超时错误；日志为空不能单独证明服务无故障。";
         return List.of(new Evidence("LOGS-LIVE-" + context.endTime().toEpochMilli(), name(),
-            "订单服务错误事件（实际请求，最多 3 条）", summary, data));
+            context.serviceInfo().name() + "错误事件（实际请求，最多 3 条）", summary, data));
     }
 }

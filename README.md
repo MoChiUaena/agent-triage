@@ -2,7 +2,7 @@
 
 [![Verify](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml)
 
-Agent Triage 是一个面向 Java 服务的只读排障助手。当前支持订单查询变慢这一场景，结合窗口指标、错误日志和排障文档，判断是否观察到库存调用超时，并给出验证建议。
+Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口指标、错误日志和排障文档，判断是否观察到下游 HTTP 调用超时，并给出验证建议。仓库提供订单演示，也支持通过配置和只读接口接入其他本地 Spring Boot 服务。
 
 仓库带有两个独立运行的 Java 样例服务：订单服务通过 HTTP 调用库存服务。切换故障场景后，库存响应变慢，订单侧请求实际超时。排障助手读取窗口指标、Micrometer 计数和 JSON 错误日志，再给出带证据的判断。默认启动使用合成数据；模型模式中，模型选择工具、判断类型和证据，应用核对观测后生成关键结论措辞，避免自由归因超出证据范围。
 
@@ -17,6 +17,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。当前支持订�
 ## 功能
 
 - 查询服务指标、近期错误日志，检索 Markdown 排障文档。
+- 通过服务白名单登记多个本地应用，在页面选择服务；接入接口与示例见[接入说明](docs/SERVICE_INTEGRATION.md)。
 - 在页面生成正常请求或库存超时请求，排查真实的本地请求记录。
 - 通过 SSE 展示工具执行进度，点击结论中的引用可以查看证据原文。
 - 保存执行记录，支持历史查询和事件重放。
@@ -140,7 +141,7 @@ CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具
 | `TRIAGE_RUN_TIMEOUT` | `60s` | 整体执行超时，范围 1ms–120s |
 | `SPRING_PROFILES_ACTIVE` | 未设置 | 设置 `postgres` 切换数据库 |
 
-查询范围限于 `order-service`，时间窗口为 1–60 分钟，问题最多 200 字符。超时从提交时开始计时；数据库 I/O 和不响应中断的工具仍可能超过该时限，详见[执行与超时](docs/ARCHITECTURE.md#执行与超时)。
+默认查询 `order-service`，也可以通过[服务配置与观测接口](docs/SERVICE_INTEGRATION.md)接入其他本地 Spring Boot 服务。时间窗口为 1–60 分钟，可按服务收紧，问题最多 200 字符。超时从提交时开始计时；数据库 I/O 和不响应中断的工具仍可能超过该时限，详见[执行与超时](docs/ARCHITECTURE.md#执行与超时)。
 
 应用默认仅监听本机地址，尚未实现鉴权、多实例协调和记录清理。提交的问题会保存在数据库中，请勿输入敏感信息。
 
@@ -150,6 +151,7 @@ CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具
 - [模型配置](docs/MODELS.md)
 - [架构](docs/ARCHITECTURE.md)
 - [本地真实请求链路](docs/LIVE_LAB.md)
+- [接入其他服务](docs/SERVICE_INTEGRATION.md)
 - [小规模评测](docs/EVALUATION.md)
 - [开发计划](docs/ROADMAP.md)
 - [贡献指南](CONTRIBUTING.md)

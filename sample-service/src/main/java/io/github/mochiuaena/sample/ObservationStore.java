@@ -1,6 +1,7 @@
 package io.github.mochiuaena.sample;
 
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Counter;
 import java.time.Duration;
@@ -29,11 +30,21 @@ public class ObservationStore {
     private final Deque<RequestSample> samples = new ArrayDeque<>();
     private final MeterRegistry metrics;
     private final ErrorJournal errors;
+    private final String serviceId;
+    private final String downstreamService;
     private Scenario scenario = Scenario.NORMAL;
 
-    public ObservationStore(MeterRegistry metrics, ErrorJournal errors) {
+    public ObservationStore(MeterRegistry metrics, ErrorJournal errors,
+                            @Value("${sample.service-id:order-service}") String serviceId,
+                            @Value("${sample.downstream-service:inventory-service}") String downstreamService) {
         this.metrics = metrics; this.errors = errors;
+        if (!serviceId.matches("[a-z][a-z0-9-]{0,63}") || !downstreamService.matches("[a-z][a-z0-9-]{0,63}"))
+            throw new IllegalArgumentException("Invalid sample service identity");
+        this.serviceId = serviceId; this.downstreamService = downstreamService;
     }
+
+    public String serviceId() { return serviceId; }
+    public String downstreamService() { return downstreamService; }
 
     public synchronized Scenario scenario() { return scenario; }
     public synchronized void scenario(Scenario value) { scenario = value; }
@@ -61,7 +72,7 @@ public class ObservationStore {
         List<RequestSample> normals = matching.stream().filter(sample -> sample.scenario() == Scenario.NORMAL && "ok".equals(sample.outcome())).toList();
         List<RequestSample> failures = matching.stream().filter(RequestSample::timedOut).toList();
         long recorded = Math.round(metrics.find("sample.order.requests").counters().stream().mapToDouble(Counter::count).sum());
-        return new Snapshot("order-service", scenario, start, end, matching.size(), normals.size(), failures.size(), recorded,
+        return new Snapshot(serviceId, scenario, start, end, matching.size(), normals.size(), failures.size(), recorded,
             p95(matching.stream().map(RequestSample::orderMs).toList()),
             p95(matching.stream().map(RequestSample::downstreamMs).toList()),
             matching.isEmpty() ? 0 : (double) failures.size() / matching.size(),

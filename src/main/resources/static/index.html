@@ -57,7 +57,7 @@
       >
       <div class="sidebar-footer">
         <svg class="icon"><use href="/icons.svg#server" /></svg>
-        <div><strong>本地工作区</strong><span>order-service</span></div>
+        <div><strong>本地工作区</strong><span id="workspace-service">读取服务</span></div>
         <span class="local-dot" title="本地配置"></span>
       </div>
     </aside>
@@ -101,7 +101,7 @@
         <div class="page-heading">
           <div>
             <h1>服务排查</h1>
-            <p>查询日志、指标和文档，定位订单接口的问题。</p>
+            <p>查询所选服务的日志、指标和排障文档。</p>
           </div>
         </div>
         <section
@@ -139,7 +139,7 @@
                 >服务</label
               >
               <select id="service">
-                <option value="order-service">order-service</option>
+                <option value="">正在读取服务…</option>
               </select>
             </div>
             <div class="control">
@@ -156,6 +156,7 @@
             <div class="control">
               <label for="scenario" id="scenario-label">场景</label>
               <select id="scenario">
+                <option value="OBSERVED" hidden>实际观测</option>
                 <option value="DOWNSTREAM_TIMEOUT">下游超时</option>
                 <option value="NORMAL">正常对照</option>
               </select>
@@ -170,7 +171,7 @@
             rows="2"
             placeholder="描述问题，例如：订单查询接口为什么变慢了？"
           >
-订单查询接口为什么变慢了？</textarea
+服务请求为什么变慢了？</textarea
           >
           <div class="composer-footer">
             <span class="composer-note" id="composer-note">正在连接服务…</span>

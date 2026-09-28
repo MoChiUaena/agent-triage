@@ -93,6 +93,14 @@ jobs:
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085 --ids D10
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085 --dataset docs/evaluation/cases-v2.json --all-dev
+          java -jar inventory-service/target/triage-inventory-service-0.1.0.jar --server.port=18094 > checkout-inventory.log 2>&1 &
+          java -jar sample-service/target/triage-sample-service-0.1.0.jar --server.port=18092 --sample.service-id=checkout-service --sample.lab-enabled=false --sample.inventory.base-url=http://127.0.0.1:18094 --sample.error-log-file=target/checkout-errors.jsonl > checkout.log 2>&1 &
+          java -jar target/agent-triage-0.1.0.jar --server.port=18093 '--spring.datasource.url=jdbc:h2:mem:registered-model;DB_CLOSE_DELAY=-1' --spring.config.additional-location=file:./examples/services.yml --triage.settings.key-file=target/ci-registered-key --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18100 --triage.model.api-key=test-only-local --triage.model.name=triage-stub --triage.model.timeout=5s > registered-agent.log 2>&1 &
+          for i in {1..40}; do
+            if curl -fsS http://127.0.0.1:18094/lab/scenario > /dev/null && curl -fsS http://127.0.0.1:18092/actuator/health > /dev/null && curl -fsS 'http://127.0.0.1:18093/api/config?service=checkout-service' > /dev/null; then break; fi
+            sleep 1
+          done
+          python3 scripts/service_integration_smoke.py --mock-provider
           kill "$stub_pid"
           wait "$stub_pid" || true
           python3 scripts/model_protocol_stub.py --port 18100 --invalid-first-arguments > correction-stub.log 2>&1 &

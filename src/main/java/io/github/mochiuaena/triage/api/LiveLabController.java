@@ -4,6 +4,7 @@ import io.github.mochiuaena.triage.domain.TriageModel.Scenario;
 import io.github.mochiuaena.triage.tools.LiveObservationClient;
 import io.github.mochiuaena.triage.tools.ObservationSource;
 import io.github.mochiuaena.triage.tools.ToolContext;
+import io.github.mochiuaena.triage.tools.ServiceRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
@@ -28,28 +29,30 @@ import java.util.UUID;
 @RequestMapping("/api/live-lab")
 @ConditionalOnProperty(name = "triage.observation.source", havingValue = "LIVE")
 public class LiveLabController {
-    public record TrafficRequest(Scenario scenario, int count) {}
-    private final ObservationSource source;
+    public record TrafficRequest(Scenario scenario, int count, String service) {}
+    private final ServiceRegistry registry;
     private final LiveObservationClient observations;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(600)).build();
 
-    public LiveLabController(ObservationSource source, LiveObservationClient observations) {
-        this.source = source;
+    public LiveLabController(ServiceRegistry registry, LiveObservationClient observations) {
+        this.registry = registry;
         this.observations = observations;
     }
 
     @PostMapping("/traffic")
     public Map<String, Object> traffic(@RequestBody TrafficRequest request, HttpServletRequest servletRequest) {
         if (!allowed(servletRequest)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "仅允许从本机页面生成样例流量。");
-        if (request.scenario() == null || request.count() < 1 || request.count() > 10)
+        ServiceRegistry.Target target = request.service() == null ? registry.defaultTarget() : registry.require(request.service());
+        if (!target.labEnabled()) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "该服务未开放演示流量控制。");
+        if (request.scenario() == null || request.scenario() == Scenario.OBSERVED || request.count() < 1 || request.count() > 10)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "场景无效或请求数超出 1–10。");
         try {
-            send("POST", "/lab/reset", "{}", 200);
-            send("POST", "/lab/scenario", "{\"scenario\":\"" + request.scenario().name() + "\"}", 200);
+            send(target, "POST", "/lab/reset", "{}", 200);
+            send(target, "POST", "/lab/scenario", "{\"scenario\":\"" + request.scenario().name() + "\"}", 200);
             int expected = request.scenario() == Scenario.NORMAL ? 200 : 504;
             for (int i = 0; i < request.count(); i++)
-                send("GET", "/api/orders/" + UUID.randomUUID(), null, expected);
-            var snapshot = observations.snapshot(new ToolContext("order-service", 15, request.scenario(), Instant.now()));
+                send(target, "GET", "/api/orders/" + UUID.randomUUID(), null, expected);
+            var snapshot = observations.snapshot(new ToolContext(target.info().id(), Math.min(15, target.maxWindowMinutes()), request.scenario(), Instant.now(), target));
             return Map.of("scenario", snapshot.scenario(), "requestCount", snapshot.requestCount(),
                 "timeoutCount", snapshot.timeoutCount(), "orderP95Ms", snapshot.orderP95Ms(), "synthetic", false);
         } catch (IOException | InterruptedException e) {
@@ -58,8 +61,8 @@ public class LiveLabController {
         }
     }
 
-    private void send(String method, String path, String body, int expected) throws IOException, InterruptedException {
-        URI uri = URI.create(source.baseUrl().toString().replaceAll("/$", "") + path);
+    private void send(ServiceRegistry.Target target, String method, String path, String body, int expected) throws IOException, InterruptedException {
+        URI uri = URI.create(target.baseUrl().toString().replaceAll("/$", "") + path);
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(2));
         if ("POST".equals(method)) builder.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body));
         else builder.GET();

@@ -22,6 +22,18 @@ class ModelToolsTest {
         when(session.context()).thenReturn(new ToolContext("order-service", 15, Scenario.NORMAL, Instant.parse("2026-09-28T00:00:00Z")));
     }
 
+    @Test void registeredServiceCannotBeChangedByTheModel() {
+        var registry = new io.github.mochiuaena.triage.tools.ServiceRegistry(
+            new io.github.mochiuaena.triage.tools.ObservationSource("LIVE", "http://127.0.0.1:19092"), List.of(
+            new io.github.mochiuaena.triage.tools.ServiceRegistry.Config("checkout-service", "结算服务", "stock-service", "商品服务",
+                "http://127.0.0.1:19092", null, 5, false)));
+        when(session.context()).thenReturn(new ToolContext("checkout-service", 5, Scenario.OBSERVED, Instant.now(), registry.defaultTarget()));
+        assertThat(tools.definitions().getFirst().getToolDefinition().inputSchema()).contains("checkout-service").doesNotContain("19092");
+        assertThatThrownBy(() -> tools.prepare("read_service_metrics", "{\"service\":\"order-service\",\"windowMinutes\":5}"))
+            .isInstanceOf(ModelTools.RejectedArguments.class);
+        verify(session, never()).callTool(anyString(), anyString());
+    }
+
     static Stream<Arguments> rejections() {
         return Stream.of(
             Arguments.of("read_service_metrics", null, ModelTools.ArgumentReason.SIZE),

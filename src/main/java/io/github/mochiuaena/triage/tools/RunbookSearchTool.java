@@ -17,6 +17,7 @@ import java.util.Map;
 public class RunbookSearchTool implements ReadOnlyTool {
     private record Document(String id, String title, String content, List<String> keywords, int version, boolean synthetic) {}
     private final List<Document> documents;
+    private final List<Document> registeredDocuments;
     private final boolean serviceReferences;
 
     public RunbookSearchTool() throws IOException { this(false); }
@@ -36,6 +37,11 @@ public class RunbookSearchTool implements ReadOnlyTool {
             load("DOC-EVIDENCE-LIMITS#v1", "证据边界与验证", "evidence-limits.md",
                 List.of("证据", "原因", "验证", "evidence", "why"), 1, false)
         );
+        registeredDocuments = List.of(
+            load("DOC-DOWNSTREAM-TIMEOUT#v3", "下游超时排障", "downstream-timeout-registered.md",
+                List.of("超时", "timeout", "慢", "slow", "latency", "延迟"), 3, false),
+            load("DOC-HEALTHY-BASELINE#v3", "无超时窗口对照", "healthy-baseline-registered.md",
+                List.of("正常", "健康", "healthy", "baseline"), 3, false), documents.get(2));
     }
 
     private Document load(String id, String title, String file, List<String> keywords, int version, boolean synthetic) throws IOException {
@@ -49,7 +55,9 @@ public class RunbookSearchTool implements ReadOnlyTool {
     @Override public List<Evidence> execute(ToolContext context, String query) {
         if (query == null || query.isBlank() || query.length() > 200) throw new IllegalArgumentException("Query must contain 1..200 characters");
         String normalized = query.toLowerCase(Locale.ROOT);
-        return documents.stream()
+        List<Document> applicable = context.target() != null && context.target().protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V1
+            ? registeredDocuments : documents;
+        return applicable.stream()
             .filter(doc -> matches(doc, normalized) || serviceReferences && coreRule(doc))
             .limit(3)
             .map(doc -> new Evidence(doc.id(), name(), doc.title(), doc.content(),

@@ -16,7 +16,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @RestController
-@RequestMapping("/api/orders")
+@RequestMapping({"/api/orders", "/api/requests"})
 public class OrderController {
     private static final Logger log = LoggerFactory.getLogger(OrderController.class);
     private final ObservationStore store;
@@ -40,21 +40,21 @@ public class OrderController {
             outcome = "timeout";
             log.error("inventory request timeout traceId={} orderId={} timeoutMs=300", traceId, orderId);
             errors.append(new ObservationStore.ErrorEntry(Instant.now(), traceId, "ERROR",
-                "GET inventory-service /api/inventory/sku: request timeout after 300ms"));
+                "GET " + store.downstreamService() + " /api/inventory/sku: request timeout after 300ms"));
             return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
                 .body(Map.of("error", "Inventory request timed out", "traceId", traceId));
         } catch (IOException e) {
             outcome = "error";
             log.error("inventory request failed traceId={} orderId={}", traceId, orderId);
             errors.append(new ObservationStore.ErrorEntry(Instant.now(), traceId, "ERROR",
-                "GET inventory-service /api/inventory/sku: request failed"));
+                "GET " + store.downstreamService() + " /api/inventory/sku: request failed"));
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(Map.of("error", "Inventory request failed", "traceId", traceId));
         } catch (InterruptedException e) {
             outcome = "error";
             Thread.currentThread().interrupt();
             errors.append(new ObservationStore.ErrorEntry(Instant.now(), traceId, "ERROR",
-                "GET inventory-service /api/inventory/sku: request interrupted"));
+                "GET " + store.downstreamService() + " /api/inventory/sku: request interrupted"));
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(Map.of("error", "Request interrupted", "traceId", traceId));
         } finally {

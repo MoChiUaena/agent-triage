@@ -1,0 +1,21 @@
+# Load with --spring.config.additional-location=file:./examples/services.yml
+triage:
+  observation:
+    source: LIVE
+  services:
+    - id: order-service
+      name: 订单服务
+      downstream-id: inventory-service
+      downstream-name: 库存服务
+      base-url: http://127.0.0.1:18082
+      protocol: LAB
+      max-window-minutes: 60
+      lab-enabled: true
+    - id: checkout-service
+      name: 结算接入示例
+      downstream-id: inventory-service
+      downstream-name: 库存服务
+      base-url: http://127.0.0.1:18092
+      protocol: OBSERVATIONS_V1
+      max-window-minutes: 15
+      lab-enabled: false

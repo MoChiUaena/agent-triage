@@ -21,14 +21,20 @@ public class RunService {
     private final TriageEngine engine;
     private final List<ReadOnlyTool> tools;
     private final boolean synthetic;
+    private final ServiceRegistry registry;
     private final ThreadPoolExecutor coordinators = pool("triage-run-", 4, 16);
     private final ThreadPoolExecutor toolWorkers = pool("triage-tool-", 4, 16);
     private final ThreadPoolExecutor modelWorkers = pool("triage-model-", 4, 16);
 
     @Autowired
     public RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
+                      List<ReadOnlyTool> tools, ObservationSource observation, ServiceRegistry registry) {
+        this(repository, limits, engine, tools, observation.synthetic(), registry);
+    }
+
+    public RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
                       List<ReadOnlyTool> tools, ObservationSource observation) {
-        this(repository, limits, engine, tools, observation.synthetic());
+        this(repository, limits, engine, tools, observation.synthetic(), new ServiceRegistry(observation, List.of()));
     }
 
     RunService(RunRepository repository, ExecutionLimits limits, DemoReasoner reasoner, List<ReadOnlyTool> tools) {
@@ -36,16 +42,18 @@ public class RunService {
     }
 
     RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine, List<ReadOnlyTool> tools) {
-        this(repository, limits, engine, tools, true);
+        this(repository, limits, engine, tools, true,
+            new ServiceRegistry(new ObservationSource("SYNTHETIC", "http://127.0.0.1:18082"), List.of()));
     }
 
     private RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
-                       List<ReadOnlyTool> tools, boolean synthetic) {
+                       List<ReadOnlyTool> tools, boolean synthetic, ServiceRegistry registry) {
         this.repository = repository;
         this.limits = limits;
         this.engine = engine;
         this.tools = List.copyOf(tools);
         this.synthetic = synthetic;
+        this.registry = registry;
     }
 
     private static ThreadPoolExecutor pool(String prefix, int workers, int queue) {
@@ -58,6 +66,7 @@ public class RunService {
     }
 
     public Run submit(String question, ToolContext context, String expectedSelection) {
+        ToolContext frozen = registry.freeze(context);
         long deadline = System.nanoTime() + limits.runTimeout().toNanos();
         TriageEngine selectedEngine = engine.snapshot();
         if (expectedSelection != null && !expectedSelection.equals(selectedEngine.selectionToken()))
@@ -66,9 +75,9 @@ public class RunService {
         Run run = new Run(UUID.randomUUID(), question, context.service(), context.windowMinutes(), context.scenario(),
             selectedEngine.mode(), synthetic, Status.QUEUED, context.endTime(), null, 0,
             List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "任务已创建。", List.of())), List.of(), null, null,
-            selectedEngine.modelName() == null ? null : new ModelExecution(selectedEngine.modelName(), null, 0, null, selectedEngine.source()));
+            selectedEngine.modelName() == null ? null : new ModelExecution(selectedEngine.modelName(), null, 0, null, selectedEngine.source()), frozen.serviceInfo());
         repository.insert(run);
-        try { coordinators.execute(() -> execute(run, context, deadline, selectedEngine)); }
+        try { coordinators.execute(() -> execute(run, frozen, deadline, selectedEngine)); }
         catch (RejectedExecutionException e) {
             fail(stateFrom(run), "RUN_QUEUE_FULL", "执行队列已满，请稍后再试。");
             throw new CapacityExceededException();
@@ -126,7 +135,7 @@ public class RunService {
             events.add(new Event(events.size() + 1, Instant.now(), "RUN_FAILED", null, "服务重启，之前的执行已中断。", List.of()));
             repository.save(new Run(run.id(), run.question(), run.service(), run.windowMinutes(), run.scenario(), run.mode(), run.synthetic(),
                 Status.FAILED, run.createdAt(), Instant.now(), run.toolCalls(), List.copyOf(events), run.evidence(), null,
-                new Failure("SERVER_RESTARTED", "服务重启；保留已收集证据，请重新执行。"), run.modelExecution()));
+                new Failure("SERVER_RESTARTED", "服务重启；保留已收集证据，请重新执行。"), run.modelExecution(), run.serviceInfo()));
         }
     }
 
