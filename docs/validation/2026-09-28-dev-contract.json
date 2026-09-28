@@ -1,0 +1,287 @@
+{
+  "datasetVersion": 2,
+  "datasetSha256": "b881451be81a09ce63e07f1a93248547835cdd7ec5181b3bef802b97f3d7f466",
+  "split": "dev",
+  "model": "qwen3.7-flash-2026-07-15",
+  "provider": "阿里云百炼",
+  "syntheticObservations": false,
+  "mockProvider": false,
+  "ranAt": "2026-09-28T06:24:31.819570+00:00",
+  "evaluationTarget": "system-evidence-boundaries",
+  "rubricVersion": 2,
+  "parameters": {
+    "temperature": 0,
+    "maxRounds": 4,
+    "maxOutputTokens": 1600,
+    "modelTimeoutSeconds": 45
+  },
+  "cases": [
+    {
+      "case": "C01",
+      "status": "SUCCEEDED",
+      "classification": "满足契约",
+      "assessment": "DOWNSTREAM_TIMEOUT_OBSERVED",
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": true,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 3903,
+        "outputTokens": 1661,
+        "totalTokens": 5564
+      },
+      "failureCode": null,
+      "category": "timeout",
+      "referenceRequestCount": 5,
+      "referenceTimeoutRate": 1.0,
+      "observedRequestCount": 5,
+      "observedTimeoutRate": 1.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 599,
+          "outputTokens": 1905,
+          "totalTokens": 2504
+        },
+        "wallTimeMs": 24780,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 25343,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ]
+    },
+    {
+      "case": "C02",
+      "status": "SUCCEEDED",
+      "classification": "满足契约",
+      "assessment": "NO_DOWNSTREAM_TIMEOUT_OBSERVED",
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": true,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 3619,
+        "outputTokens": 2673,
+        "totalTokens": 6292
+      },
+      "failureCode": null,
+      "category": "normal",
+      "referenceRequestCount": 5,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": 5,
+      "observedTimeoutRate": 0.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 598,
+          "outputTokens": 1909,
+          "totalTokens": 2507
+        },
+        "wallTimeMs": 29888,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 40562,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ]
+    },
+    {
+      "case": "C03",
+      "status": "SUCCEEDED",
+      "classification": "满足契约",
+      "assessment": "DOWNSTREAM_TIMEOUT_OBSERVED",
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": true,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 3,
+      "usage": {
+        "inputTokens": 5872,
+        "outputTokens": 1722,
+        "totalTokens": 7594
+      },
+      "failureCode": null,
+      "category": "mixed",
+      "referenceRequestCount": 5,
+      "referenceTimeoutRate": 0.4,
+      "observedRequestCount": 5,
+      "observedTimeoutRate": 0.4,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 599,
+          "outputTokens": 1683,
+          "totalTokens": 2282
+        },
+        "wallTimeMs": 24636,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 24421,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ]
+    },
+    {
+      "case": "C04",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "classification": "应用门槛",
+      "assessment": null,
+      "observationsMatchToolSummaries": false,
+      "conclusionRendered": false,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": true,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs"
+      ],
+      "toolCalls": 2,
+      "modelCalls": 1,
+      "usage": {
+        "inputTokens": 1217,
+        "outputTokens": 312,
+        "totalTokens": 1529
+      },
+      "failureCode": null,
+      "category": "empty",
+      "referenceRequestCount": 0,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": 0,
+      "observedTimeoutRate": 0.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 596,
+          "outputTokens": 1093,
+          "totalTokens": 1689
+        },
+        "wallTimeMs": 13439,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 5109,
+      "citationsValid": true,
+      "citedSources": [
+        "read_service_metrics"
+      ]
+    },
+    {
+      "case": "C05",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "classification": "应用门槛",
+      "assessment": null,
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": false,
+      "applicationScopeGate": true,
+      "applicationEvidenceGate": false,
+      "tools": [],
+      "toolCalls": 0,
+      "modelCalls": 0,
+      "usage": null,
+      "failureCode": null,
+      "category": "unrelated",
+      "referenceRequestCount": 2,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": null,
+      "observedTimeoutRate": null,
+      "documentOnly": {
+        "status": "OUT_OF_SCOPE",
+        "citationsValid": true,
+        "usage": null,
+        "wallTimeMs": 0,
+        "failureCode": null,
+        "applicationScopeGate": true,
+        "modelCalls": 0
+      },
+      "wallTimeMs": 281,
+      "citationsValid": true,
+      "citedSources": []
+    },
+    {
+      "case": "C06",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "classification": "应用门槛",
+      "assessment": null,
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": false,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": true,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 1,
+      "usage": {
+        "inputTokens": 1212,
+        "outputTokens": 272,
+        "totalTokens": 1484
+      },
+      "failureCode": null,
+      "category": "rule-gap",
+      "referenceRequestCount": 3,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": 3,
+      "observedTimeoutRate": 0.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 630,
+          "outputTokens": 1604,
+          "totalTokens": 2234
+        },
+        "wallTimeMs": 23022,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 4406,
+      "citationsValid": true,
+      "citedSources": [
+        "read_service_metrics"
+      ]
+    }
+  ]
+}

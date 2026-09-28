@@ -14,6 +14,8 @@ python scripts/compare_live_methods.py --allow-model-calls --dataset docs/evalua
 
 两条命令可能向已启用模型服务发起多轮计费请求。原始结果保存在被忽略的 `target/`，报告不包含 API Key、提供商配置 ID 和 traceId 明文。旧执行历史仍是旧版文本，页面会区分来源。
 
+[v2 调试记录](validation/2026-09-28-dev-contract.md)保留了最初三次校验失败、漏选规则的复查和修订后的 6 例结果：3 条满足契约，3 条由应用门槛结束。
+
 ## v1：历史记录
 
 案例集 [`cases-v1.json`](evaluation/cases-v1.json) 有 20 个问题，`dev` 和 `holdout` 各 10 个，两组已完成真实模型对照。固定规则的演示模式使用合成数据，真实模型对照使用 LIVE 请求；`expectedDemoStatus` 只用于演示模式的状态检查。
