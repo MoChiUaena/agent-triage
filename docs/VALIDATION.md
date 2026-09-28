@@ -18,6 +18,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 [服务接入 CI](https://github.com/MoChiUaena/agent-triage/actions/runs/36417454810)的 Windows、Ubuntu、PostgreSQL 和 LIVE 集成全部通过，其中 LIVE 作业实际运行了双服务与模型协议模拟器检查。
 
+无密钥默认启动另做浏览器检查：打开页面直接提交下游超时，再切换正常对照，两次均完成。默认问题随服务选择更新；`OBSERVED` 仅用于只读接入，不能作为合成演示场景选择。
+
 v0.1.0 交付检查：主项目 138 项、订单与库存服务各 1 项测试通过。演示 ZIP 仅有 8 个许可条目，不含运行数据库、日志或凭据；从带空格和中文的本地路径解压后，PowerShell 与 Git Bash 启动均通过空窗口、正常和超时链路，Ctrl+C 后测试端口关闭，数据库保留。原始检查结果在忽略的 `target/live-smoke/`。
 
 约 50 秒 MP4 已完整解码检查，并抽帧核对操作、字幕、日志脱敏及模型历史回放标记。Linux 原生启动和退出另外由 CI 对解压包验证，不将 Git Bash 检查当成 Linux 验收。

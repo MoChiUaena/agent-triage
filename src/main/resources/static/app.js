@@ -52,6 +52,9 @@ async function loadConfiguration(serviceId = $("#service").value) {
     $("#service").value = config.service;
     $("#workspace-service").textContent = config.service;
     $("#question").placeholder = "描述问题，例如：" + config.serviceInfo.name + "请求为什么变慢了？";
+    const defaultQuestions = ["服务请求为什么变慢了？", ...config.services.map(target => target.name + "请求为什么变慢了？")];
+    if (defaultQuestions.includes($("#question").value.trim()))
+      $("#question").value = config.serviceInfo.name + "请求为什么变慢了？";
     const previousWindow = Number($("#window").value);
     const windows = [5, 15, 60].filter(value => value <= config.maxWindowMinutes);
     if (!windows.includes(config.maxWindowMinutes)) windows.push(config.maxWindowMinutes);
