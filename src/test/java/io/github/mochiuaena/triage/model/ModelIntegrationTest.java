@@ -84,6 +84,9 @@ class ModelIntegrationTest {
         MODEL.requests.get(1).get("messages").forEach(messages::add);
         assertThat(messages.stream().filter(m -> m.path("role").asText().equals("tool"))).hasSize(3);
         assertThat(messages.toString()).contains("2350", "SocketTimeoutException", "DOC-DOWNSTREAM-TIMEOUT#v1");
+        assertThat(messages.stream().filter(m -> m.path("role").asText().equals("system"))
+            .map(m -> m.path("content").asText()).toList().getLast())
+            .contains("仅引用指标和日志会被拒绝", "DOWNSTREAM_TIMEOUT_OBSERVED_rule", "DOC-DOWNSTREAM-TIMEOUT#v1");
         assertThat(JSON.writeValueAsString(run.events())).doesNotContain("confidential-test-question", "test-only-not-a-real-key");
         assertThat(MODEL.authorization).isEqualTo("Bearer test-only-not-a-real-key");
     }

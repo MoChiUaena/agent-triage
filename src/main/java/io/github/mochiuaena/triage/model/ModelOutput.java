@@ -1,11 +1,12 @@
 package io.github.mochiuaena.triage.model;
 
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.StreamReadConstraints;
 import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.exc.*;
 import io.github.mochiuaena.triage.domain.TriageModel.*;
 import io.github.mochiuaena.triage.execution.*;
-import org.springframework.ai.converter.BeanOutputConverter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -24,7 +25,17 @@ final class ModelOutput {
 
     ModelOutput(ObjectMapper mapper) {
         json = strictMapper(mapper);
-        format = new BeanOutputConverter<>(Response.class, json).getFormat();
+        var properties = new LinkedHashMap<String, Object>();
+        properties.put("assessment", Map.of("type", "string", "enum", Arrays.stream(Assessment.values()).map(Enum::name).toList()));
+        properties.put("evidenceIds", Map.of("type", "array", "items", Map.of("type", "string"),
+            "maxItems", 15, "uniqueItems", true,
+            "description", "成功判断须同时选择一条当前指标、一条当前日志及至少一条与判断对应的规则 ID。"));
+        properties.put("nextChecks", Map.of("type", "array", "items", Map.of("type", "string",
+            "enum", Arrays.stream(Check.values()).map(Enum::name).toList()), "minItems", 1, "maxItems", 5, "uniqueItems", true));
+        try {
+            format = json.writeValueAsString(Map.of("type", "object", "properties", properties,
+                "required", List.copyOf(properties.keySet()), "additionalProperties", false));
+        } catch (JsonProcessingException e) { throw new IllegalStateException("Cannot build assessment schema"); }
     }
 
     static ObjectMapper strictMapper(ObjectMapper mapper) {
@@ -51,12 +62,15 @@ final class ModelOutput {
                 content = content.substring(content.indexOf('\n') + 1, content.length() - 3).strip();
             Response response = json.readValue(content, Response.class);
             if (response == null || response.assessment() == null || response.evidenceIds() == null
-                || response.evidenceIds().size() > 15 || new HashSet<>(response.evidenceIds()).size() != response.evidenceIds().size()
-                || response.nextChecks() == null || response.nextChecks().isEmpty() || response.nextChecks().size() > 5
+                || response.evidenceIds().size() > 15 || new HashSet<>(response.evidenceIds()).size() != response.evidenceIds().size())
+                throw invalid("模型缺少判断类型，或证据列表超出限制，未保存为排查结果。");
+            if (response.nextChecks() == null || response.nextChecks().isEmpty() || response.nextChecks().size() > 5
                 || response.nextChecks().contains(null)
-                || new HashSet<>(response.nextChecks()).size() != response.nextChecks().size()) throw new IllegalArgumentException();
+                || new HashSet<>(response.nextChecks()).size() != response.nextChecks().size())
+                throw invalid("模型检查项列表为空、重复或超出限制，未保存为排查结果。");
             Map<String, Evidence> byId = evidence.stream().collect(Collectors.toMap(Evidence::id, item -> item));
-            if (!byId.keySet().containsAll(response.evidenceIds())) throw new IllegalArgumentException();
+            if (!byId.keySet().containsAll(response.evidenceIds()))
+                throw invalid("模型选择了不属于本次执行的证据 ID，未保存为排查结果。");
             List<Evidence> selected = response.evidenceIds().stream().map(byId::get).toList();
             if (response.assessment() != Assessment.INSUFFICIENT_EVIDENCE) validateAssessment(response.assessment(), selected);
             Diagnosis diagnosis = render(response, selected);
@@ -64,10 +78,24 @@ final class ModelOutput {
             return new Parsed(response.assessment(), new TriageEngine.Decision(response.assessment() == Assessment.INSUFFICIENT_EVIDENCE
                 ? Status.INSUFFICIENT_EVIDENCE : Status.SUCCEEDED, diagnosis));
         } catch (RunFailure e) { throw e; }
+        catch (UnrecognizedPropertyException e) {
+            throw invalid("模型回复包含契约之外的字段，未保存为排查结果。");
+        }
+        catch (InvalidFormatException e) {
+            throw invalid("模型判断类型或检查项不在允许列表中，未保存为排查结果。");
+        }
+        catch (MismatchedInputException e) {
+            throw invalid("模型 JSON 字段类型或结构不符合契约，未保存为排查结果。");
+        }
+        catch (JsonProcessingException e) {
+            throw invalid("模型回复不是有效的单个 JSON 对象，未保存为排查结果。");
+        }
         catch (Exception e) {
-            throw new RunFailure("INVALID_MODEL_OUTPUT", "模型判断类型、检查项或证据选择无效，未保存为排查结果。");
+            throw invalid("模型判断类型、检查项或证据选择无效，未保存为排查结果。");
         }
     }
+
+    private RunFailure invalid(String message) { return new RunFailure("INVALID_MODEL_OUTPUT", message); }
 
     private void validateAssessment(Assessment assessment, List<Evidence> selected) {
         Evidence metrics = one(selected, "read_service_metrics");
@@ -88,12 +116,13 @@ final class ModelOutput {
             throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "模型判断与本窗口指标或错误事件不符，已拒绝。");
         String rule = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
         if (selected.stream().noneMatch(item -> item.source().equals("search_runbooks") && item.id().startsWith(rule)))
-            throw new IllegalArgumentException();
+            throw invalid("模型没有选择与本窗口观测匹配的排障规则，未保存为排查结果。");
     }
 
     private Evidence one(List<Evidence> selected, String source) {
         List<Evidence> matches = selected.stream().filter(item -> item.source().equals(source)).toList();
-        if (matches.size() != 1) throw new IllegalArgumentException();
+        if (matches.size() != 1)
+            throw invalid("成功判断必须各选择一条指标证据和一条日志证据，未保存为排查结果。");
         return matches.getFirst();
     }
 

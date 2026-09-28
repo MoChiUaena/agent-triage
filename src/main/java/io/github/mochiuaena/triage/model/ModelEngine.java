@@ -77,6 +77,7 @@ public final class ModelEngine implements TriageEngine {
                 session.recordRuleGapGate();
                 return ruleGap;
             }
+            messages.add(new SystemMessage(selectionReminder(session)));
         }
     }
 
@@ -118,6 +119,24 @@ public final class ModelEngine implements TriageEngine {
             usage = new TokenUsage(nativeUsage.promptTokens(), nativeUsage.completionTokens(), nativeUsage.totalTokens());
         }
         session.recordModelUsage(response.getMetadata().getModel(), usage);
+    }
+
+    private String selectionReminder(ExecutionSession session) {
+        Map<String, List<String>> candidates = new LinkedHashMap<>();
+        for (String source : List.of("read_service_metrics", "query_error_logs", "search_runbooks"))
+            candidates.put(source, session.evidence().stream().filter(item -> item.source().equals(source)).map(Evidence::id).toList());
+        candidates.put("DOWNSTREAM_TIMEOUT_OBSERVED_rule", session.evidence().stream()
+            .filter(item -> item.source().equals("search_runbooks") && item.id().startsWith("DOC-DOWNSTREAM-TIMEOUT#"))
+            .map(Evidence::id).toList());
+        candidates.put("NO_DOWNSTREAM_TIMEOUT_OBSERVED_rule", session.evidence().stream()
+            .filter(item -> item.source().equals("search_runbooks") && item.id().startsWith("DOC-HEALTHY-BASELINE#"))
+            .map(Evidence::id).toList());
+        try {
+            return "成功判断的 evidenceIds 必须同时包含一条 read_service_metrics ID、一条 query_error_logs ID，"
+                + "以及与 assessment 对应的 rule ID。仅引用指标和日志会被拒绝。"
+                + "仍缺少来源时请继续调用工具；nextChecks 须选 1–5 个不同检查项。以下仅列出已收集的可选 ID：\n"
+                + json.writeValueAsString(candidates);
+        } catch (Exception e) { throw new RunFailure("INVALID_TOOL_OUTPUT", "无法列出本次可选证据。"); }
     }
 
     private String systemPrompt(ExecutionSession session) {

@@ -71,6 +71,16 @@ class LiveModelOutputTest {
             .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT"));
     }
 
+    @Test void metricsAndLogsAloneDoNotSatisfyTheSuccessfulSelectionContract() {
+        var evidence = evidence(5, 1, true, "DOC-DOWNSTREAM-TIMEOUT#v2");
+        String answer = "{\"assessment\":\"DOWNSTREAM_TIMEOUT_OBSERVED\",\"evidenceIds\":[\"METRICS-LIVE\",\"LOGS-LIVE\"],"
+            + "\"nextChecks\":[\"CORRELATE_TRACE\"]}";
+        assertThatThrownBy(() -> output.parse(answer, evidence)).isInstanceOfSatisfying(RunFailure.class, failure -> {
+            assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT");
+            assertThat(failure.getMessage()).contains("没有选择", "匹配的排障规则");
+        });
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
         "{\"assessment\":\"INVENTORY_UNAVAILABLE\",\"evidenceIds\":[],\"nextChecks\":[\"COLLECT_OBSERVATIONS\"]}",
@@ -100,5 +110,29 @@ class LiveModelOutputTest {
             ModelExecution.class);
         assertThat(old.calls()).isEqualTo(2);
         assertThat(old.assessment()).isNull();
+    }
+
+    @Test void schemaExposesEveryAllowedSelectionToTheProvider() throws Exception {
+        for (var value : ModelOutput.Assessment.values()) assertThat(output.format()).contains(value.name());
+        for (var value : ModelOutput.Check.values()) assertThat(output.format()).contains(value.name());
+        var schema = JsonMapper.builder().build().readTree(output.format());
+        assertThat(schema.path("required").toString()).contains("assessment", "evidenceIds", "nextChecks");
+        assertThat(schema.path("additionalProperties").booleanValue()).isFalse();
+        assertThat(schema.path("properties").path("nextChecks").path("minItems").intValue()).isEqualTo(1);
+        assertThat(schema.path("properties").path("nextChecks").path("maxItems").intValue()).isEqualTo(5);
+    }
+
+    @Test void rejectionReasonsDoNotEchoModelTextOrUnknownIdentifiers() {
+        var evidence = evidence(5, 0, false, "DOC-HEALTHY-BASELINE#v2");
+        var answers = Map.of(
+            "{\"private-value\":\"private-value\"}", "契约之外的字段",
+            "{\"assessment\":\"private-value\"}", "不在允许列表",
+            "{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[\"private-value\"],\"nextChecks\":[\"COLLECT_OBSERVATIONS\"]}", "不属于本次执行",
+            "private-value", "不是有效的单个 JSON");
+        answers.forEach((answer, reason) -> assertThatThrownBy(() -> output.parse(answer, evidence))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> {
+                assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT");
+                assertThat(failure.getMessage()).contains(reason).doesNotContain("private-value");
+            }));
     }
 }
