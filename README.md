@@ -27,7 +27,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。当前支持订�
 
 ## 快速启动
 
-免构建的演示包在 [Releases](https://github.com/MoChiUaena/agent-triage/releases) 中提供。需要 JDK 21，完整解压后运行：
+免构建的演示包在 [v0.1.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0) 中提供。需要 JDK 21，完整解压后运行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1

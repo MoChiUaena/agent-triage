@@ -16,6 +16,8 @@ v0.1.0 交付检查：主项目 138 项、订单与库存服务各 1 项测试�
 
 约 50 秒 MP4 已完整解码检查，并抽帧核对操作、字幕、日志脱敏及模型历史回放标记。Linux 原生启动和退出另外由 CI 对解压包验证，不将 Git Bash 检查当成 Linux 验收。
 
+[v0.1.0 交付 CI](https://github.com/MoChiUaena/agent-triage/actions/runs/36410892075)的 Windows、Ubuntu、PostgreSQL 与 LIVE/发行包集成均通过，包含 Linux 下从 ZIP 解压启动和停止三个服务。GitHub 附件摘要与本地 SHA-256 一致；[预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0)固定到 `377b130`，发行包清单标记源码干净。后续文档提交不会改变该版本附件。
+
 | 测试类 | 数量 | 覆盖内容 |
 |---|---|---|
 | `ToolsTest` | 7 | 服务与窗口参数、场景指标、日志范围、关键词与服务参考规则召回、LIVE 文档版本及观测地址限制 |
