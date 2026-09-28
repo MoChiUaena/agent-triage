@@ -83,6 +83,7 @@ jobs:
           done
           python3 scripts/live_smoke.py
           python3 scripts/model_protocol_stub.py --port 18100 > model-stub.log 2>&1 &
+          stub_pid=$!
           java -jar target/agent-triage-0.1.0-SNAPSHOT.jar --server.port=18085 '--spring.datasource.url=jdbc:h2:mem:live-model;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/ci-live-model-key --triage.observation.source=LIVE --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18100 --triage.model.api-key=test-only-local --triage.model.name=triage-stub --triage.model.timeout=5s > model-agent.log 2>&1 &
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:18085/api/config > /dev/null; then break; fi
@@ -92,3 +93,8 @@ jobs:
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085 --ids D10
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085 --dataset docs/evaluation/cases-v2.json --all-dev
+          kill "$stub_pid"
+          wait "$stub_pid" || true
+          python3 scripts/model_protocol_stub.py --port 18100 --invalid-first-arguments > correction-stub.log 2>&1 &
+          sleep 1
+          python3 scripts/live_model_eval.py --allow-model-calls --mock-provider --expect-argument-correction --agent-url http://127.0.0.1:18085

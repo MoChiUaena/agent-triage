@@ -55,11 +55,16 @@ public final class ExecutionSession {
         publish("EVIDENCE_GATE", null, "当前观测缺少对应排障规则，应用返回证据不足。", List.of());
     }
 
-    public void recordStructuredConclusion(String assessment) {
+    public void recordStructuredConclusion(String assessment, List<String> nextChecks) {
         ModelExecution previous = state.modelExecution;
         state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls(),
-            previous.usage(), previous.source(), assessment);
+            previous.usage(), previous.source(), assessment, List.copyOf(nextChecks));
         publish("CONCLUSION_RENDERED", null, "模型选择判断类型、证据和检查项，关键结论由应用按证据生成。", List.of());
+    }
+
+    public void recordArgumentRejection(String tool, String reason, String message) {
+        checkDeadline();
+        publish("TOOL_ARGUMENTS_REJECTED", tool, reason + ": " + message + "整批工具尚未执行。", List.of());
     }
 
     public void checkDeadline() {

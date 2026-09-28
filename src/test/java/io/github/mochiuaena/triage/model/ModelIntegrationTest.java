@@ -27,7 +27,7 @@ import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
     "triage.mode=MODEL", "triage.model.api-key=test-only-not-a-real-key", "triage.model.name=test-model",
-    "triage.model.max-rounds=2", "triage.model.timeout=2s", "triage.run-timeout=8s",
+    "triage.model.max-rounds=3", "triage.model.timeout=2s", "triage.run-timeout=8s",
     "spring.datasource.url=jdbc:h2:mem:model-http;DB_CLOSE_DELAY=-1"
 })
 @ExtendWith(OutputCaptureExtension.class)
@@ -72,6 +72,7 @@ class ModelIntegrationTest {
         assertThat(run.modelExecution().configuredModel()).isEqualTo("test-model");
         assertThat(run.modelExecution().responseModel()).isEqualTo("test-model-v1");
         assertThat(run.modelExecution().calls()).isEqualTo(2);
+        assertThat(run.modelExecution().nextChecks()).containsExactly("INSPECT_INVENTORY_LATENCY", "CORRELATE_TRACE");
         assertThat(run.modelExecution().usage()).isEqualTo(new TokenUsage(220, 40, 260));
         assertThat(MODEL.requests).hasSize(2);
         JsonNode first = MODEL.requests.getFirst();
@@ -134,7 +135,7 @@ class ModelIntegrationTest {
     }
 
     @Test void unregisteredToolIsRejected() throws Exception {
-        MODEL.enqueue(toolResponse(true, call("one", "execute_shell", "{}")));
+        MODEL.enqueue(toolResponse(true, call("valid", "read_service_metrics", arguments(false)), call("one", "execute_shell", "{}")));
         Run run = execute();
         assertThat(run.failure().code()).isEqualTo("TOOL_NOT_ALLOWED");
         assertThat(run.toolCalls()).isZero();
@@ -152,9 +153,56 @@ class ModelIntegrationTest {
     })
     void invalidToolArgumentsDoNotReachTheTool(String arguments) throws Exception {
         MODEL.enqueue(toolResponse(true, call("one", "read_service_metrics", arguments)));
+        MODEL.enqueue(toolResponse(true, call("two", "read_service_metrics", arguments)));
         Run run = execute();
         assertThat(run.failure().code()).isEqualTo("INVALID_TOOL_ARGUMENTS");
         assertThat(run.toolCalls()).isZero();
+        assertThat(MODEL.requests).hasSize(2);
+        assertThat(run.events().stream().filter(event -> event.type().equals("TOOL_ARGUMENTS_REJECTED"))).hasSize(2);
+    }
+
+    @Test void rejectedBatchCanBeCorrectedOnceWithoutRunningItsValidCallsEarly(CapturedOutput output) throws Exception {
+        MODEL.enqueue(toolResponse(true, call("valid-first", "read_service_metrics", arguments(false)),
+            call("bad", "query_error_logs", arguments(false).replace("order-service", "private-service-value"))));
+        enqueueAllTools(true);
+        MODEL.enqueue(completion(answer("METRICS-ORDER-DOWNSTREAM_TIMEOUT"), true));
+        Run run = execute();
+        assertThat(run.status()).isEqualTo(Status.SUCCEEDED);
+        assertThat(run.toolCalls()).isEqualTo(3);
+        assertThat(run.modelExecution().calls()).isEqualTo(3);
+        assertThat(run.modelExecution().usage()).isEqualTo(new TokenUsage(330, 60, 390));
+        assertThat(run.events()).extracting(Event::type).contains("TOOL_ARGUMENTS_REJECTED", "CONCLUSION_RENDERED");
+        assertThat(run.events().stream().filter(event -> event.type().equals("TOOL_ARGUMENTS_REJECTED")))
+            .allSatisfy(event -> assertThat(event.message()).startsWith("SERVICE:"));
+        List<JsonNode> feedback = new ArrayList<>();
+        MODEL.requests.get(1).get("messages").forEach(message -> {
+            if (message.path("role").asText().equals("tool")) feedback.add(message);
+        });
+        assertThat(feedback).hasSize(2);
+        assertThat(feedback.get(0).path("content").asText()).contains("TOOL_BATCH_DEFERRED");
+        assertThat(feedback.get(1).path("content").asText()).contains("SERVICE", "expectedSchema", "order-service")
+            .doesNotContain("private-service-value");
+        assertThat(run.toString()).doesNotContain("private-service-value");
+        assertThat(output.getAll()).doesNotContain("private-service-value", "test-only-not-a-real-key");
+    }
+
+    @Test void duplicateCallIdsAreNotRecoverableAndNoBatchToolsExecute() throws Exception {
+        MODEL.enqueue(toolResponse(true, call("same", "read_service_metrics", arguments(false)),
+            call("same", "query_error_logs", arguments(false))));
+        Run run = execute();
+        assertThat(run.failure().code()).isEqualTo("INVALID_TOOL_CALL");
+        assertThat(run.toolCalls()).isZero();
+        assertThat(MODEL.requests).hasSize(1);
+    }
+
+    @Test void correctingArgumentsDoesNotIncreaseTheModelRoundBudget() throws Exception {
+        MODEL.enqueue(toolResponse(true, call("bad", "read_service_metrics", arguments(false).replace("15", "60"))));
+        MODEL.enqueue(toolResponse(true, call("docs", "search_runbooks", arguments(true))));
+        MODEL.enqueue(toolResponse(true, call("metrics", "read_service_metrics", arguments(false))));
+        Run run = execute();
+        assertThat(run.failure().code()).isEqualTo("MODEL_ROUND_LIMIT");
+        assertThat(run.toolCalls()).isEqualTo(2);
+        assertThat(MODEL.requests).hasSize(3);
     }
 
     @Test void repeatedToolParametersStopTheLoop() throws Exception {
@@ -169,9 +217,10 @@ class ModelIntegrationTest {
     @Test void roundLimitStopsASequenceOfDifferentQueries() throws Exception {
         MODEL.enqueue(toolResponse(true, call("one", "search_runbooks", arguments(true))));
         MODEL.enqueue(toolResponse(true, call("two", "search_runbooks", arguments(true).replace("订单 超时", "订单 正常"))));
+        MODEL.enqueue(toolResponse(true, call("three", "search_runbooks", arguments(true).replace("订单 超时", "库存 健康"))));
         Run run = execute();
         assertThat(run.failure().code()).isEqualTo("MODEL_ROUND_LIMIT");
-        assertThat(MODEL.requests).hasSize(2);
+        assertThat(MODEL.requests).hasSize(3);
     }
 
     @Test void toolBudgetAppliesToMultipleCallsInASingleModelReply() throws Exception {

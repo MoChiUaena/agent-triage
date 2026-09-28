@@ -1,0 +1,19 @@
+{
+  "version": 3,
+  "description": "参数纠正与检查建议的检查。P01/P02 复用已消费的 v2 问题作调试回归；R01–R08 为首次运行的留出问题。",
+  "initialDev": ["P01", "P02", "P03", "P04"],
+  "cases": [
+    {"id":"P01","split":"dev","category":"normal","regressionSource":"v2 N05, consumed","question":"Can order-service be declared healthy based on this window?","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":6}]},
+    {"id":"P02","split":"dev","category":"normal","regressionSource":"v2 N02, consumed","question":"订单 p95 看起来不高，能否确定没有任何故障？","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":4}]},
+    {"id":"P03","split":"dev","category":"mixed","question":"After observing both successful and timed-out order requests, which checks should still be done?","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":2},{"scenario":"DOWNSTREAM_TIMEOUT","count":2}]},
+    {"id":"P04","split":"dev","category":"empty","question":"No order requests were collected in this window. What evidence is needed next?","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[]},
+    {"id":"R01","split":"holdout","category":"normal","question":"Review order-service in the latest window and recommend checks without assuming the entire service is healthy.","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":3}]},
+    {"id":"R02","split":"holdout","category":"normal","question":"订单指标和错误日志已经查过了，下一步有哪些还没查证的事项？","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":7}]},
+    {"id":"R03","split":"holdout","category":"timeout","question":"Check recent order timeouts and suggest useful verification steps supported by the collected evidence.","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"DOWNSTREAM_TIMEOUT","count":2}]},
+    {"id":"R04","split":"holdout","category":"mixed","question":"这段订单窗口多数请求成功，只有部分库存调用超时，接下来如何验证？","scenario":"DOWNSTREAM_TIMEOUT","expectedAssessment":"DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":5},{"scenario":"DOWNSTREAM_TIMEOUT","count":1}]},
+    {"id":"R05","split":"holdout","category":"empty","question":"订单请求数为零时，请说明目前可以判断什么，还需要什么数据。","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[]},
+    {"id":"R06","split":"holdout","category":"unrelated","question":"Recommend three novels for a weekend reading list.","scenario":"NORMAL","expectedAssessment":"INSUFFICIENT_EVIDENCE","traffic":[{"scenario":"NORMAL","count":2}]},
+    {"id":"R07","split":"holdout","category":"rule-gap","question":"请分析库存接口 latency 的证据与排查限制。","scenario":"NORMAL","expectedAssessment":"MATCHED_RULE_OR_INSUFFICIENT","traffic":[{"scenario":"NORMAL","count":2}]},
+    {"id":"R08","split":"holdout","category":"normal","question":"What does the current order-service evidence support, and which missing observations would be worth checking next?","scenario":"NORMAL","expectedAssessment":"NO_DOWNSTREAM_TIMEOUT_OBSERVED","traffic":[{"scenario":"NORMAL","count":8}]}
+  ]
+}

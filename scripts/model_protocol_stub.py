@@ -28,10 +28,30 @@ def tool_results(messages):
         if isinstance(content, list):
             content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
         values = json.loads(content)
+        if isinstance(values, dict) and "error" in values:
+            continue
         if not isinstance(values, list):
             raise ValueError("Tool result is not a list")
         evidence.extend(values)
     return evidence
+
+
+def correction_requested(messages):
+    last_assistant = max((index for index, message in enumerate(messages) if message.get("role") == "assistant"), default=-1)
+    return any(isinstance(value := json.loads(message["content"]), dict) and "error" in value
+               for message in messages[last_assistant + 1:] if message.get("role") == "tool")
+
+
+def calls_for(messages, corrected=False, invalid=False):
+    arguments = {"service": "order-service", "windowMinutes": 15}
+    user = next((message.get("content", "") for message in messages if message.get("role") == "user"), "")
+    query = "延迟" if "接口延迟原因" in str(user) else "订单 超时 正常"
+    prefix = "corrected-" if corrected else ""
+    return [
+        tool_call(prefix + "docs", "search_runbooks", {**arguments, "query": query}),
+        tool_call(prefix + "metrics", "read_service_metrics", {**arguments, "windowMinutes": "15" if invalid else 15}),
+        tool_call(prefix + "logs", "query_error_logs", arguments),
+    ]
 
 
 def final_answer(evidence):
@@ -50,6 +70,7 @@ def final_answer(evidence):
 
 
 class Handler(BaseHTTPRequestHandler):
+    invalid_first_arguments = False
     def do_POST(self):
         if self.path != "/chat/completions":
             self.send_error(404)
@@ -72,6 +93,8 @@ class Handler(BaseHTTPRequestHandler):
                     "uncertainty": "缺少当前指标和错误日志。" if ids else "没有适用的订单排障文档。",
                 }
                 payload = response({"role": "assistant", "content": json.dumps(answer, ensure_ascii=False)}, "stop")
+            elif has_tools and correction_requested(messages):
+                payload = response({"role": "assistant", "content": None, "tool_calls": calls_for(messages, corrected=True)}, "tool_calls")
             elif has_tools:
                 evidence = tool_results(messages)
                 answer = json.dumps(final_answer(evidence), ensure_ascii=False)
@@ -80,14 +103,7 @@ class Handler(BaseHTTPRequestHandler):
                 tools = json.dumps(request.get("tools", []), ensure_ascii=False)
                 if "实际请求" not in tools or "合成观测" in tools:
                     raise ValueError("LIVE tool descriptions are missing")
-                arguments = {"service": "order-service", "windowMinutes": 15}
-                user = next((message.get("content", "") for message in messages if message.get("role") == "user"), "")
-                query = "延迟" if "接口延迟原因" in str(user) else "订单 超时 正常"
-                calls = [
-                    tool_call("docs", "search_runbooks", {**arguments, "query": query}),
-                    tool_call("metrics", "read_service_metrics", arguments),
-                    tool_call("logs", "query_error_logs", arguments),
-                ]
+                calls = calls_for(messages, invalid=self.invalid_first_arguments)
                 payload = response({"role": "assistant", "content": None, "tool_calls": calls}, "tool_calls")
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
@@ -106,7 +122,9 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=18100)
+    parser.add_argument("--invalid-first-arguments", action="store_true", help="Inject a string window, then correct it after application feedback")
     args = parser.parse_args()
+    Handler.invalid_first_arguments = args.invalid_first_arguments
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     print(f"Protocol stub listening on 127.0.0.1:{args.port}", flush=True)
     server.serve_forever()

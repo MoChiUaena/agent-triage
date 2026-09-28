@@ -315,7 +315,10 @@ function addEvent(event) {
   const tool = [...document.querySelectorAll("[data-tool]")].find(
     (node) => node.dataset.tool === event.tool,
   );
-  if (tool) {
+  if (
+    tool &&
+    ["TOOL_STARTED", "TOOL_COMPLETED", "TOOL_FAILED"].includes(event.type)
+  ) {
     const state =
       event.type === "TOOL_COMPLETED"
         ? "done"

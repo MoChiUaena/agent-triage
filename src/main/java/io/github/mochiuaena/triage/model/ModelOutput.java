@@ -18,7 +18,7 @@ final class ModelOutput {
         FIND_SLOW_REQUEST, COLLECT_OBSERVATIONS, SEARCH_MATCHING_RULE
     }
     record Response(Assessment assessment, List<String> evidenceIds, List<Check> nextChecks) {}
-    record Parsed(Assessment assessment, TriageEngine.Decision decision) {}
+    record Parsed(Assessment assessment, List<Check> nextChecks, TriageEngine.Decision decision) {}
 
     private final ObjectMapper json;
     private final String format;
@@ -31,7 +31,8 @@ final class ModelOutput {
             "maxItems", 15, "uniqueItems", true,
             "description", "成功判断须同时选择一条当前指标、一条当前日志及至少一条与判断对应的规则 ID。"));
         properties.put("nextChecks", Map.of("type", "array", "items", Map.of("type", "string",
-            "enum", Arrays.stream(Check.values()).map(Enum::name).toList()), "minItems", 1, "maxItems", 5, "uniqueItems", true));
+            "enum", Arrays.stream(Check.values()).map(Enum::name).toList()), "minItems", 1, "maxItems", 5, "uniqueItems", true,
+            "description", "只能选择当前允许的检查项；已完成的观测或规则查询不得重复建议，关联 trace 需要现有日志 traceId。"));
         try {
             format = json.writeValueAsString(Map.of("type", "object", "properties", properties,
                 "required", List.copyOf(properties.keySet()), "additionalProperties", false));
@@ -73,9 +74,11 @@ final class ModelOutput {
                 throw invalid("模型选择了不属于本次执行的证据 ID，未保存为排查结果。");
             List<Evidence> selected = response.evidenceIds().stream().map(byId::get).toList();
             if (response.assessment() != Assessment.INSUFFICIENT_EVIDENCE) validateAssessment(response.assessment(), selected);
+            if (!allowedChecks(response.assessment(), evidence).containsAll(response.nextChecks()))
+                throw new RunFailure("MODEL_CHECKS_MISMATCH", "模型检查项重复已有查询，或缺少对应观测，未保存为排查结果。");
             Diagnosis diagnosis = render(response, selected);
             EvidenceValidator.validate(diagnosis, evidence);
-            return new Parsed(response.assessment(), new TriageEngine.Decision(response.assessment() == Assessment.INSUFFICIENT_EVIDENCE
+            return new Parsed(response.assessment(), List.copyOf(response.nextChecks()), new TriageEngine.Decision(response.assessment() == Assessment.INSUFFICIENT_EVIDENCE
                 ? Status.INSUFFICIENT_EVIDENCE : Status.SUCCEEDED, diagnosis));
         } catch (RunFailure e) { throw e; }
         catch (UnrecognizedPropertyException e) {
@@ -96,6 +99,30 @@ final class ModelOutput {
     }
 
     private RunFailure invalid(String message) { return new RunFailure("INVALID_MODEL_OUTPUT", message); }
+
+    static Set<Check> allowedChecks(Assessment assessment, List<Evidence> evidence) {
+        EnumSet<Check> checks = EnumSet.of(Check.FIND_SLOW_REQUEST, Check.COLLECT_RESOURCE_METRICS);
+        Evidence metrics = evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElse(null);
+        Evidence logs = evidence.stream().filter(item -> item.source().equals("query_error_logs")).findFirst().orElse(null);
+        boolean hasRequests = metrics != null && metrics.data().get("requestCount") instanceof Number count && count.longValue() > 0;
+        if (assessment != Assessment.INSUFFICIENT_EVIDENCE) {
+            checks.add(Check.INSPECT_INVENTORY_LATENCY);
+            if (assessment == Assessment.DOWNSTREAM_TIMEOUT_OBSERVED) checks.add(Check.VERIFY_REQUEST_TIMEOUT);
+        } else {
+            if (!hasRequests || logs == null) checks.add(Check.COLLECT_OBSERVATIONS);
+            String rule = metrics != null && metrics.data().get("downstreamTimeoutRate") instanceof Number rate
+                ? rate.doubleValue() > 0 ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#" : null;
+            boolean matched = evidence.stream().anyMatch(item -> item.source().equals("search_runbooks")
+                && (rule == null ? item.id().startsWith("DOC-DOWNSTREAM-TIMEOUT#") || item.id().startsWith("DOC-HEALTHY-BASELINE#")
+                    : item.id().startsWith(rule)));
+            if (!matched) checks.add(Check.SEARCH_MATCHING_RULE);
+        }
+        if (assessment != Assessment.NO_DOWNSTREAM_TIMEOUT_OBSERVED && logs != null
+            && logs.data().get("entries") instanceof List<?> entries
+            && entries.stream().anyMatch(entry -> entry instanceof Map<?, ?> data
+                && data.get("traceId") instanceof String trace && !trace.isBlank())) checks.add(Check.CORRELATE_TRACE);
+        return Collections.unmodifiableSet(checks);
+    }
 
     private void validateAssessment(Assessment assessment, List<Evidence> selected) {
         Evidence metrics = one(selected, "read_service_metrics");

@@ -52,6 +52,10 @@ data:{"id":"...","status":"SUCCEEDED",...}
 
 MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事件，表示请求边界，不包含模型原始回复或内部思考内容。
 
+`TOOL_ARGUMENTS_REJECTED` 表示整批工具参数未通过校验，实际工具尚未执行。消息只包含应用生成的分类与说明；首次拒绝允许一次模型更正，仍计入原有模型轮次与总时限。再次无效以 `INVALID_TOOL_ARGUMENTS` 失败；服务或窗口不会自动替换。
+
+新成功记录的 `modelExecution.nextChecks` 保存已校验的检查项代码；旧记录可能为 null。重复要求已完成的观测/规则查询，或关联不存在的日志 traceId，会以 `MODEL_CHECKS_MISMATCH` 失败。
+
 新版模型最终只选择判断类型、证据 ID 和检查项，成功解析后记录 `CONCLUSION_RENDERED`；窗口事实及关键诊断措辞由应用生成。对外 diagnosis 结构不变，内部选择格式见[模型判断契约](MODEL_OUTPUT.md)。旧历史不会重写。
 
 若模型调用工具后得到的窗口请求数为 0，应用记录 `EVIDENCE_GATE` 事件并直接返回 `INSUFFICIENT_EVIDENCE`，不再发起最终一轮模型请求。结果中的不确定性会说明结论由应用证据门槛生成。

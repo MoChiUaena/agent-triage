@@ -99,6 +99,8 @@ def summarize(case, baseline, run, agent_ms, reference):
             "uncertainty": (run.get("diagnosis") or {}).get("uncertainty"),
             "modelCalls": model.get("calls"), "usage": model.get("usage"),
             "assessment": model.get("assessment"),
+            "nextChecks": model.get("nextChecks"),
+            "argumentRejectionCount": sum(event["type"] == "TOOL_ARGUMENTS_REJECTED" for event in run["events"]),
             "wallTimeMs": agent_ms, "failureCode": (run.get("failure") or {}).get("code"),
         },
         "manualReview": "pending",
@@ -225,9 +227,12 @@ def main():
                 if actual["status"] != "INSUFFICIENT_EVIDENCE" or not gate or actual["conclusionRendered"]:
                     raise AssertionError(f"Application gate failed for {case['id']}")
             elif expected == "MATCHED_RULE_OR_INSUFFICIENT":
-                if (actual["status"] != "INSUFFICIENT_EVIDENCE" or not actual["applicationEvidenceGate"]
-                        or actual["modelCalls"] != 1):
-                    raise AssertionError(f"Missing-rule gate failed for {case['id']}")
+                matched = (actual["status"] == "SUCCEEDED" and actual["conclusionRendered"] and actual["citationsValid"]
+                           and actual["assessment"] == ("DOWNSTREAM_TIMEOUT_OBSERVED" if reference["downstreamTimeoutRate"] > 0
+                                                        else "NO_DOWNSTREAM_TIMEOUT_OBSERVED"))
+                gated = actual["status"] == "INSUFFICIENT_EVIDENCE" and actual["applicationEvidenceGate"]
+                if not matched and not gated:
+                    raise AssertionError(f"Neither a matched rule nor an evidence gate for {case['id']}")
         results.append(result)
         print(f"{case['id']}: docs={baseline['status']} | agent={run['status']} |"
               f" tools={run['toolCalls']} | review pending")

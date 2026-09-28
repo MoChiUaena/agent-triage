@@ -25,8 +25,10 @@ class LiveModelOutputTest {
     }
 
     private String answer(String assessment, String rule) {
+        String checks = assessment.equals("NO_DOWNSTREAM_TIMEOUT_OBSERVED")
+            ? "\"FIND_SLOW_REQUEST\",\"COLLECT_RESOURCE_METRICS\"" : "\"INSPECT_INVENTORY_LATENCY\",\"CORRELATE_TRACE\"";
         return "{\"assessment\":\"" + assessment + "\",\"evidenceIds\":[\"METRICS-LIVE\",\"LOGS-LIVE\",\"" + rule
-            + "\"],\"nextChecks\":[\"INSPECT_INVENTORY_LATENCY\",\"CORRELATE_TRACE\"]}";
+            + "\"],\"nextChecks\":[" + checks + "]}";
     }
 
     @Test void timeoutTextCopiesObservedSummariesWithoutRewritingNumbersOrTraceIds() {
@@ -98,7 +100,7 @@ class LiveModelOutputTest {
 
     @Test void insufficientEvidenceCanSelectDocumentsWithoutInventingObservations() {
         var decision = output.parse("{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[\"DOC-HEALTHY-BASELINE#v2\"],"
-            + "\"nextChecks\":[\"COLLECT_OBSERVATIONS\"]}", evidence(5, 0, false, "DOC-HEALTHY-BASELINE#v2")).decision();
+            + "\"nextChecks\":[\"COLLECT_OBSERVATIONS\"]}", List.of(evidence(5, 0, false, "DOC-HEALTHY-BASELINE#v2").getFirst())).decision();
         assertThat(decision.status()).isEqualTo(Status.INSUFFICIENT_EVIDENCE);
         assertThat(decision.diagnosis().observations()).isEmpty();
         assertThat(decision.diagnosis().possibleCauses()).isEmpty();
@@ -110,6 +112,7 @@ class LiveModelOutputTest {
             ModelExecution.class);
         assertThat(old.calls()).isEqualTo(2);
         assertThat(old.assessment()).isNull();
+        assertThat(old.nextChecks()).isNull();
     }
 
     @Test void schemaExposesEveryAllowedSelectionToTheProvider() throws Exception {
@@ -134,5 +137,30 @@ class LiveModelOutputTest {
                 assertThat(failure.code()).isEqualTo("INVALID_MODEL_OUTPUT");
                 assertThat(failure.getMessage()).contains(reason).doesNotContain("private-value");
             }));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"COLLECT_OBSERVATIONS", "SEARCH_MATCHING_RULE", "CORRELATE_TRACE"})
+    void aNormalWindowCannotRepeatCompletedQueriesOrCorrelateAbsentTraces(String check) {
+        var evidence = evidence(5, 0, false, "DOC-HEALTHY-BASELINE#v2");
+        String answer = answer("NO_DOWNSTREAM_TIMEOUT_OBSERVED", evidence.getFirst().id())
+            .replace("\"FIND_SLOW_REQUEST\",\"COLLECT_RESOURCE_METRICS\"", "\"" + check + "\"");
+        assertThatThrownBy(() -> output.parse(answer, evidence))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_CHECKS_MISMATCH"));
+    }
+
+    @Test void omittingAvailableEvidenceDoesNotMakeItsCollectionANewCheck() {
+        String answer = "{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[],\"nextChecks\":[\"COLLECT_OBSERVATIONS\"]}";
+        assertThatThrownBy(() -> output.parse(answer, evidence(5, 0, false, "DOC-HEALTHY-BASELINE#v2")))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_CHECKS_MISMATCH"));
+    }
+
+    @Test void correlationRequiresAnActualTraceInTheAvailableLogEvidence() {
+        var original = evidence(5, 1, true, "DOC-DOWNSTREAM-TIMEOUT#v2");
+        var log = new Evidence("LOGS-LIVE", "query_error_logs", "日志", "超时", Map.of(
+            "entries", List.of(Map.of("message", "timeout")), "returnedCount", 1, "timeoutCount", 1));
+        assertThatThrownBy(() -> output.parse(answer("DOWNSTREAM_TIMEOUT_OBSERVED", original.getFirst().id()),
+            List.of(original.get(0), original.get(1), log)))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_CHECKS_MISMATCH"));
     }
 }

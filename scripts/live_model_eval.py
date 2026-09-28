@@ -86,6 +86,8 @@ def summarize(run, name, expected, elapsed_ms):
         "downstreamTimeoutRate": metrics.get("downstreamTimeoutRate"),
         "configuredModel": model.get("configuredModel"),
         "assessment": model.get("assessment"),
+        "nextChecks": model.get("nextChecks"),
+        "argumentRejectionCount": sum(event["type"] == "TOOL_ARGUMENTS_REJECTED" for event in run["events"]),
         "responseModel": model.get("responseModel"), "modelCalls": model.get("calls"),
         "usage": model.get("usage"),
         "failureCode": (run.get("failure") or {}).get("code"),
@@ -97,6 +99,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--allow-model-calls", action="store_true", help="Confirm model requests and possible provider fees")
     parser.add_argument("--mock-provider", action="store_true", help="Label an offline protocol stub; never claim model quality")
+    parser.add_argument("--expect-argument-correction", action="store_true", help="Require the mock provider to inject and correct one rejected batch")
     parser.add_argument("--agent-url", default="http://127.0.0.1:18080")
     parser.add_argument("--sample-url", default="http://127.0.0.1:18082")
     parser.add_argument("--inventory-url", default="http://127.0.0.1:18084")
@@ -107,6 +110,8 @@ def main():
     args = parser.parse_args()
     if not args.allow_model_calls:
         parser.error("Pass --allow-model-calls before contacting the configured model.")
+    if args.expect_argument_correction and not args.mock_provider:
+        parser.error("--expect-argument-correction requires --mock-provider.")
     if not 1 <= args.count <= 10 or args.poll_timeout < 10:
         parser.error("--count must be 1–10 and --poll-timeout must be at least 10 seconds.")
     agent, sample, inventory = (value.rstrip("/") for value in
@@ -145,8 +150,13 @@ def main():
         (output / "runs" / f"{name}.json").write_text(
             json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         result = summarize(run, name, expected, round((time.monotonic() - started) * 1000))
+        extra_round = 1 if args.expect_argument_correction else 0
         if args.mock_provider and name == "empty" and (
-                not result["applicationNoDataGate"] or result["modelCalls"] != 1):
+                not result["applicationNoDataGate"] or result["modelCalls"] != 1 + extra_round):
+            result["accepted"] = False
+        if args.expect_argument_correction and (
+                result["argumentRejectionCount"] != 1 or result["toolCalls"] != 3
+                or result["modelCalls"] != (2 if name == "empty" else 3)):
             result["accepted"] = False
         results.append(result)
         print(f"{name}: {run['status']} | {run['toolCalls']} tools | {result['modelCalls']} model calls"
@@ -155,6 +165,7 @@ def main():
     report = {
         "kind": "live-model-protocol-check" if args.mock_provider else "live-model-run",
         "mockProvider": args.mock_provider, "modelQualityEvaluated": False,
+        "argumentCorrectionExpected": args.expect_argument_correction,
         "syntheticObservations": False, "ranAt": datetime.now(timezone.utc).isoformat(),
         "configuredModel": config.get("model"), "provider": config.get("provider"),
         "accepted": sum(item["accepted"] for item in results), "total": len(results),
