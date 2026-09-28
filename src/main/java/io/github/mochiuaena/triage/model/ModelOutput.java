@@ -197,16 +197,16 @@ final class ModelOutput {
             uncertainty = "本次只覆盖查询窗口内已采集的服务请求、下游调用和错误事件。未采集下游内部、网络、数据库与连接池指标，"
                 + "不能确认内部根因或服务整体健康。模型选择判断类型与证据，关键结论由应用按证据生成。";
         }
-        List<String> nextSteps = prioritized.stream().map(check -> checkText(check, service, downstream)).toList();
+        List<String> nextSteps = prioritized.stream().map(check -> checkText(check, service, downstream, info.downstreamName())).toList();
         return new Diagnosis(observations, causes, nextSteps, uncertainty);
     }
 
-    private String checkText(Check check, String service, String downstream) {
+    private String checkText(Check check, String service, String downstream, String downstreamName) {
         return switch (check) {
             case INSPECT_INVENTORY_LATENCY -> "核对同一窗口内" + downstream + "接口的实际处理耗时和错误率。";
             case CORRELATE_TRACE -> "使用错误事件中已有的 traceId 对照" + service + "与" + downstream + "请求的调用耗时。";
             case VERIFY_REQUEST_TIMEOUT -> "核对" + service + "客户端的请求总时限，并结合下游接口耗时验证。";
-            case COLLECT_RESOURCE_METRICS -> "补充" + downstream + "服务 CPU、连接池、网络及数据库指标后再判断内部原因。";
+            case COLLECT_RESOURCE_METRICS -> "补充" + downstreamName + "的 CPU、连接池、网络及数据库指标后再判断内部原因。";
             case FIND_SLOW_REQUEST -> "找到具体慢请求的时间和 traceId，缩小查询范围。";
             case COLLECT_OBSERVATIONS -> "补充当前窗口的" + service + "指标和错误日志后再判断。";
             case SEARCH_MATCHING_RULE -> "检索与本次正常或超时观测匹配的排障规则。";
