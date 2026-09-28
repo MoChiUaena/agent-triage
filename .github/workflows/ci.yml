@@ -115,9 +115,9 @@ jobs:
           python3 scripts/live_smoke.py --agent-url http://127.0.0.1:18180 --sample-url http://127.0.0.1:18182 --inventory-url http://127.0.0.1:18184
           kill "$bundle_pid"
           wait "$bundle_pid" || true
-          for port in 18180 18182 18184; do
-            if curl -fsS --max-time 2 "http://127.0.0.1:$port/actuator/health" > /dev/null; then
-              echo "Bundle service on $port did not stop" >&2
+          for endpoint in 18180/api/config 18182/lab/scenario 18184/lab/scenario; do
+            if curl -fsS --max-time 2 "http://127.0.0.1:$endpoint" > /dev/null; then
+              echo "Bundle service at $endpoint did not stop" >&2
               exit 1
             fi
           done
