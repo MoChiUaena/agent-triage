@@ -1,5 +1,18 @@
 # 小规模评测
 
+## v3：参数纠正与检查建议
+
+参数反馈允许一次有界更正，检查建议按已有证据限制。[v3 调试与回归记录](validation/2026-09-28-v3-dev.md)为 3 条满足契约、1 条应用门槛，真实模型没有触发参数纠正；该路径另外用本地接口模拟器注入无效参数验证。
+
+[v3 案例](evaluation/cases-v3.json)含 4 个调试问题和 8 个新的留出问题，使用[标准 v3](evaluation/rubric-v3.md)。P01/P02 复用的 v2 问题只作回归。运行方法：
+
+```powershell
+python scripts/compare_live_methods.py --allow-model-calls --dataset docs/evaluation/cases-v3.json
+python scripts/compare_live_methods.py --allow-model-calls --dataset docs/evaluation/cases-v3.json --split holdout --allow-holdout
+```
+
+这些命令调用已启用的真实模型，可能产生费用；原始记录保存在忽略目录，公开报告只保留脱敏结果。
+
 ## v2：证据约束输出
 
 v1 自由文本报告作为历史保留。2026-09-28 改为[模型判断契约](MODEL_OUTPUT.md)：模型选工具、判断类型、证据和检查项，应用生成窗口事实及关键措辞。需要评价系统是否守住证据边界，不能把更稳定的应用措辞称为模型自由归因能力提升。
