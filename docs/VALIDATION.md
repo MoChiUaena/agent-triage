@@ -35,6 +35,10 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 138 项测试通过。LIVE 模拟接口主动遗漏规则检索并提前回答；应用反馈一次，模型补齐规则后完成结论，正常与超时各 3 次工具调用、4 轮模型。空窗口 2 次工具调用、1 轮模型，由应用门槛结束，不再请求文档。默认协议仍为正常和超时 2 轮模型。
 
+[v4 调试](validation/2026-09-28-v4-dev.md)保留了首批一次超额工具请求失败与修订后的三例通过结果；[首次留出对照](validation/2026-09-28-v4-holdout.md)为 4 条满足契约、2 条应用门槛，没有失败。真实模型未触发完整性反馈或参数更正，注入验证与真实结果分开记。
+
+证据齐全后关闭工具选择的代码在 Windows、Ubuntu、PostgreSQL 与 LIVE 协议检查中[全部通过](https://github.com/MoChiUaena/agent-triage/actions/runs/36401299167)。
+
 LIVE 检索的服务基础规则带有单独召回标记，不会假称关键词命中。应用只排列模型原始有效选项，展示前两项；新字段缺失的历史仍可读取。以上模拟结果不代表真实模型效果，真实检查使用 [v4 案例](evaluation/cases-v4.json)与[标准](evaluation/rubric-v4.md)。
 
 ## 参数纠正与检查建议

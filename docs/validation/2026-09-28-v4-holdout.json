@@ -1,0 +1,356 @@
+{
+  "datasetVersion": 4,
+  "datasetSha256": "7cdb19470dc75edb603fefc8e6ae230746b2d0c1d7bb07a8bb775726133af825",
+  "split": "holdout",
+  "model": "qwen3.7-flash-2026-07-15",
+  "provider": "阿里云百炼",
+  "syntheticObservations": false,
+  "mockProvider": false,
+  "ranAt": "2026-09-28T09:19:12.211172+00:00",
+  "evaluationTarget": "system-evidence-boundaries",
+  "rubricVersion": 4,
+  "parameters": {
+    "temperature": 0,
+    "maxRounds": 4,
+    "maxOutputTokens": 1600,
+    "modelTimeoutSeconds": 45
+  },
+  "cases": [
+    {
+      "case": "T01",
+      "status": "SUCCEEDED",
+      "classification": "满足契约",
+      "assessment": "NO_DOWNSTREAM_TIMEOUT_OBSERVED",
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": true,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 3885,
+        "outputTokens": 1210,
+        "totalTokens": 5095
+      },
+      "nextChecks": [
+        "COLLECT_RESOURCE_METRICS",
+        "FIND_SLOW_REQUEST"
+      ],
+      "requestedNextChecks": [
+        "FIND_SLOW_REQUEST",
+        "INSPECT_INVENTORY_LATENCY",
+        "COLLECT_RESOURCE_METRICS"
+      ],
+      "evidenceFeedbackCount": 0,
+      "checksPrioritized": true,
+      "argumentRejectionCount": 0,
+      "argumentReasons": [],
+      "failureCode": null,
+      "category": "normal",
+      "referenceRequestCount": 4,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": 4,
+      "observedTimeoutRate": 0.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 770,
+          "outputTokens": 1933,
+          "totalTokens": 2703
+        },
+        "wallTimeMs": 25210,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 15500,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ]
+    },
+    {
+      "case": "T02",
+      "status": "SUCCEEDED",
+      "classification": "满足契约",
+      "assessment": "NO_DOWNSTREAM_TIMEOUT_OBSERVED",
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": true,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 3865,
+        "outputTokens": 1141,
+        "totalTokens": 5006
+      },
+      "nextChecks": [
+        "COLLECT_RESOURCE_METRICS",
+        "FIND_SLOW_REQUEST"
+      ],
+      "requestedNextChecks": [
+        "INSPECT_INVENTORY_LATENCY",
+        "COLLECT_RESOURCE_METRICS",
+        "FIND_SLOW_REQUEST"
+      ],
+      "evidenceFeedbackCount": 0,
+      "checksPrioritized": true,
+      "argumentRejectionCount": 0,
+      "argumentReasons": [],
+      "failureCode": null,
+      "category": "normal",
+      "referenceRequestCount": 5,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": 5,
+      "observedTimeoutRate": 0.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 770,
+          "outputTokens": 1708,
+          "totalTokens": 2478
+        },
+        "wallTimeMs": 19779,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 14391,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ]
+    },
+    {
+      "case": "T03",
+      "status": "SUCCEEDED",
+      "classification": "满足契约",
+      "assessment": "DOWNSTREAM_TIMEOUT_OBSERVED",
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": true,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 2,
+      "usage": {
+        "inputTokens": 4095,
+        "outputTokens": 1172,
+        "totalTokens": 5267
+      },
+      "nextChecks": [
+        "CORRELATE_TRACE",
+        "INSPECT_INVENTORY_LATENCY"
+      ],
+      "requestedNextChecks": [
+        "INSPECT_INVENTORY_LATENCY",
+        "CORRELATE_TRACE",
+        "VERIFY_REQUEST_TIMEOUT"
+      ],
+      "evidenceFeedbackCount": 0,
+      "checksPrioritized": true,
+      "argumentRejectionCount": 0,
+      "argumentReasons": [],
+      "failureCode": null,
+      "category": "timeout",
+      "referenceRequestCount": 2,
+      "referenceTimeoutRate": 1.0,
+      "observedRequestCount": 2,
+      "observedTimeoutRate": 1.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 770,
+          "outputTokens": 1843,
+          "totalTokens": 2613
+        },
+        "wallTimeMs": 22432,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 12281,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ]
+    },
+    {
+      "case": "T04",
+      "status": "SUCCEEDED",
+      "classification": "满足契约",
+      "assessment": "DOWNSTREAM_TIMEOUT_OBSERVED",
+      "observationsMatchToolSummaries": true,
+      "conclusionRendered": true,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": false,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 3,
+      "usage": {
+        "inputTokens": 6758,
+        "outputTokens": 1722,
+        "totalTokens": 8480
+      },
+      "nextChecks": [
+        "CORRELATE_TRACE",
+        "INSPECT_INVENTORY_LATENCY"
+      ],
+      "requestedNextChecks": [
+        "INSPECT_INVENTORY_LATENCY",
+        "CORRELATE_TRACE",
+        "VERIFY_REQUEST_TIMEOUT"
+      ],
+      "evidenceFeedbackCount": 0,
+      "checksPrioritized": true,
+      "argumentRejectionCount": 0,
+      "argumentReasons": [],
+      "failureCode": null,
+      "category": "mixed",
+      "referenceRequestCount": 4,
+      "referenceTimeoutRate": 0.25,
+      "observedRequestCount": 4,
+      "observedTimeoutRate": 0.25,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 774,
+          "outputTokens": 1727,
+          "totalTokens": 2501
+        },
+        "wallTimeMs": 19925,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 21109,
+      "citationsValid": true,
+      "citedSources": [
+        "query_error_logs",
+        "read_service_metrics",
+        "search_runbooks"
+      ]
+    },
+    {
+      "case": "T05",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "classification": "应用门槛",
+      "assessment": null,
+      "observationsMatchToolSummaries": null,
+      "conclusionRendered": false,
+      "applicationScopeGate": false,
+      "applicationEvidenceGate": true,
+      "tools": [
+        "read_service_metrics",
+        "query_error_logs",
+        "search_runbooks"
+      ],
+      "toolCalls": 3,
+      "modelCalls": 1,
+      "usage": {
+        "inputTokens": 1666,
+        "outputTokens": 478,
+        "totalTokens": 2144
+      },
+      "nextChecks": null,
+      "requestedNextChecks": null,
+      "evidenceFeedbackCount": 0,
+      "checksPrioritized": false,
+      "argumentRejectionCount": 0,
+      "argumentReasons": [],
+      "failureCode": null,
+      "category": "empty",
+      "referenceRequestCount": 0,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": 0,
+      "observedTimeoutRate": 0.0,
+      "documentOnly": {
+        "status": "INSUFFICIENT_EVIDENCE",
+        "citationsValid": true,
+        "usage": {
+          "inputTokens": 771,
+          "outputTokens": 2033,
+          "totalTokens": 2804
+        },
+        "wallTimeMs": 24430,
+        "failureCode": null,
+        "applicationScopeGate": false,
+        "modelCalls": 1
+      },
+      "wallTimeMs": 6875,
+      "citationsValid": true,
+      "citedSources": [
+        "read_service_metrics"
+      ]
+    },
+    {
+      "case": "T06",
+      "status": "INSUFFICIENT_EVIDENCE",
+      "classification": "应用门槛",
+      "assessment": null,
+      "observationsMatchToolSummaries": null,
+      "conclusionRendered": false,
+      "applicationScopeGate": true,
+      "applicationEvidenceGate": false,
+      "tools": [],
+      "toolCalls": 0,
+      "modelCalls": 0,
+      "usage": null,
+      "nextChecks": null,
+      "requestedNextChecks": null,
+      "evidenceFeedbackCount": 0,
+      "checksPrioritized": false,
+      "argumentRejectionCount": 0,
+      "argumentReasons": [],
+      "failureCode": null,
+      "category": "unrelated",
+      "referenceRequestCount": 2,
+      "referenceTimeoutRate": 0.0,
+      "observedRequestCount": null,
+      "observedTimeoutRate": null,
+      "documentOnly": {
+        "status": "OUT_OF_SCOPE",
+        "citationsValid": true,
+        "usage": null,
+        "wallTimeMs": 0,
+        "failureCode": null,
+        "applicationScopeGate": true,
+        "modelCalls": 0
+      },
+      "wallTimeMs": 328,
+      "citationsValid": true,
+      "citedSources": []
+    }
+  ],
+  "implementationCommit": "864d8d3",
+  "frozenCommit": "b84471a"
+}
