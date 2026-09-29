@@ -96,7 +96,7 @@ final class SourceCallGraph {
         List<Symbol> selected = exact.isEmpty() ? uncertain : exact;
         String state = selected.isEmpty() ? "NO_MATCH" : selected.size() > 1 ? "AMBIGUOUS" : exact.isEmpty() ? "CANDIDATE" : "MATCHED";
         String message = switch (state) {
-            case "MATCHED" -> "类名、方法和参数类型与服务提供的 MVC 匹配信息一致；仍需核对运行代码与本机源码版本。";
+            case "MATCHED" -> "类名、方法和参数类型与服务提供的 MVC 匹配信息一致。";
             case "CANDIDATE" -> "类名和方法匹配，参数类型尚未完整确定，仅作为候选。";
             case "AMBIGUOUS" -> "当前索引有多个同名方法或类型候选，未确认唯一源码入口。";
             default -> "当前项目索引没有找到对应处理方法，请检查绑定目录和源码版本。";

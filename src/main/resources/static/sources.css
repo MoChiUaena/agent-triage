@@ -56,6 +56,12 @@
 .failure-event > summary { font-size: 14px; font-weight: 600; cursor: pointer; }
 .failure-event .citations { margin-bottom: 12px; }
 .source-code-line.source-code-focus { background: #fff1c8; border-left: 3px solid #cc931b; }
+.source-version { padding: 10px 12px; border-radius: 6px; background: #f3f6fa; margin: 10px 0; font-size: 12px; line-height: 1.8; }
+.source-version > span { font-weight: 600; color: var(--muted); }
+.source-version.matched { background: #eef8f2; }.source-version.matched > span { color: var(--success); }
+.source-version.different { background: #fff4e4; }.source-version.different > span { color: #8b5b17; }
+.source-version p { margin-top: 4px; overflow-wrap: anywhere; }.source-version summary { cursor: pointer; color: var(--accent); }
+.source-version-hashes { white-space: pre-line; font-size: 12px; }
 @media (max-width: 600px) { .failure-event .call-step-heading { flex-direction: column; align-items: flex-start; } }
 .call-other { margin-top: 16px; }
 .call-other > summary { padding: 12px 0; cursor: pointer; font-size: 13px; color: var(--muted); }

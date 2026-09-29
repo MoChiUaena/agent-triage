@@ -1,6 +1,21 @@
 "use strict";
 
 window.sourceView = {
+  version(container, version) {
+    const states = {MATCHED:"构建源码摘要一致", DIFFERENT:"源码摘要不同", UNKNOWN:"未提供构建摘要", UNAVAILABLE:"没有对应源码"};
+    const value = version || {state:"UNKNOWN",message:"旧记录未保存构建源码摘要，尚未核对版本。"};
+    const box = document.createElement("div"); box.className = "source-version " + value.state.toLowerCase();
+    const badge = document.createElement("span"); badge.textContent = states[value.state] || "未核对版本";
+    const note = document.createElement("p"); note.textContent = value.message;
+    box.append(badge, note);
+    if (value.runtimeSourceHash || value.indexedSourceHash) {
+      const details = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "查看摘要";
+      const hashes = document.createElement("p"); hashes.className = "source-version-hashes";
+      hashes.textContent = "运行构建：" + (value.runtimeSourceHash || "未提供") + "\n本机索引：" + (value.indexedSourceHash || "未确定唯一文件");
+      details.append(summary, hashes); box.append(details);
+    }
+    container.append(box);
+  },
   render(container, excerpts, options = {}) {
     container.replaceChildren();
     for (const excerpt of excerpts || []) {
@@ -46,7 +61,7 @@ window.sourceView = {
     const wrapper = element("section", "failure-locations");
     wrapper.append(element("h3", "call-graph-heading", "错误观测中的代码位置"),
       element("p", "source-result-note", "按错误时的业务调用位置匹配源码，请核对当前文件与运行版本。这些位置仅在本机展示。"));
-    const labels = { LINE_MATCH: "位置对应", CANDIDATE: "方法候选", AMBIGUOUS: "多个候选", LINE_MISMATCH: "行号不符", FILE_MISMATCH: "文件名不符", UNMATCHED: "索引外位置", STALE: "需要重新索引" };
+    const labels = { LINE_MATCH: "位置对应", CANDIDATE: "方法候选", AMBIGUOUS: "多个候选", LINE_MISMATCH: "行号不符", FILE_MISMATCH: "文件名不符", UNMATCHED: "索引外位置", STALE: "需要重新索引", SOURCE_MISMATCH:"源码不同" };
     for (const [index, match] of matches.entries()) {
       const details = element("details", "failure-event"); details.open = index === 0;
       const heading = element("summary", "", match.kind === "HTTP_CLIENT_FAILURE" ? "HTTP 调用失败时的线程位置" : "请求异常栈中的位置");
@@ -63,6 +78,7 @@ window.sourceView = {
           element("span", "call-state" + (location.state === "LINE_MATCH" ? "" : " uncertain"), labels[location.state] || "未匹配"));
         row.append(header, element("p", "call-location", (location.frame.fileName || "文件名未知") + ":" + (location.frame.lineNumber || "行号未知")),
           element("p", "call-message", location.state === "LINE_MATCH" ? "在当前源码中找到对应位置。" : location.message));
+        sourceView.version(row, location.version);
         const actions = element("div", "call-actions"); const preview = element("div", "call-preview"); preview.hidden = true;
         for (const excerpt of location.excerpts) {
           const button = element("button", "secondary", "查看 " + excerpt.path + (location.frame.lineNumber ? ":" + location.frame.lineNumber : "")); button.type = "button";
@@ -98,6 +114,7 @@ window.sourceView = {
       box.append(element("strong", "", match.endpoint.httpMethod + " " + match.endpoint.routeTemplate + " · " + match.requestCount + " 次请求 · " + match.timeoutCount + " 次超时"),
         element("p", "", match.endpoint.handlerClass + "." + match.endpoint.handlerMethod + "(" + match.endpoint.parameterTypes.join(", ") + ")"),
         element("p", "", match.message + " MVC 匹配信息不证明处理方法体或后续调用已执行。"));
+      sourceView.version(box, match.version);
       wrapper.append(box);
     }
     for (const link of graph.evidenceLinks || []) {
