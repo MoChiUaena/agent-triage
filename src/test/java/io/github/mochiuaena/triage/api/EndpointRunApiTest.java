@@ -171,6 +171,7 @@ class EndpointRunApiTest {
         var stale = readiness(); assertThat(stale.state()).isEqualTo("SOURCE_STALE");
         assertThat(stale.endpoints()).allMatch(value -> value.state().equals("STALE"));
         assertThat(stale.steps().get(3).nextAction()).contains("重新索引");
+        assertThat(stale.steps().get(4).state()).isEqualTo("SKIPPED"); assertThat(stale.steps().get(4).nextAction()).contains("重新索引");
         sources.delete(project.id(), project.revision());
         var missing = readiness(); assertThat(missing.project()).isNull(); assertThat(missing.observationsAvailable()).isTrue();
         assertThat(missing.steps().get(2).state()).isEqualTo("WAIT"); assertThat(missing.steps().get(3).state()).isEqualTo("SKIPPED");

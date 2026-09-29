@@ -99,12 +99,14 @@ public class SourceReadinessService {
             steps.add(step("ENTRIES", "代码入口与位置", stale || different ? "BLOCKED" : located ? "PASS" : "WAIT",
                 stale ? "当前源码与索引不一致或不可读取。" : different ? "观测位置的源码摘要与当前索引不同。"
                 : noEntries ? "窗口没有可关联的 MVC 入口。" : located ? "本窗口的 " + entries.size() + " 个 MVC 入口已匹配，当前引用文件通过校验。" : "部分入口或错误位置未确定，详情列在下方。",
-                stale ? "核对目录并重新索引。" : different ? "登记与运行构建对应的源码，再重新检查。" : located ? "" : "核对绑定目录、索引版本和接口观测设置。"));
+                stale ? "核对目录并重新索引。" : different ? "登记与运行构建对应的源码，再重新检查。" : located ? "" : noEntries ? "先访问业务接口或扩大窗口，再检查入口。" : "核对绑定目录、索引版本和接口观测设置。"));
             var versions = new ArrayList<VersionCheck>(); entries.forEach(value -> versions.add(value.version())); positions.forEach(value -> versions.add(value.version()));
             boolean checked = !versions.isEmpty() && versions.stream().allMatch(value -> value != null && "MATCHED".equals(value.state()));
-            steps.add(step("BUILD", "构建源码摘要", different ? "BLOCKED" : checked && !stale ? "PASS" : "OPTIONAL",
+            boolean noPositions = entries.isEmpty() && positions.isEmpty();
+            steps.add(step("BUILD", "构建源码摘要", noPositions || stale ? "SKIPPED" : different ? "BLOCKED" : checked ? "PASS" : "OPTIONAL",
+                noPositions ? "本窗口还没有可核对的代码位置。" : stale ? "当前源码引用未通过文件校验，暂不确认构建摘要。" :
                 different ? "至少一个观测类的构建源码摘要与当前索引不同。" : checked && !stale ? "本窗口可核对位置的构建源码摘要与索引一致。" : "部分位置缺少可核验的构建摘要，尚未确认版本一致。",
-                different ? "切换到对应构建的源码。" : checked && !stale ? "" : "需要版本核对时，生成构建清单并开启 source-version-checks。"));
+                noPositions ? "先访问业务接口，再检查构建摘要。" : stale ? "先核对目录并重新索引，再比较构建摘要。" : different ? "切换到对应构建的源码。" : checked ? "" : "需要版本核对时，生成构建清单并开启 source-version-checks。"));
             if (different) state = "SOURCE_VERSION_DIFFERENT"; else if (stale) state = "SOURCE_STALE";
             else if (located && checked && snapshot.requestCount() > 0) state = "READY";
         }
