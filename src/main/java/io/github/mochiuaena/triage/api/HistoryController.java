@@ -23,10 +23,14 @@ public class HistoryController {
     public HistoryRepository.Page list(@RequestParam(required = false) String q, @RequestParam(required = false) String service,
         @RequestParam(required = false) Status status, @RequestParam(required = false) String mode,
         @RequestParam(required = false) Instant from, @RequestParam(required = false) Instant until,
-        @RequestParam(defaultValue = "20") int pageSize, @RequestParam(required = false) String cursor) {
-        return history.page(new HistoryFilter(q, service, status, mode, from, until), pageSize, cursor);
+        @RequestParam(defaultValue = "20") int pageSize, @RequestParam(required = false) String cursor,
+        @RequestParam(required = false) String endpointId) {
+        return history.page(new HistoryFilter(q, service, status, mode, from, until, endpointId), pageSize, cursor);
     }
     @GetMapping("/services") public List<HistoryRepository.Service> services() { return history.services(); }
+    @GetMapping("/endpoints") public List<io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint> endpoints(@RequestParam String service) {
+        return history.endpoints(service);
+    }
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable UUID id, @Valid @RequestBody DeleteConfirmation confirmation) {

@@ -97,7 +97,10 @@ public final class TriageModel {
     }
 
     public record RunSummary(UUID id, String question, Scenario scenario, Status status,
-                             Instant createdAt, int toolCalls, String mode, String service, ServiceInfo serviceInfo) {
+                             Instant createdAt, int toolCalls, String mode, String service, ServiceInfo serviceInfo, RequestEndpoint endpoint) {
+        public RunSummary(UUID id, String question, Scenario scenario, Status status, Instant createdAt, int toolCalls, String mode, String service, ServiceInfo serviceInfo) {
+            this(id, question, scenario, status, createdAt, toolCalls, mode, service, serviceInfo, null);
+        }
         public RunSummary(UUID id, String question, Scenario scenario, Status status, Instant createdAt, int toolCalls, String mode) {
             this(id, question, scenario, status, createdAt, toolCalls, mode, null, null);
         }

@@ -25,7 +25,8 @@ class RunServiceTest {
     @BeforeEach void database() {
         var jdbc = new JdbcTemplate(new DriverManagerDataSource("jdbc:h2:mem:" + UUID.randomUUID() + ";DB_CLOSE_DELAY=-1", "sa", ""));
         jdbc.execute("CREATE TABLE triage_runs (id VARCHAR(36) PRIMARY KEY, created_at TIMESTAMP WITH TIME ZONE, status VARCHAR(32), payload TEXT)");
-        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(new org.springframework.core.io.ClassPathResource("db/migration/V3__history_projection.sql")).execute(jdbc.getDataSource());
+        new org.springframework.jdbc.datasource.init.ResourceDatabasePopulator(new org.springframework.core.io.ClassPathResource("db/migration/V3__history_projection.sql"),
+            new org.springframework.core.io.ClassPathResource("db/migration/V6__endpoint_history.sql")).execute(jdbc.getDataSource());
         ObjectMapper json = JsonMapper.builder().findAndAddModules().build();
         repository = new RunRepository(jdbc, json);
     }

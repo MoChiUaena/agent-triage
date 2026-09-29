@@ -25,6 +25,12 @@ class HistoryApiTest {
             status, time, status.terminal() ? time.plusMillis(1) : null, 0, List.of(), List.of(), null, null);
         runs.insert(run); return run;
     }
+    private Run endpointRow(String service, RequestEndpoint endpoint) {
+        Instant time = Instant.now();
+        var run = new Run(UUID.randomUUID(), "endpoint private fixture", service, 5, Scenario.OBSERVED, "DEMO", false,
+            Status.SUCCEEDED, time, time.plusMillis(1), 0, List.of(), List.of(), null, null, null, null, null, endpoint);
+        runs.insert(run); return run;
+    }
     private ResponseEntity<String> delete(UUID id, UUID confirm, String origin, boolean marker) {
         var headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON);
         if (marker) headers.set("X-Triage-History", "1"); if (origin != null) headers.set("Origin", origin);
@@ -59,5 +65,34 @@ class HistoryApiTest {
             assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
             assertThat(invalid.getBody()).doesNotContain("invalid-private-cursor", "fixture private question");
         }
+    }
+    @Test void savedEndpointsRemainAvailableInHistoryAndRecentSummariesWithServiceScopedFilters() {
+        String service = "history-" + UUID.randomUUID();
+        var endpoint = new RequestEndpoint("EP-" + "a".repeat(32), "GET", "/api/tickets/{id}", "example.TicketController", "ticket",
+            List.of("java.lang.String"), "MVC_HANDLER_SELECTED");
+        Run selected = endpointRow(service, endpoint); endpointRow("other-" + UUID.randomUUID(), endpoint);
+        Run whole = endpointRow(service, null);
+        assertThat(http.getForObject("/api/history/endpoints?service=" + service, RequestEndpoint[].class)).containsExactly(endpoint);
+        var page = http.getForObject("/api/history?service=" + service + "&endpointId=" + endpoint.id(), HistoryRepository.Page.class);
+        assertThat(page.items()).extracting(HistoryRepository.Entry::id).containsExactly(selected.id());
+        assertThat(page.items().getFirst().endpoint()).isEqualTo(endpoint);
+        var allService = http.getForObject("/api/history?service=" + service + "&endpointId=SERVICE", HistoryRepository.Page.class);
+        assertThat(allService.items()).extracting(HistoryRepository.Entry::id).containsExactly(whole.id());
+        assertThat(allService.items().getFirst().endpoint()).isNull();
+        assertThat(http.getForObject("/api/runs?limit=50", RunSummary[].class)).anySatisfy(summary -> {
+            assertThat(summary.id()).isEqualTo(selected.id()); assertThat(summary.endpoint()).isEqualTo(endpoint);
+        });
+        assertThat(http.getForObject("/api/history?service=" + service + "&q=TicketController", HistoryRepository.Page.class).total()).isEqualTo(1);
+    }
+    @Test void endpointQueriesRejectMissingServiceInvalidIdsAndForeignOriginsWithoutReturningHandlerDetails() {
+        for (String query : List.of("/api/history?endpointId=EP-" + "a".repeat(32), "/api/history?service=archived-service&endpointId=wrong",
+                "/api/history/endpoints", "/api/history/endpoints?service=invalid_service", "/api/history/endpoints?service=")) {
+            var invalid = http.getForEntity(query, String.class);
+            assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(invalid.getBody()).doesNotContain("private fixture", "TicketController", "invalid_service");
+        }
+        var headers = new HttpHeaders(); headers.setOrigin("https://invalid.example");
+        assertThat(http.exchange("/api/history/endpoints?service=archived-service", HttpMethod.GET,
+            new HttpEntity<>(headers), String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 }

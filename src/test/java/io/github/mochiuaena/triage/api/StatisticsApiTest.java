@@ -20,9 +20,12 @@ class StatisticsApiTest {
     @Autowired TestRestTemplate http;
     @Autowired RunRepository runs;
     private Run row(String service, Status status, Long duration, ModelExecution model, Instant created) {
+        return row(service, status, duration, model, created, null);
+    }
+    private Run row(String service, Status status, Long duration, ModelExecution model, Instant created, RequestEndpoint endpoint) {
         var run = new Run(UUID.randomUUID(), "statistical fixture", service, 5, Scenario.OBSERVED,
             model == null ? "DEMO" : "MODEL", false, status, created, duration == null ? null : created.plusMillis(duration),
-            3, List.of(), List.of(), null, null, model);
+            3, List.of(), List.of(), null, null, model, null, null, endpoint);
         runs.insert(run); return run;
     }
     private HistoryRepository.Statistics statistics(String service) { return http.getForObject("/api/statistics?days=7&service=" + service, HistoryRepository.Statistics.class); }
@@ -63,5 +66,28 @@ class StatisticsApiTest {
         assertThat(statistics(service).usage().knownUsage()).isNull();
         assertThat(statistics(service).usage().missingRuns()).isEqualTo(1);
         for (int days : List.of(0, 91)) assertThat(http.getForEntity("/api/statistics?days=" + days, String.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+    @Test void endpointStatisticsExcludeOtherServicesOtherInterfacesAndWholeServiceRuns() {
+        String service = "stats-" + UUID.randomUUID(); Instant created = Instant.now().minusSeconds(10);
+        var endpoint = new RequestEndpoint("EP-" + "a".repeat(32), "GET", "/api/tickets/{id}", "example.TicketController", "ticket",
+            List.of("java.lang.String"), "MVC_HANDLER_SELECTED");
+        var other = new RequestEndpoint("EP-" + "b".repeat(32), "GET", "/api/tickets/summary", "example.TicketController", "ticket",
+            List.of(), "MVC_HANDLER_SELECTED");
+        row(service, Status.SUCCEEDED, 100L, new ModelExecution("fixture", "fixture", 1, new TokenUsage(10, 5, 15)), created, endpoint);
+        row(service, Status.FAILED, 300L, new ModelExecution("fixture", null, 1, null), created, endpoint);
+        row(service, Status.SUCCEEDED, 200L, null, created, other);
+        row(service, Status.SUCCEEDED, 500L, null, created);
+        row("other-" + UUID.randomUUID(), Status.SUCCEEDED, 900L, null, created, endpoint);
+        String query = "/api/statistics?days=7&service=" + service + "&endpointId=" + endpoint.id();
+        var result = http.getForObject(query, HistoryRepository.Statistics.class);
+        assertThat(result.endpointId()).isEqualTo(endpoint.id()); assertThat(result.service()).isEqualTo(service);
+        assertThat(result.total()).isEqualTo(2); assertThat(result.modelCalls()).isEqualTo(2); assertThat(result.toolCalls()).isEqualTo(6);
+        assertThat(result.statuses().get(Status.SUCCEEDED)).isEqualTo(1); assertThat(result.statuses().get(Status.FAILED)).isEqualTo(1);
+        assertThat(result.durations().averageMillis()).isEqualTo(200); assertThat(result.durations().p95Millis()).isEqualTo(300);
+        assertThat(result.usage().knownUsage()).isEqualTo(new TokenUsage(10, 5, 15)); assertThat(result.usage().missingRuns()).isEqualTo(1);
+        assertThat(http.getForObject("/api/statistics?service=" + service + "&endpointId=SERVICE", HistoryRepository.Statistics.class).total()).isEqualTo(1);
+        assertThat(statistics(service).total()).isEqualTo(4);
+        for (String invalid : List.of("endpointId=" + endpoint.id(), "service=" + service + "&endpointId=invalid"))
+            assertThat(http.getForEntity("/api/statistics?" + invalid, String.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 }

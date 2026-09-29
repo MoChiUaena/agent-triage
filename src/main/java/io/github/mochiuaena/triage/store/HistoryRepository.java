@@ -17,13 +17,14 @@ import org.springframework.transaction.annotation.*;
 @DependsOnDatabaseInitialization
 public class HistoryRepository {
     public record Entry(UUID id, String question, String service, ServiceInfo serviceInfo, String mode, Scenario scenario,
-                        Status status, Instant createdAt, Instant finishedAt, int toolCalls, Long durationMillis, int modelCalls) {}
+                        Status status, Instant createdAt, Instant finishedAt, int toolCalls, Long durationMillis, int modelCalls,
+                        RequestEndpoint endpoint) {}
     public record Page(List<Entry> items, String nextCursor, long total, int pageSize) {}
     public record Service(String id, String name) {}
     public record Durations(long samples, Double averageMillis, Long p95Millis, Long maximumMillis) {}
     public record Usage(long calledRuns, long completeRuns, long partialRuns, long missingRuns, TokenUsage knownUsage) {}
     public record Statistics(Instant from, Instant until, String service, long total, Map<Status, Long> statuses,
-                             long toolCalls, long modelCalls, Durations durations, Usage usage) {}
+                             long toolCalls, long modelCalls, Durations durations, Usage usage, String endpointId) {}
     private record Cursor(Instant time, UUID id, String filters) {}
     private record Row(Run run, Instant indexedTime) {}
     private final JdbcTemplate jdbc;
@@ -58,13 +59,22 @@ public class HistoryRepository {
     private Entry entry(Run run) {
         var p = HistoryProjection.of(run);
         return new Entry(run.id(), run.question(), p.service(), run.serviceInfo(), p.mode(), run.scenario(), run.status(),
-            run.createdAt(), run.finishedAt(), run.toolCalls(), p.durationMillis(), p.modelCalls());
+            run.createdAt(), run.finishedAt(), run.toolCalls(), p.durationMillis(), p.modelCalls(), run.endpoint());
     }
     public List<Service> services() {
         return jdbc.query("SELECT service_id, service_name FROM (SELECT service_id, service_name, "
             + "ROW_NUMBER() OVER (PARTITION BY service_id ORDER BY created_at DESC, id DESC) AS rn "
             + "FROM triage_runs WHERE service_id IS NOT NULL) history_services WHERE rn = 1 ORDER BY service_name, service_id LIMIT 200",
             (row, n) -> new Service(row.getString(1), row.getString(2)));
+    }
+    public List<RequestEndpoint> endpoints(String service) {
+        String selected = new HistoryFilter(null, service, null, null, null, null).service();
+        if (selected == null) throw new IllegalArgumentException("History endpoint choices require a service");
+        return jdbc.query("SELECT payload FROM (SELECT payload, endpoint_http_method, endpoint_route, endpoint_id, "
+            + "ROW_NUMBER() OVER (PARTITION BY endpoint_id ORDER BY created_at DESC, id DESC) AS rn "
+            + "FROM triage_runs WHERE service_id = ? AND endpoint_id IS NOT NULL) history_endpoints "
+            + "WHERE rn = 1 ORDER BY endpoint_route, endpoint_http_method, endpoint_id LIMIT 200",
+            (row, n) -> runs.decode(row.getString(1)).endpoint(), selected);
     }
     public boolean deleteTerminal(UUID id) {
         return jdbc.update("DELETE FROM triage_runs WHERE id = ? AND status IN ('SUCCEEDED','INSUFFICIENT_EVIDENCE','FAILED','CANCELLED')", id.toString()) == 1;
@@ -93,7 +103,7 @@ public class HistoryRepository {
         TokenUsage known = number(values, "known") == 0 ? null : new TokenUsage(number(values, "input_tokens"), number(values, "output_tokens"), number(values, "total_tokens"));
         return new Statistics(filter.from(), filter.until(), filter.service(), number(values, "total"), Collections.unmodifiableMap(statuses),
             number(values, "tools"), number(values, "models"), durations,
-            new Usage(number(values, "called"), number(values, "complete"), number(values, "partial"), number(values, "missing"), known));
+            new Usage(number(values, "called"), number(values, "complete"), number(values, "partial"), number(values, "missing"), known), filter.endpointId());
     }
     private long number(Map<String, Object> values, String name) { return values.get(name) == null ? 0 : ((Number) values.get(name)).longValue(); }
     private String fingerprint(HistoryFilter filter) {

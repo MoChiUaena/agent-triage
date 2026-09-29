@@ -77,7 +77,7 @@ public class RunController {
     public List<RunSummary> list(@RequestParam(defaultValue = "20") int limit) {
         if (limit < 1 || limit > 50) throw new ResponseStatusException(BAD_REQUEST, "limit 必须为 1–50。");
         return repository.recent(limit).stream().map(run -> new RunSummary(run.id(), run.question(), run.scenario(),
-            run.status(), run.createdAt(), run.toolCalls(), run.mode(), run.service(), run.serviceInfo())).toList();
+            run.status(), run.createdAt(), run.toolCalls(), run.mode(), run.service(), run.serviceInfo(), run.endpoint())).toList();
     }
 
     @GetMapping("/runs/{id}")

@@ -9,6 +9,7 @@ import subprocess
 import threading
 import urllib.request
 import time
+from urllib.parse import urlencode
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -165,6 +166,17 @@ def main():
             assert failed_metrics["requestCount"] == 3 and failed_metrics["timeoutCount"] == 2
             assert endpoint_failed["sourceAnalysis"]["graph"]["nodes"][0]["signature"] == "ticket(String)"
             assert request(agent, "/api/runs/" + healthy["id"])[1]["endpoint"] == healthy_endpoint
+            assert request(agent, "/api/history/endpoints?service=ticket-service")[1] == sorted(
+                [failed_endpoint, healthy_endpoint], key=lambda value: value["routeTemplate"])
+            recent = request(agent, "/api/runs?limit=20")[1]
+            assert next(item for item in recent if item["id"] == healthy["id"])["endpoint"] == healthy_endpoint
+            params = urlencode({"service": "ticket-service", "endpointId": healthy_endpoint["id"]})
+            history = request(agent, "/api/history?" + params)[1]
+            assert history["total"] == 1 and history["items"][0]["id"] == healthy["id"] and history["items"][0]["endpoint"] == healthy_endpoint
+            statistics = request(agent, "/api/statistics?days=7&" + params)[1]
+            assert statistics["total"] == 1 and statistics["endpointId"] == healthy_endpoint["id"] and statistics["modelCalls"] == 0
+            whole = request(agent, "/api/history?service=ticket-service&endpointId=SERVICE")[1]
+            assert whole["total"] == 2 and all(item["endpoint"] is None for item in whole["items"])
         for node in graph["nodes"]:
             excerpt = node["excerpt"]
             lines = (external / excerpt["path"]).read_text(encoding="utf-8").splitlines()
@@ -183,6 +195,9 @@ def main():
         status, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, {"X-Triage-Source": "1"})
         assert status == 200 and binding["revision"] == 2
         assert request(agent, "/api/runs/" + failed["id"])[1]["sourceAnalysis"] == failed["sourceAnalysis"]
+        if args.protocol_v3:
+            assert request(agent, "/api/history/endpoints?service=ticket-service")[1]
+            assert request(agent, "/api/runs/" + healthy["id"])[1]["endpoint"] == healthy_endpoint
         alternative = external / "src/main/java/example/helpdesk/ArchivedTicketService.java"
         alternative.write_text("package example.helpdesk; import java.util.Map; class ArchivedTicketService implements TicketService { public Map<String,Object> find(String id) { return Map.of(); } }\n", encoding="utf-8")
         status, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, {"X-Triage-Source": "1"})
@@ -205,7 +220,7 @@ def main():
         (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         print("Source smoke passed: independent helpdesk JVM, actual timeouts, Controller/interface/Gateway/HTTP chain, verified call lines, ambiguity, evidence links, index management and history")
         if args.protocol_v3:
-            print("Endpoint smoke passed: actual MVC handlers, generic questions, healthy/timeout endpoint isolation, overloaded source entry and frozen history")
+            print("Endpoint smoke passed: actual MVC handlers, healthy/timeout isolation, source entry, saved scope, history filters and statistics")
     finally:
         for process in reversed(processes):
             if process.poll() is None:

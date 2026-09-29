@@ -5,7 +5,9 @@ import java.time.Duration;
 
 /** Query columns derived from the saved snapshot; never modifies the legacy JSON. */
 record HistoryProjection(String service, String serviceName, String mode, String question, Long durationMillis,
-                         int toolCalls, int modelCalls, Long inputTokens, Long outputTokens, Long totalTokens, boolean complete) {
+                         int toolCalls, int modelCalls, Long inputTokens, Long outputTokens, Long totalTokens, boolean complete,
+                         RequestEndpoint endpoint) {
+    static final int VERSION = 1;
     static HistoryProjection of(Run run) {
         String service = run.service() == null ? "order-service" : run.service();
         String name = run.serviceInfo() == null ? service.equals("order-service") ? "订单服务" : service : run.serviceInfo().name();
@@ -16,8 +18,10 @@ record HistoryProjection(String service, String serviceName, String mode, String
             ? Duration.between(run.createdAt(), run.finishedAt()).toMillis() : null;
         return new HistoryProjection(service, name, mode, run.question(), duration, run.toolCalls(), model == null ? 0 : model.calls(),
             usage == null ? null : usage.inputTokens(), usage == null ? null : usage.outputTokens(), usage == null ? null : usage.totalTokens(),
-            model != null && model.calls() > 0 && run.status().terminal() && model.usage() != null);
+            model != null && model.calls() > 0 && run.status().terminal() && model.usage() != null, run.endpoint());
     }
     Object[] fields() { return new Object[]{service, serviceName, mode, question, durationMillis, toolCalls, modelCalls,
-        inputTokens, outputTokens, totalTokens, complete}; }
+        inputTokens, outputTokens, totalTokens, complete, endpoint == null ? null : endpoint.id(),
+        endpoint == null ? null : endpoint.httpMethod(), endpoint == null ? null : endpoint.routeTemplate(),
+        endpoint == null ? null : endpoint.handlerClass(), endpoint == null ? null : endpoint.handlerMethod(), VERSION}; }
 }

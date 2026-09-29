@@ -18,7 +18,7 @@ import org.springframework.boot.sql.init.dependency.DependsOnDatabaseInitializat
 @Repository
 @DependsOnDatabaseInitialization
 public class RunRepository {
-    private static final String HISTORY_COLUMNS = "service_id,service_name,execution_mode,question_text,duration_ms,tool_calls,model_calls,known_input_tokens,known_output_tokens,known_total_tokens,usage_complete";
+    private static final String HISTORY_COLUMNS = "service_id,service_name,execution_mode,question_text,duration_ms,tool_calls,model_calls,known_input_tokens,known_output_tokens,known_total_tokens,usage_complete,endpoint_id,endpoint_http_method,endpoint_route,endpoint_handler_class,endpoint_handler_method,history_version";
     private static final String HISTORY_UPDATES = String.join(",", Arrays.stream(HISTORY_COLUMNS.split(",")).map(name -> name + " = ?").toList());
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
@@ -68,12 +68,13 @@ public class RunRepository {
 
     public void indexLegacy() {
         while (true) {
-            List<Run> batch = jdbc.query("SELECT payload FROM triage_runs WHERE service_id IS NULL ORDER BY created_at, id LIMIT 100",
-                (row, n) -> decode(row.getString(1)));
+            List<Run> batch = jdbc.query("SELECT payload FROM triage_runs WHERE history_version < ? ORDER BY created_at, id LIMIT 100",
+                (row, n) -> decode(row.getString(1)), HistoryProjection.VERSION);
             if (batch.isEmpty()) return;
             for (Run run : batch) {
-                var values = new ArrayList<Object>(Arrays.asList(HistoryProjection.of(run).fields())); values.add(run.id().toString());
-                jdbc.update("UPDATE triage_runs SET " + HISTORY_UPDATES + " WHERE id = ? AND service_id IS NULL", values.toArray());
+                var values = new ArrayList<Object>(Arrays.asList(HistoryProjection.of(run).fields()));
+                values.add(run.id().toString()); values.add(HistoryProjection.VERSION);
+                jdbc.update("UPDATE triage_runs SET " + HISTORY_UPDATES + " WHERE id = ? AND history_version < ?", values.toArray());
             }
         }
     }
