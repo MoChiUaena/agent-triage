@@ -72,6 +72,7 @@ V3 的指标证据含本机使用的 `requestDetails`，`graph.endpointMatches` 
 | `DELETE /api/history/{uuid}` | 本机同源请求带 `X-Triage-History: 1` 和匹配的 `confirmId`，删除已结束记录 |
 | `GET /api/statistics?days=7` | 近 1–90 天的状态、耗时、调用和已知用量，可按历史服务和接口筛选 |
 | `GET /api/services/status` | 登记服务的只读观测状态，短期缓存，不依赖模型选择 |
+| `GET /api/services/{id}/source-check?windowMinutes=5` | 本机同源接入检查：服务观测、请求窗口、源码绑定、入口及构建摘要；不创建历史或调用模型 |
 | `GET /api/runs/{uuid}` | 完整执行记录，包含事件、证据、结论或失败信息 |
 | `POST /api/runs/{uuid}/cancel` | 本机同源请求带 `X-Triage-Run: 1`，取消排队或运行中的任务并返回保存后的记录 |
 | `GET /api/runs/{uuid}/events` | SSE 事件流，支持 `Last-Event-ID` 重放 |

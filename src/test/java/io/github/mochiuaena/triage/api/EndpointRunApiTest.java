@@ -147,6 +147,50 @@ class EndpointRunApiTest {
         assertThat(result.sourceAnalysis().graph().endpointMatches().getFirst().version().state()).isEqualTo("DIFFERENT");
         assertThat(result.sourceAnalysis().excerpts()).isEmpty();
     }
+    private SourceReadinessService.Check readiness() {
+        return http.getForObject("/api/services/ticket-service/source-check?windowMinutes=5", SourceReadinessService.Check.class);
+    }
+    @Test void sourcePreflightReadsObservationsAndIndexWithoutCreatingRunsCallingModelsOrReturningCode() {
+        var provider = providers.create(new ProviderConfig.Input("接入检查协议验证", ProviderConfig.Protocol.OPENAI_COMPATIBLE, STUB.url(), "endpoint-stub", "test-only-local", .2, 2, 4, 1600, 0));
+        providers.select("MODEL", provider.id());
+        Long before = jdbc.queryForObject("SELECT COUNT(*) FROM triage_runs", Long.class);
+        var check = readiness();
+        assertThat(check.state()).isEqualTo("PARTIAL"); assertThat(check.observationsAvailable()).isTrue(); assertThat(check.requestCount()).isEqualTo(5);
+        assertThat(check.project().id()).isEqualTo(sources.bound("ticket-service").id());
+        assertThat(check.steps()).extracting(SourceReadinessService.Step::state).containsExactly("PASS", "PASS", "PASS", "PASS", "OPTIONAL");
+        assertThat(check.endpoints()).hasSize(2); assertThat(STUB.requests).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM triage_runs", Long.class)).isEqualTo(before);
+        String body = http.getForObject("/api/services/ticket-service/source-check", String.class);
+        assertThat(body).doesNotContain(root.toString(), STUB.url(), "local-frame-private-marker", "return null", "apiKey");
+    }
+    @Test void preflightSeparatesVerifiedBuildMissingSourceAndModifiedFiles() throws Exception {
+        var project = sources.bound("ticket-service");
+        STUB.handlerHash = project.index().files().stream().filter(value -> value.path().equals("PrivateRoutingController.java")).findFirst().orElseThrow().hash();
+        assertThat(readiness().state()).isEqualTo("READY");
+        Files.writeString(root.resolve("PrivateRoutingController.java"), Files.readString(root.resolve("PrivateRoutingController.java")) + "\n// local edit\n");
+        var stale = readiness(); assertThat(stale.state()).isEqualTo("SOURCE_STALE");
+        assertThat(stale.endpoints()).allMatch(value -> value.state().equals("STALE"));
+        assertThat(stale.steps().get(3).nextAction()).contains("重新索引");
+        sources.delete(project.id(), project.revision());
+        var missing = readiness(); assertThat(missing.project()).isNull(); assertThat(missing.observationsAvailable()).isTrue();
+        assertThat(missing.steps().get(2).state()).isEqualTo("WAIT"); assertThat(missing.steps().get(3).state()).isEqualTo("SKIPPED");
+    }
+    @Test void preflightChecksObservedErrorPositionsWithoutReturningTheirSourceExcerpts() {
+        var project = sources.bound("ticket-service"); STUB.locations = true;
+        STUB.handlerHash = project.index().files().stream().filter(value -> value.path().equals("PrivateRoutingController.java")).findFirst().orElseThrow().hash();
+        STUB.sourceHash = "e".repeat(64);
+        var different = readiness(); assertThat(different.state()).isEqualTo("SOURCE_VERSION_DIFFERENT");
+        assertThat(different.errorPositions()).hasSize(1); assertThat(different.errorPositions().getFirst().state()).isEqualTo("SOURCE_MISMATCH");
+        assertThat(different.steps().get(4).state()).isEqualTo("BLOCKED"); assertThat(STUB.requests).isEmpty();
+    }
+    @Test void preflightRejectsUnregisteredServicesInvalidWindowsAndForeignOrigin() {
+        for (String path : List.of("/api/services/missing-service/source-check", "/api/services/ticket-service/source-check?windowMinutes=0", "/api/services/ticket-service/source-check?windowMinutes=16")) {
+            var response = http.getForEntity(path, String.class); assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody()).doesNotContain(STUB.url(), root.toString());
+        }
+        var headers = new HttpHeaders(); headers.setOrigin("https://invalid.example");
+        assertThat(http.exchange("/api/services/ticket-service/source-check", HttpMethod.GET, new HttpEntity<>(headers), String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
     static RequestEndpoint endpoint(String route, List<String> parameters) {
         try {
             String identity = String.join("\0", "GET", route, "fixture.PrivateRoutingController", "ticket", String.join(",", parameters));

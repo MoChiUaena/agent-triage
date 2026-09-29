@@ -132,9 +132,16 @@ def main():
             if time.monotonic() >= deadline:
                 raise TimeoutError("Source fixture startup timed out")
             time.sleep(.5)
+        before_check = request(agent, "/api/history?pageSize=1")[1]["total"]
+        status, preflight = request(agent, "/api/services/ticket-service/source-check?windowMinutes=5")
+        assert status == 200 and preflight["observationsAvailable"] and preflight["project"] is None
+        assert preflight["steps"][2]["state"] == "WAIT" and request(agent, "/api/history?pageSize=1")[1]["total"] == before_check
         status, binding = request(agent, "/api/source-projects", {"name": "外部工单项目", "service": "ticket-service", "directory": str(external)}, {"X-Triage-Source": "1"})
         assert status == 200 and binding["files"] == 6 and not binding["modelSharing"], (status, binding)
         normal = investigate()
+        preflight = request(agent, "/api/services/ticket-service/source-check?windowMinutes=5")[1]
+        assert preflight["state"] == ("READY" if args.protocol_v3 else "PARTIAL")
+        assert preflight["project"]["revision"] == binding["revision"]
         assert evidence(normal, "read_service_metrics")["data"]["timeoutCount"] == 0
         AssignmentHandler.slow = True
         for _ in range(2):
@@ -221,6 +228,8 @@ def main():
             mismatch = next(frame for match in different["sourceAnalysis"]["graph"]["failureMatches"] for frame in match["frames"]
                 if frame["frame"]["className"] == "example.helpdesk.AssignmentGateway")
             assert mismatch["state"] == "SOURCE_MISMATCH" and mismatch["version"]["state"] == "DIFFERENT" and not mismatch["excerpts"]
+            preflight = request(agent, "/api/services/ticket-service/source-check?windowMinutes=5")[1]
+            assert preflight["state"] == "SOURCE_VERSION_DIFFERENT" and preflight["steps"][4]["state"] == "BLOCKED"
             assert request(agent, "/api/runs/" + failed["id"])[1]["sourceAnalysis"] == failed["sourceAnalysis"]
             modified.write_bytes(original_gateway)
             status, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, {"X-Triage-Source": "1"})

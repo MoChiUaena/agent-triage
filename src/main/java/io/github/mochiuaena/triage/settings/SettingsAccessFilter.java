@@ -44,7 +44,7 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
             response.setCharacterEncoding("UTF-8");
             response.getWriter().write(cancellation(request) ? "{\"status\":403,\"detail\":\"取消操作仅允许从本机同源页面发起。\"}"
                 : source(request) ? "{\"status\":403,\"detail\":\"源码管理仅允许从本机同源页面访问。\"}"
-                : history(request) || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/status")
+                : history(request) || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/")
                 ? "{\"status\":403,\"detail\":\"历史记录与工作区仅允许从本机同源页面访问。\"}"
                 : "{\"status\":403,\"detail\":\"模型设置与评测仅允许从本机同源页面访问。\"}");
             return;

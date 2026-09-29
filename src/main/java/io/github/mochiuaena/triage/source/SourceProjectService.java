@@ -83,7 +83,7 @@ public class SourceProjectService {
     }
     public Excerpt excerpt(UUID id, String symbol) { return excerpt(projects.require(id), symbol); }
     public Excerpt excerpt(Stored project, String identity) { return excerptAt(project, identity, null); }
-    private Excerpt excerptAt(Stored project, String identity, Integer focus) {
+    Excerpt excerptAt(Stored project, String identity, Integer focus) {
         Symbol symbol = project.index().files().stream().flatMap(file -> file.symbols().stream()).filter(value -> value.id().equals(identity)).findFirst()
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "这个代码引用不属于当前项目索引。"));
         try {
