@@ -37,6 +37,8 @@
 
 新记录和摘要包含 `serviceInfo`，保留执行时的服务与下游名称。旧历史中的该字段可为空，仍能读取。观测地址不会出现在公共配置和执行记录中。[接口契约与接入配置](SERVICE_INTEGRATION.md)另见说明。
 
+LIVE 配置返回 `observationRequestCount` 与 `observationWindowMinutes`，表示可用性检查读取的窗口；空窗口保持可用，并提示先产生业务请求。观测不可用时返回 `observationErrorCode` 和固定的 `observationMessage`。连接失败、接口缺失、访问拒绝、响应超时、版本不匹配、契约无效和保留窗口丢失分别处理，不返回远端地址或错误正文。执行过程中遇到同类失败，也会保存对应 `OBSERVATION_*` 代码，保留此前已取得的证据。
+
 不存在的记录返回 404，非法 UUID 返回 400。错误使用 `application/problem+json`，不回显用户问题或工具原始异常。
 
 取消状态为 `CANCELLED`，SSE 先发送 `RUN_CANCELLED`，再以 `complete` 结束；证据、历史和已知用量保留。重复取消不追加事件，已完成或失败时返回原记录。`modelExecution.knownUsage`、`completedCalls` 和 `usageReportedCalls` 为可选覆盖字段，完整总计仍使用 `usage`；旧记录可为空。[取消与计费边界](RUN_CONTROLS.md)另有说明。

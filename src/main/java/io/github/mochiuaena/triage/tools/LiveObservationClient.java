@@ -79,7 +79,7 @@ public class LiveObservationClient {
             Scenario scenario = Scenario.valueOf(json.readTree(get(target, "/lab/scenario")).path("scenario").asText());
             if (scenario != Scenario.NORMAL && scenario != Scenario.DOWNSTREAM_TIMEOUT) throw new IllegalStateException("Unexpected lab scenario");
             return scenario;
-        } catch (IOException e) { throw new IllegalStateException("Invalid observation response", e); }
+        } catch (IOException | IllegalArgumentException e) { throw unexpected(); }
     }
 
     public Snapshot snapshot(ToolContext context) {
@@ -92,7 +92,9 @@ public class LiveObservationClient {
             Snapshot snapshot;
             if (target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V1) {
                 ObservationsV1 value = json.readValue(response, ObservationsV1.class);
-                if (!Integer.valueOf(1).equals(value.schemaVersion()) || !target.info().downstreamId().equals(value.downstreamService())
+                if (value == null) throw unexpected();
+                if (!Integer.valueOf(1).equals(value.schemaVersion())) throw versionMismatch();
+                if (!target.info().downstreamId().equals(value.downstreamService())
                     || !Boolean.FALSE.equals(value.synthetic()) || value.requestCount() == null || value.timeoutCount() == null
                     || value.recordedRequestCount() == null || value.requestP95Ms() == null || value.downstreamP95Ms() == null
                     || value.downstreamTimeoutRate() == null) throw unexpected();
@@ -101,7 +103,9 @@ public class LiveObservationClient {
                     value.requestP95Ms(), value.downstreamP95Ms(), value.downstreamTimeoutRate(), value.baselineRequestP95Ms(), value.errors(), false);
             } else if (target.protocol() == ServiceRegistry.Protocol.DATABASE_V2) {
                 DatabaseObservations value = json.readValue(response, DatabaseObservations.class);
-                if (!Integer.valueOf(2).equals(value.schemaVersion()) || !"DATABASE_POOL".equals(value.kind())
+                if (value == null) throw unexpected();
+                if (!Integer.valueOf(2).equals(value.schemaVersion())) throw versionMismatch();
+                if (!"DATABASE_POOL".equals(value.kind())
                     || !target.info().downstreamId().equals(value.database()) || !Boolean.FALSE.equals(value.synthetic())
                     || value.requestCount() == null || value.recordedRequestCount() == null || value.requestP95Ms() == null) throw unexpected();
                 validateDatabase(value.databasePool(), value.requestCount(), value.errors());
@@ -113,9 +117,10 @@ public class LiveObservationClient {
                 snapshot = json.readValue(response, Snapshot.class);
                 if (snapshot.databasePool() != null) throw unexpected();
             }
+            if (snapshot == null) throw unexpected();
             validate(snapshot, context);
             return snapshot;
-        } catch (IOException e) { throw new IllegalStateException("Invalid observation response", e); }
+        } catch (IOException e) { throw unexpected(); }
     }
 
     private void validateDatabase(DatabasePool pool, int requests, List<ErrorEntry> errors) {
@@ -160,16 +165,32 @@ public class LiveObservationClient {
         }
     }
     private boolean metric(double value) { return Double.isFinite(value) && value >= 0; }
-    private IllegalStateException unexpected() { return new IllegalStateException("Observation identity, window or values do not match the contract"); }
+    private ObservationFailure unexpected() {
+        return new ObservationFailure("OBSERVATION_CONTRACT", "观测数据不符合接入契约，请核对服务身份、时间窗口与字段格式。");
+    }
+    private ObservationFailure versionMismatch() {
+        return new ObservationFailure("OBSERVATION_VERSION", "观测接口版本与服务配置不一致，请核对 OBSERVATIONS_V1 或 DATABASE_V2 配置。");
+    }
 
     private byte[] get(ServiceRegistry.Target target, String path) {
         URI uri = URI.create(target.baseUrl().toString().replaceAll("/$", "") + path);
         HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofMillis(1200)).GET().build();
         try {
             HttpResponse<byte[]> response = http.send(request, info -> new BoundedBody());
-            if (response.statusCode() != 200) throw new IllegalStateException("Observation service is unavailable");
+            if (response.statusCode() != 200) throw switch (response.statusCode()) {
+                case 404 -> new ObservationFailure("OBSERVATION_ENDPOINT_MISSING", "所选服务没有提供观测接口，请启用 Starter 或实现接入接口。");
+                case 401, 403 -> new ObservationFailure("OBSERVATION_ACCESS_DENIED", "观测接口拒绝访问，请确认本机直连和服务端访问限制。");
+                case 422 -> new ObservationFailure("OBSERVATION_WINDOW_LOST", "观测窗口已超过保留范围或容量，请缩小窗口后重新连接。");
+                default -> new ObservationFailure("OBSERVATION_HTTP_ERROR", "观测接口返回错误状态，请检查服务日志和查询窗口配置。");
+            };
             return response.body();
-        } catch (IOException e) { throw new IllegalStateException("Observation service is unavailable", e); }
+        } catch (java.net.http.HttpTimeoutException e) {
+            throw new ObservationFailure("OBSERVATION_TIMEOUT", "等待观测接口超时，请检查所选服务负载与接口响应时间。");
+        } catch (IOException e) {
+            for (Throwable cause = e; cause != null; cause = cause.getCause())
+                if (cause instanceof ObservationFailure failure) throw failure;
+            throw new ObservationFailure("OBSERVATION_UNAVAILABLE", "无法连接所选服务，请确认服务已启动且登记端口正确。");
+        }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("Observation request interrupted", e); }
     }
 
@@ -182,7 +203,7 @@ public class LiveObservationClient {
         @Override public void onNext(List<ByteBuffer> buffers) {
             for (ByteBuffer buffer : buffers) {
                 if (bytes.size() + buffer.remaining() > 32_000) {
-                    subscription.cancel(); result.completeExceptionally(new IOException("Observation body exceeds 32000 bytes")); return;
+                    subscription.cancel(); result.completeExceptionally(new ObservationFailure("OBSERVATION_CONTRACT", "观测响应超过允许大小，请按接入契约限制返回内容。")); return;
                 }
                 byte[] chunk = new byte[buffer.remaining()]; buffer.get(chunk); bytes.writeBytes(chunk);
             }

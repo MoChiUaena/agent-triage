@@ -132,6 +132,10 @@ public final class ExecutionSession {
             publish("TOOL_FAILED", name, "工具等待超时，已请求取消。", List.of());
             throw new RunFailure(overallFirst ? "RUN_TIMEOUT" : "TOOL_TIMEOUT", "执行超过时间预算。");
         } catch (ExecutionException e) {
+            if (e.getCause() instanceof io.github.mochiuaena.triage.tools.ObservationFailure failure) {
+                publish("TOOL_FAILED", name, failure.getMessage(), List.of());
+                throw new RunFailure(failure.code(), failure.getMessage());
+            }
             publish("TOOL_FAILED", name, "工具执行失败。", List.of());
             throw new RunFailure("TOOL_ERROR", "工具执行失败；没有生成排障结论。");
         } catch (InterruptedException e) {

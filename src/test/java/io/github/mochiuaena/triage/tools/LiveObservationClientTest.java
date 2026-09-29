@@ -134,4 +134,32 @@ class LiveObservationClientTest {
         assertThatThrownBy(() -> client.snapshot(context)).isInstanceOf(IllegalStateException.class);
         assertThat(followed).hasValue(0);
     }
+    @Test void versionMismatchAndBadValuesHaveDifferentSafeFailureCodes() throws Exception {
+        var value = valid(); value.put("schemaVersion", 99); response.set(json.writeValueAsBytes(value));
+        assertThatThrownBy(() -> client.snapshot(context)).isInstanceOfSatisfying(ObservationFailure.class,
+            failure -> assertThat(failure.code()).isEqualTo("OBSERVATION_VERSION"));
+        value = valid(); value.put("windowEnd", end.plusSeconds(1).toString()); response.set(json.writeValueAsBytes(value));
+        assertThatThrownBy(() -> client.snapshot(context)).isInstanceOfSatisfying(ObservationFailure.class,
+            failure -> assertThat(failure.code()).isEqualTo("OBSERVATION_CONTRACT"));
+    }
+    @Test void missingEndpointAccessDenialRetentionLossAndUnavailableServiceAreDistinguished() {
+        var status = new AtomicInteger();
+        server.removeContext("/triage/observations");
+        server.createContext("/triage/observations", exchange -> {
+            byte[] privateBody = "private-remote-error-body".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status.get(), privateBody.length);
+            try (var out = exchange.getResponseBody()) { out.write(privateBody); }
+        });
+        for (var entry : java.util.Map.of(404, "OBSERVATION_ENDPOINT_MISSING", 403, "OBSERVATION_ACCESS_DENIED",
+            422, "OBSERVATION_WINDOW_LOST", 500, "OBSERVATION_HTTP_ERROR").entrySet()) {
+            status.set(entry.getKey());
+            assertThatThrownBy(() -> client.snapshot(context)).isInstanceOfSatisfying(ObservationFailure.class, failure -> {
+                assertThat(failure.code()).isEqualTo(entry.getValue());
+                assertThat(failure.getMessage()).doesNotContain("private-remote-error-body", "http://");
+            });
+        }
+        server.stop(0);
+        assertThatThrownBy(() -> client.snapshot(context)).isInstanceOfSatisfying(ObservationFailure.class,
+            failure -> assertThat(failure.code()).isEqualTo("OBSERVATION_UNAVAILABLE"));
+    }
 }

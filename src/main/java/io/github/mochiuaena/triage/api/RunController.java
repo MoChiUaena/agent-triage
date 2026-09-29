@@ -8,6 +8,7 @@ import io.github.mochiuaena.triage.tools.ToolContext;
 import io.github.mochiuaena.triage.tools.ObservationSource;
 import io.github.mochiuaena.triage.tools.LiveObservationClient;
 import io.github.mochiuaena.triage.tools.ServiceRegistry;
+import io.github.mochiuaena.triage.tools.ObservationFailure;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.springframework.http.ResponseEntity;
@@ -50,6 +51,7 @@ public class RunController {
             throw new ResponseStatusException(BAD_REQUEST, "请选择 NORMAL 或 DOWNSTREAM_TIMEOUT 演示场景。");
         Scenario scenario;
         try { scenario = observation.synthetic() ? request.scenario() : live.scenario(target); }
+        catch (ObservationFailure e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, e.getMessage()); }
         catch (RuntimeException e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, "所选服务的观测接口不可用，请检查服务是否启动。"); }
         Run run = service.submit(request.question().strip(),
             new ToolContext(request.service(), request.windowMinutes(), scenario, Instant.now(), target),
@@ -85,9 +87,16 @@ public class RunController {
         if (!observation.synthetic()) {
             try {
                 Scenario scenario = live.scenario(target);
-                if (target.protocol() != ServiceRegistry.Protocol.LAB)
-                    live.snapshot(new ToolContext(target.info().id(), Math.min(15, target.maxWindowMinutes()), scenario, Instant.now(), target));
+                int minutes = Math.min(15, target.maxWindowMinutes());
+                var snapshot = live.snapshot(new ToolContext(target.info().id(), minutes, scenario, Instant.now(), target));
                 config.put("scenario", scenario); config.put("observationAvailable", true);
+                config.put("observationRequestCount", snapshot.requestCount());
+                config.put("observationWindowMinutes", minutes);
+                if (snapshot.requestCount() == 0) config.put("observationMessage", "最近 " + minutes + " 分钟未记录到请求，请先访问所选服务的业务接口。");
+            }
+            catch (ObservationFailure e) {
+                config.put("observationAvailable", false); config.put("observationErrorCode", e.code());
+                config.put("observationMessage", e.getMessage());
             }
             catch (RuntimeException e) { config.put("observationAvailable", false); }
         }

@@ -27,6 +27,7 @@ class RegisteredServiceApiTest {
     private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules();
     private static final AtomicInteger requests = new AtomicInteger();
     private static final AtomicInteger labRequests = new AtomicInteger();
+    private static final AtomicInteger schemaVersion = new AtomicInteger(1);
     private static final List<HttpServer> servers = new ArrayList<>();
     @Autowired TestRestTemplate http;
 
@@ -43,7 +44,7 @@ class RegisteredServiceApiTest {
                 }
                 Instant end = Instant.parse(query.get("endTime"));
                 var data = new LinkedHashMap<String, Object>();
-                data.put("schemaVersion", 1); data.put("service", id); data.put("downstreamService", "stock-service");
+                data.put("schemaVersion", schemaVersion.get()); data.put("service", id); data.put("downstreamService", "stock-service");
                 data.put("windowStart", end.minusSeconds(Integer.parseInt(query.get("windowMinutes")) * 60L)); data.put("windowEnd", end);
                 data.put("requestCount", 5); data.put("timeoutCount", timeout ? 1 : 0); data.put("recordedRequestCount", 5);
                 data.put("requestP95Ms", timeout ? 310 : 20); data.put("downstreamP95Ms", timeout ? 305 : 15);
@@ -66,6 +67,23 @@ class RegisteredServiceApiTest {
         }
     }
     @AfterAll static void stop() { servers.forEach(server -> server.stop(0)); }
+    @AfterEach void restoreVersion() { schemaVersion.set(1); }
+
+    @Test void configurationAndPersistedFailureExplainVersionMismatchWithoutRevealingTheOrigin() {
+        schemaVersion.set(99);
+        String config = http.getForObject("/api/config?service=checkout-service", String.class);
+        assertThat(config).contains("\"observationAvailable\":false", "OBSERVATION_VERSION", "版本")
+            .doesNotContain("http://", "baseUrl");
+        var response = http.postForEntity("/api/runs", Map.of("question", "商品查询为什么慢？", "service", "checkout-service", "windowMinutes", 5), Run.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
+        UUID id = response.getBody().id();
+        await().atMost(Duration.ofSeconds(5)).until(() -> http.getForObject("/api/runs/" + id, Run.class).status().terminal());
+        Run run = http.getForObject("/api/runs/" + id, Run.class);
+        assertThat(run.status()).isEqualTo(Status.FAILED);
+        assertThat(run.failure().code()).isEqualTo("OBSERVATION_VERSION");
+        assertThat(run.failure().message()).contains("版本").doesNotContain("http://");
+        assertThat(run.diagnosis()).isNull();
+    }
 
     @Test void switchingTargetsUsesOnlyTheirOwnObservationsAndPersistsLabels() {
         for (String id : List.of("checkout-service", "billing-service")) {

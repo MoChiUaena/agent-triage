@@ -76,12 +76,14 @@ async function loadConfiguration(serviceId = $("#service").value) {
       config.mode === "MODEL" ? "模型模式" : live ? "实测演示" : "演示模式";
     if (live) {
       $("#mode-description").textContent = !config.observationAvailable
-        ? "所选服务的观测接口未连接，请检查服务是否运行。"
+        ? config.observationMessage || "所选服务的观测接口未连接，请检查服务是否运行。"
         : config.mode === "MODEL"
           ? "读取 " + config.serviceInfo.name + " 的实际请求数据，并发送给模型 " +
             config.model +
             "。"
           : "读取所选服务的实际请求数据，按固定规则生成结论。";
+      if (config.observationAvailable && config.observationRequestCount === 0)
+        $("#mode-description").textContent = config.observationMessage;
       $("#composer-note").textContent = config.observationAvailable
         ? config.labEnabled ? "先生成请求，再排查实际观测" : "读取所选服务的实际观测"
         : "所选服务的观测接口未连接";
@@ -581,6 +583,17 @@ function renderDiagnosis(run) {
 }
 
 function failureHelp(code) {
+    const observationHelp = {
+      OBSERVATION_UNAVAILABLE: ["服务未连接", "确认业务服务已启动，核对服务登记的端口后重新连接。"],
+      OBSERVATION_TIMEOUT: ["观测接口响应超时", "检查业务服务负载和观测接口耗时，再重新排查。"],
+      OBSERVATION_ENDPOINT_MISSING: ["缺少观测接口", "在业务服务中启用 Starter，或按接入说明实现只读观测接口。"],
+      OBSERVATION_VERSION: ["观测接口版本不一致", "HTTP 观测使用 OBSERVATIONS_V1，数据库观测使用 DATABASE_V2；核对服务登记与组件配置。"],
+      OBSERVATION_CONTRACT: ["观测数据未通过校验", "核对服务身份、窗口和字段格式，并按接入契约限制响应大小。"],
+      OBSERVATION_ACCESS_DENIED: ["观测接口拒绝访问", "确认通过本机直接访问，检查服务端对观测接口的访问限制。"],
+      OBSERVATION_WINDOW_LOST: ["观测窗口不完整", "缩小查询窗口，并确认组件保留时长与采样容量足够。"],
+      OBSERVATION_HTTP_ERROR: ["观测接口返回错误", "检查业务服务日志及允许的窗口，再重新连接。"],
+    };
+    if (observationHelp[code]) return observationHelp[code];
   if (["RUN_TIMEOUT", "TOOL_TIMEOUT"].includes(code)) return ["排查超过等待时限", "检查所选服务是否可访问，确认查询窗口；必要时在本地配置中调整执行时限后重试。"];
   if (code === "MODEL_TIMEOUT") return ["模型响应超时", "到模型设置页检查响应时限和服务连接，稍后重新排查。"];
   if (code === "MODEL_HTTP_ERROR") return ["模型服务返回错误", "查看上方服务状态，核对启用的服务、Key、配额与服务可用性后重试。"];
