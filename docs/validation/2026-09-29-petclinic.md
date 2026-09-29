@@ -23,4 +23,6 @@
 
 [普通请求错误与证据不足页面](../assets/petclinic-overview.png)保留了本次判断的边界。修订后主项目 253 项回归无失败，Windows 下 1 项符号链接权限检查跳过；公开项目的实际请求、源码差异和历史检查重新通过，模型调用仍为 0。
 
+提交 `e8e3e44` 的 [Windows、Linux、PostgreSQL 与 LIVE 协议回归](https://github.com/MoChiUaena/agent-triage/actions/runs/36591888928)四项全部通过。[独立 Petclinic Linux 验收](https://github.com/MoChiUaena/agent-triage/actions/runs/36591890376)也通过了公开项目构建、实际请求、异常位置、源码差异和最后的进程停止检查。
+
 复现步骤见[接入说明](../PETCLINIC.md)。原始执行、日志和公开项目副本留在本机忽略目录中，报告不包含它们。
