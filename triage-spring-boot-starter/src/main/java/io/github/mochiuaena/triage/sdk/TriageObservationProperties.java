@@ -14,10 +14,12 @@ public class TriageObservationProperties {
     private String requestPathPrefix = "/api/";
     private int maxWindowMinutes = 15;
     private int capacity = 10_000;
+    private boolean endpointObservations;
 
     void validate() {
         if (kind == null || !identity(serviceId) || !identity(downstreamId))
             throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
+        if (endpointObservations && kind != Kind.HTTP) throw new IllegalArgumentException("triage.sdk endpoint-observations requires HTTP kind");
         if (maxWindowMinutes < 1 || maxWindowMinutes > 60 || capacity < 10 || capacity > 100_000)
             throw new IllegalArgumentException("triage.sdk window must be 1..60 minutes and capacity 10..100000");
         if (requestPathPrefix == null || !requestPathPrefix.matches("/(?:[a-zA-Z0-9_-]+/)+")
@@ -52,4 +54,6 @@ public class TriageObservationProperties {
     public void setMaxWindowMinutes(int value) { maxWindowMinutes = value; }
     public int getCapacity() { return capacity; }
     public void setCapacity(int value) { capacity = value; }
+    public boolean isEndpointObservations() { return endpointObservations; }
+    public void setEndpointObservations(boolean value) { endpointObservations = value; }
 }

@@ -12,6 +12,7 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         final String trace = UUID.randomUUID().toString();
         double downstreamMs;
         boolean timeout;
+        MvcEndpoint endpoint;
     }
     private final ObservationRecorder recorder;
     TriageRequestFilter(ObservationRecorder recorder) { this.recorder = recorder; }
@@ -27,7 +28,7 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         finally {
             CURRENT.remove();
             if (!request.isAsyncStarted()) recorder.recordHttp(ObservationRecorder.elapsed(start), context.downstreamMs,
-                context.timeout, failed || response.getStatus() >= 500, context.trace);
+                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint);
         }
     }
 }
