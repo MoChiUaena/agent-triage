@@ -991,7 +991,8 @@ async function selectRun(id) {
 function renderHistory() {
   const query = $("#history-search").value.trim().toLocaleLowerCase();
   const runs = historyRuns.filter((run) =>
-    (run.question + " " + (run.service || "order-service") + " " + (run.serviceInfo?.name || "")).toLocaleLowerCase().includes(query),
+    (run.question + " " + (run.service || "order-service") + " " + (run.serviceInfo?.name || "") + " " +
+      (run.endpoint ? [run.endpoint.httpMethod, run.endpoint.routeTemplate, run.endpoint.handlerClass, run.endpoint.handlerMethod].join(" ") : "整个服务")).toLocaleLowerCase().includes(query),
   );
   const target = $("#history");
   target.replaceChildren();
@@ -1022,7 +1023,8 @@ function renderHistory() {
     button.type = "button";
     button.dataset.id = run.id;
     button.setAttribute("aria-pressed", String(selected));
-    button.title = run.question + " · " + statusText[run.status];
+    const scope = run.endpoint ? run.endpoint.httpMethod + " " + run.endpoint.routeTemplate : "整个服务";
+    button.title = run.question + " · " + scope + " · " + statusText[run.status];
     const detail = element("small");
     const time = element("time", "", timeText(run.createdAt).slice(0, 5));
     time.dateTime = run.createdAt;
@@ -1038,7 +1040,7 @@ function renderHistory() {
       ),
       time,
     );
-    button.append(element("strong", "", run.question), detail);
+    button.append(element("strong", "", run.question), element("span", "sidebar-history-scope", scope), detail);
     button.addEventListener("click", () => selectRun(run.id));
     target.append(button);
   }

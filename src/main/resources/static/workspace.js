@@ -10,6 +10,8 @@ let deleteSelection = null;
 let activeTab = "history";
 let statisticsRequest = 0;
 let serviceRequest = 0;
+let serviceListRequest = 0;
+const endpointRequests = { filter: 0, statistics: 0 };
 
 function node(tag, text, className) {
   const value = document.createElement(tag);
@@ -33,9 +35,44 @@ function notice(message, error = false) {
 function time(value) { return new Date(value).toLocaleString("zh-CN", { hour12: false }); }
 function duration(value) { return value == null ? "—" : value < 1000 ? Math.round(value) + " ms" : (value / 1000).toFixed(2) + " s"; }
 function statusClass(status) { return status === "FAILED" ? "failed" : status === "SUCCEEDED" ? "success" : ["RUNNING", "QUEUED"].includes(status) ? "running" : "neutral"; }
+function endpointLabel(endpoint, handler = false) {
+  if (!endpoint) return "整个服务";
+  const route = endpoint.httpMethod + " " + endpoint.routeTemplate;
+  const signature = endpoint.handlerClass.split(".").at(-1) + "." + endpoint.handlerMethod + "(" + endpoint.parameterTypes.map((type) => type.split(".").at(-1)).join(", ") + ")";
+  return handler ? route + " · " + signature : route;
+}
+async function loadEndpoints(prefix, preserve = true) {
+  const version = ++endpointRequests[prefix];
+  const service = $("#" + prefix + "-service").value;
+  const field = $("#" + prefix + "-endpoint");
+  const value = preserve ? field.value : "";
+  const previousLabel = field.selectedOptions[0]?.textContent;
+  const all = node("option", "全部范围"); all.value = "";
+  const whole = node("option", "整个服务"); whole.value = "SERVICE";
+  field.replaceChildren(all, whole);
+  if (value && value !== "SERVICE") { const option = node("option", previousLabel); option.value = value; field.append(option); }
+  field.value = value;
+  if (!service) { field.disabled = false; return; }
+  field.disabled = true;
+  try {
+    const entries = await request("/api/history/endpoints?" + new URLSearchParams({ service }));
+    if (version !== endpointRequests[prefix]) return;
+    field.replaceChildren(all, whole);
+    for (const entry of entries) { const option = node("option", endpointLabel(entry, true)); option.value = entry.id; field.append(option); }
+    if (value && value !== "SERVICE" && !entries.some((entry) => entry.id === value)) {
+      const option = node("option", previousLabel || "所选接口（暂无记录）"); option.value = value; field.append(option);
+    }
+    field.value = value;
+  } catch (error) {
+    if (version !== endpointRequests[prefix]) return;
+    notice("接口筛选列表暂未刷新，请稍后重试。", true);
+  } finally { if (version === endpointRequests[prefix]) field.disabled = false; }
+}
 
 async function loadServices() {
+  const version = ++serviceListRequest;
   const entries = await request("/api/history/services");
+  if (version !== serviceListRequest) return;
   for (const selector of ["#filter-service", "#statistics-service"]) {
     const field = $(selector); if (!field) continue;
     const value = field.value;
@@ -44,10 +81,11 @@ async function loadServices() {
     if (value && !entries.some((entry) => entry.id === value)) { const option = node("option", value); option.value = value; field.append(option); }
     field.value = value;
   }
+  await Promise.all([loadEndpoints("filter"), loadEndpoints("statistics")]);
 }
 function selectedFilters() {
   const result = new URLSearchParams();
-  for (const [parameter, selector] of [["q", "#filter-query"], ["service", "#filter-service"], ["status", "#filter-status"], ["mode", "#filter-mode"]]) {
+  for (const [parameter, selector] of [["q", "#filter-query"], ["service", "#filter-service"], ["endpointId", "#filter-endpoint"], ["status", "#filter-status"], ["mode", "#filter-mode"]]) {
     const value = $(selector).value.trim(); if (value) result.set(parameter, value);
   }
   for (const [parameter, selector, extraDay] of [["from", "#filter-from", 0], ["until", "#filter-until", 1]]) {
@@ -69,7 +107,10 @@ function renderHistory() {
   for (const entry of historyPage.items) {
     const row = node("tr"); row.dataset.id = entry.id;
     const first = node("td"); const link = node("a", entry.question || "未记录问题", "history-question");
-    link.href = "/?run=" + encodeURIComponent(entry.id); first.append(link, node("small", time(entry.createdAt)));
+    link.href = "/?run=" + encodeURIComponent(entry.id);
+    const scope = node("span", endpointLabel(entry.endpoint), "history-scope" + (entry.endpoint ? " endpoint" : ""));
+    scope.title = endpointLabel(entry.endpoint, true);
+    first.append(link, scope, node("small", time(entry.createdAt)));
     const service = node("td", entry.serviceInfo?.name || entry.service); service.append(node("small", entry.service));
     const state = node("td"); state.append(node("span", statuses[entry.status], "status " + statusClass(entry.status)));
     const actions = node("td"); const group = node("div", null, "history-row-actions");
@@ -106,7 +147,7 @@ function openDelete(entry) {
   if (deleting) return;
   deleteSelection = entry;
   $("#delete-question").textContent = entry.question || "未记录问题";
-  $("#delete-detail").textContent = (entry.serviceInfo?.name || entry.service) + " · " + time(entry.createdAt) + " · " + statuses[entry.status];
+  $("#delete-detail").textContent = (entry.serviceInfo?.name || entry.service) + " · " + endpointLabel(entry.endpoint) + " · " + time(entry.createdAt) + " · " + statuses[entry.status];
   $("#delete-error").hidden = true;
   $("#delete-history-dialog").showModal(); $("#cancel-delete").focus();
 }
@@ -132,10 +173,12 @@ $("#history-filter").addEventListener("submit", (event) => {
   try { filters = selectedFilters(); previousCursors = []; historyCursor = null; notice(""); loadHistory(); }
   catch (error) { notice(error.message, true); }
 });
-$("#clear-filters").addEventListener("click", () => { $("#history-filter").reset(); $("#history-filter").requestSubmit(); });
+$("#clear-filters").addEventListener("click", () => { $("#history-filter").reset(); loadEndpoints("filter", false); $("#history-filter").requestSubmit(); });
+for (const prefix of ["filter", "statistics"]) $("#" + prefix + "-service").addEventListener("change", () => loadEndpoints(prefix, false));
 $("#history-next").addEventListener("click", () => { if (historyPage?.nextCursor) loadHistory(historyPage.nextCursor, "next"); });
 $("#history-previous").addEventListener("click", () => { if (previousCursors.length) loadHistory(previousCursors.at(-1), "previous"); });
-function renderStatistics(data) {
+function renderStatistics(data, scope) {
+  $("#statistics-scope").textContent = "统计范围：" + scope;
   $("#statistics-range").textContent = time(data.from) + " — " + time(data.until);
   $("#statistics-summary").replaceChildren(...[["排查记录", data.total], ["工具调用", data.toolCalls], ["模型调用轮次", data.modelCalls]].map(([label, value]) => {
     const card = node("div", null, "summary-card"); card.append(node("h3", label), node("strong", Number(value).toLocaleString("zh-CN"))); return card;
@@ -161,14 +204,16 @@ async function loadStatistics() {
   const version = ++statisticsRequest;
   const params = new URLSearchParams({ days: $("#statistics-days").value });
   if ($("#statistics-service").value) params.set("service", $("#statistics-service").value);
-  try { const data = await request("/api/statistics?" + params); if (version === statisticsRequest) renderStatistics(data); }
+  if ($("#statistics-endpoint").value) params.set("endpointId", $("#statistics-endpoint").value);
+  const scope = $("#statistics-service").selectedOptions[0].textContent + " · " + $("#statistics-endpoint").selectedOptions[0].textContent;
+  try { const data = await request("/api/statistics?" + params); if (version === statisticsRequest) renderStatistics(data, scope); }
   catch (error) { if (version === statisticsRequest) notice(error.message, true); }
 }
 function selectTab(value) {
   activeTab = ["history", "statistics", "services"].includes(value) ? value : "history";
   const title = { history: "历史记录", statistics: "运行统计", services: "服务状态" }[activeTab];
   $("#workspace-title").textContent = title; $("#page-title").textContent = title; document.title = title + " · Agent Triage";
-  $("#page-description").textContent = { history: "按服务、执行状态和日期查找已保存的排查。", statistics: "查看保存记录的执行结果、耗时和已知用量。", services: "核对服务连通性、观测协议和当前窗口请求。" }[activeTab];
+  $("#page-description").textContent = { history: "按服务、接口、执行状态和日期查找已保存的排查。", statistics: "按服务和接口查看排查结果、耗时与已知用量。", services: "核对服务连通性、观测协议和当前窗口请求。" }[activeTab];
   document.querySelectorAll("[data-workspace-tab]").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.workspaceTab === activeTab)));
   document.querySelectorAll("[data-workspace-nav]").forEach((link) => { if (link.dataset.workspaceNav === activeTab) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current"); });
   $("#history-panel").hidden = activeTab !== "history"; $("#statistics-panel").hidden = activeTab !== "statistics";
@@ -180,7 +225,7 @@ async function loadServiceChecks() {
   try {
     const data = await request("/api/services/status"); if (version !== serviceRequest) return;
     const stateLabels = { AVAILABLE: "可读取", EMPTY: "暂无请求", UNAVAILABLE: "不可用", SYNTHETIC: "合成演示" };
-    const protocols = { LAB: "订单样例", OBSERVATIONS_V1: "HTTP V1", DATABASE_V2: "数据库 V2" };
+    const protocols = { LAB: "订单样例", OBSERVATIONS_V1: "HTTP V1", DATABASE_V2: "数据库 V2", OBSERVATIONS_V3: "HTTP 接口 V3" };
     $("#service-checks").replaceChildren(...data.map((check) => {
       const card = node("article", null, "management-card service-check"); const heading = node("div", null, "management-heading");
       const identity = node("div"); identity.append(node("h2", check.service.name), node("p", check.service.id, "service-check-id"));
@@ -203,7 +248,7 @@ $("#refresh-workspace").addEventListener("click", () => {
   if (activeTab === "statistics") loadStatistics(); else if (activeTab === "services") loadServiceChecks(); else { previousCursors = []; historyCursor = null; loadHistory(null); }
   loadServices().catch((error) => notice(error.message, true));
 });
+$("#history-filter").reset(); $("#statistics-filter").reset();
 loadServices().catch((error) => notice(error.message, true));
 loadHistory(null);
 selectTab(window.location.hash.slice(1));
-window.addEventListener("pageshow", (event) => { if (!event.persisted) { $("#history-filter").reset(); $("#statistics-filter").reset(); } });

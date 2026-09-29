@@ -58,10 +58,11 @@ V3 的指标证据含本机使用的 `requestDetails`，`graph.endpointMatches` 
 | `GET /api/config?service=checkout-service` | 所选服务的配置与接口可用状态；`services` 提供全部可选服务，`labEnabled` 表示是否允许演示控制 |
 | `GET /api/demo` | `/api/config` 的兼容入口 |
 | `GET /api/runs?limit=20` | 最近执行摘要，limit 为 1–50 |
-| `GET /api/history` | 完整历史游标分页，支持关键词、服务、状态、模式与日期筛选 |
+| `GET /api/history` | 完整历史游标分页，支持关键词、服务、接口、状态、模式与日期筛选 |
 | `GET /api/history/services` | 历史中的服务与最新名称，包含已移除的服务 |
+| `GET /api/history/endpoints?service=ticket-service` | 该服务历史中保存的接口描述，最多 200 个；不访问业务服务 |
 | `DELETE /api/history/{uuid}` | 本机同源请求带 `X-Triage-History: 1` 和匹配的 `confirmId`，删除已结束记录 |
-| `GET /api/statistics?days=7` | 近 1–90 天的状态、耗时、调用和已知用量，可按历史服务筛选 |
+| `GET /api/statistics?days=7` | 近 1–90 天的状态、耗时、调用和已知用量，可按历史服务和接口筛选 |
 | `GET /api/services/status` | 登记服务的只读观测状态，短期缓存，不依赖模型选择 |
 | `GET /api/runs/{uuid}` | 完整执行记录，包含事件、证据、结论或失败信息 |
 | `POST /api/runs/{uuid}/cancel` | 本机同源请求带 `X-Triage-Run: 1`，取消排队或运行中的任务并返回保存后的记录 |
@@ -70,6 +71,8 @@ V3 的指标证据含本机使用的 `requestDetails`，`graph.endpointMatches` 
 运行模式由服务端配置，提交请求不能切换模式。执行记录和列表摘要的 `mode` 为 `DEMO` 或 `MODEL`。默认合成数据源下 `synthetic` 为 true；启用 LIVE 数据源后为 false。旧 `LAB` 协议读取订单样例当前场景；`OBSERVATIONS_V1` 和 `DATABASE_V2` 只调用观测接口，场景保存为 `OBSERVED`。LIVE 提交体中的 `scenario` 不决定观测值。
 
 新记录和摘要包含 `serviceInfo`，保留执行时的服务与下游名称。旧历史中的该字段可为空，仍能读取。观测地址不会出现在公共配置和执行记录中。[接口契约与接入配置](SERVICE_INTEGRATION.md)另见说明。
+
+历史条目和最近摘要包含可选的 `endpoint`，描述执行时所选接口。历史与统计的 `endpointId=EP-...` 必须同时指定 `service`；`endpointId=SERVICE` 只查询未限定接口的记录，省略时包含全部范围。关键词也按字面匹配保存的路由与处理方法。V6 迁移启动回填索引，不改写历史 JSON。详情见[工作区管理](WORKSPACE.md)。
 
 LIVE 配置返回 `observationRequestCount` 与 `observationWindowMinutes`，表示可用性检查读取的窗口；空窗口保持可用，并提示先产生业务请求。观测不可用时返回 `observationErrorCode` 和固定的 `observationMessage`。连接失败、接口缺失、访问拒绝、响应超时、版本不匹配、契约无效和保留窗口丢失分别处理，不返回远端地址或错误正文。执行过程中遇到同类失败，也会保存对应 `OBSERVATION_*` 代码，保留此前已取得的证据。
 

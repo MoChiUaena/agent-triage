@@ -108,6 +108,7 @@ p {
   z-index: 5;
   padding: 0 14px;
 }
+.sidebar-history-scope { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
 .brand {
   height: 67px;
   padding: 0 7px;
