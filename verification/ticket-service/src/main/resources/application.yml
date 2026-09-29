@@ -1,0 +1,10 @@
+server:
+  address: 127.0.0.1
+  port: 18308
+triage:
+  sdk:
+    enabled: true
+    service-id: ticket-service
+    downstream-id: assignment-service
+    downstream-base-url: http://127.0.0.1:18309
+    max-window-minutes: 15

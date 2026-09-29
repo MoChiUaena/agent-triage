@@ -34,9 +34,13 @@ jobs:
           node --check src/main/resources/static/app.js
           node --check src/main/resources/static/settings.js
           node --check src/main/resources/static/workspace.js
+          node --check src/main/resources/static/sources.js
+          node --check src/main/resources/static/source-view.js
       - name: Verify Spring Boot starter and independent application
         shell: bash
         run: ./mvnw -B -ntp -f integrations/pom.xml verify
+      - name: Verify local source integration with independent helpdesk service
+        run: python scripts/source_integration_smoke.py
   postgres:
     name: PostgreSQL HTTP integration
     runs-on: ubuntu-latest
@@ -58,7 +62,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest,HistoryApiTest,StatisticsApiTest test
+      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest,HistoryApiTest,StatisticsApiTest,SourceProjectApiTest test
         env:
           TRIAGE_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage
           TRIAGE_TEST_DB_USER: triage

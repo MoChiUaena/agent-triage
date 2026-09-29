@@ -4,5 +4,5 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>io.github.mochiuaena</groupId><artifactId>triage-integrations</artifactId><version>0.3.0</version>
   <packaging>pom</packaging>
-  <modules><module>../triage-spring-boot-starter</module><module>../catalog-service</module></modules>
+  <modules><module>../triage-spring-boot-starter</module><module>../catalog-service</module><module>../verification/ticket-service</module></modules>
 </project>
