@@ -7,6 +7,7 @@ let sharing = null;
 let searchVersion = 0;
 let editing = null;
 let removal = null;
+let readinessVersion = 0;
 
 async function api(path, options = {}) {
   const response = await fetch(path, { cache: "no-store", ...options });
@@ -33,6 +34,7 @@ function lock(value) {
   document.querySelectorAll("main button").forEach(button => button.disabled = value || button.dataset.unbound === "true");
   $("#register-source").disabled = value || !$("#source-service").value;
   $("#search-source").disabled = value || !projects.length;
+  $("#check-source-ready").disabled = value || !services.length;
 }
 function render() {
   const previous = $("#search-project").value;
@@ -64,6 +66,8 @@ function render() {
     edit.addEventListener("click", () => openEdit(project));
     actions.append(edit);
     if (project.service) {
+      const check = node("button", "secondary", "检查接入"); check.type = "button";
+      check.addEventListener("click", () => checkReadiness(project.service)); actions.append(check);
       const unbind = node("button", "secondary", "解除绑定");
       unbind.type = "button";
       unbind.addEventListener("click", () => operate(async () => {
@@ -136,8 +140,80 @@ async function loadChain(excerpt) {
 }
 async function reload() {
   [projects, services] = await Promise.all([api("/api/source-projects"), api("/api/source-projects/services")]);
+  const selected = $("#check-source-service").value;
+  $("#check-source-service").replaceChildren(...services.map(service => { const option = node("option", "", service.name + " · " + service.id); option.value = service.id; return option; }));
+  if (services.some(service => service.id === selected)) $("#check-source-service").value = selected;
+  clearReadiness(); checkWindows();
   render();
 }
+function clearReadiness() {
+  readinessVersion++; $("#source-check-result").replaceChildren();
+  $("#source-check-notice").textContent = "只读观测与本机索引，不调用模型、不生成业务请求。";
+  $("#source-check-notice").classList.remove("failure");
+}
+function checkWindows() {
+  const service = services.find(value => value.id === $("#check-source-service").value);
+  const previous = Number($("#check-source-window").value); const maximum = service?.maxWindowMinutes || 5;
+  const values = [...new Set([1, 5, 15, 30, 60, maximum].filter(value => value <= maximum))].sort((a, b) => a - b);
+  $("#check-source-window").replaceChildren(...values.map(value => { const option = node("option", "", "最近 " + value + " 分钟"); option.value = String(value); return option; }));
+  $("#check-source-window").value = String(values.includes(previous) ? previous : Math.min(5, maximum));
+}
+function renderReadiness(check) {
+  const result = $("#source-check-result"); result.replaceChildren();
+  const states = {READY:"本窗口代码定位检查通过", PARTIAL:"观测可用，接入仍有待完善", EMPTY:"观测可用，窗口暂无请求", SOURCE_STALE:"源码索引需要更新",
+    SOURCE_VERSION_DIFFERENT:"源码与运行构建不同", PROJECT_CHANGED:"检查期间源码项目已变化", OBSERVATION_UNAVAILABLE:"观测接口不可用", SYNTHETIC:"当前使用合成演示"};
+  const heading = node("div", "source-check-heading");
+  heading.append(node("h3", "", states[check.state] || "检查已完成"), node("span", "source-check-time", new Date(check.checkedAt).toLocaleString("zh-CN", {hour12:false}) + " · " + check.responseMillis + " ms")); result.append(heading);
+  result.append(node("p", "source-result-note", check.service.name + " · " + check.service.id + " · 最近 " + check.windowMinutes + " 分钟" +
+    (check.project ? " · " + check.project.name + " / 索引 v" + check.project.revision : " · 未绑定源码")));
+  const labels = {PASS:"通过", WAIT:"待完成", BLOCKED:"需要处理", OPTIONAL:"可选完善", SKIPPED:"尚未检查"};
+  const steps = node("ol", "source-check-steps");
+  for (const step of check.steps) {
+    const card = node("li", "source-check-step " + step.state.toLowerCase());
+    const title = node("div", "source-check-step-heading"); title.append(node("strong", "", step.title), node("span", "", labels[step.state] || step.state));
+    card.append(title, node("p", "", step.message)); if (step.nextAction) card.append(node("p", "source-check-next", "下一步：" + step.nextAction)); steps.append(card);
+  }
+  result.append(steps);
+  const entryLabels = {MATCHED:"入口匹配", CANDIDATE:"方法候选", AMBIGUOUS:"多个候选", NO_MATCH:"没有对应入口", REINDEX_REQUIRED:"需要重新索引", SOURCE_MISMATCH:"源码版本不同", STALE:"文件已变动"};
+  if (check.endpoints.length) {
+    const details = node("details", "source-check-details"); details.append(node("summary", "", "本窗口 MVC 入口（" + check.endpoints.length + "）"));
+    for (const entry of check.endpoints) {
+      const row = node("div", "source-check-entry"); row.append(node("strong", "", entry.endpoint.httpMethod + " " + entry.endpoint.routeTemplate),
+        node("p", "", entry.endpoint.handlerClass + "." + entry.endpoint.handlerMethod + " · " + (entryLabels[entry.state] || entry.state)), node("p", "", entry.message));
+      sourceView.version(row, entry.version); details.append(row);
+    }
+    result.append(details);
+  }
+  if (check.errorPositions.length) {
+    const details = node("details", "source-check-details"); details.append(node("summary", "", "已采集错误位置（" + check.errorPositions.length + "）"));
+    for (const position of check.errorPositions) {
+      const row = node("div", "source-check-entry"); row.append(node("strong", "", position.frame.className + "." + position.frame.methodName), node("p", "", position.message));
+      sourceView.version(row, position.version); details.append(row);
+    }
+    result.append(details);
+  }
+  const actions = node("div", "source-check-actions");
+  const go = node("a", "secondary", "排查这个服务"); go.href = "/?" + new URLSearchParams({service:check.service.id}); actions.append(go);
+  const guide = node("a", "", "查看接入说明"); guide.href = "https://github.com/MoChiUaena/agent-triage/blob/main/docs/SERVICE_INTEGRATION.md"; guide.target = "_blank"; guide.rel = "noopener"; actions.append(guide); result.append(actions);
+  result.append(node("p", "source-result-note", "结果仅覆盖本窗口观测到的 MVC 入口和错误位置，不表示整个代码库版本一致。检查本身不会生成业务请求。"));
+}
+async function checkReadiness(service = null) {
+  if (busy) return;
+  if (service) { $("#check-source-service").value = service; checkWindows(); }
+  const selected = $("#check-source-service").value; if (!selected) return;
+  lock(true); const version = ++readinessVersion;
+  $("#source-check-result").replaceChildren(); $("#source-check-notice").textContent = "正在读取观测并核对本机索引…"; $("#source-check-notice").classList.remove("failure");
+  try {
+    const data = await api("/api/services/" + encodeURIComponent(selected) + "/source-check?" + new URLSearchParams({windowMinutes:$("#check-source-window").value}));
+    if (version !== readinessVersion) return;
+    renderReadiness(data); $("#source-check-notice").textContent = "检查完成。";
+    $("#source-readiness").scrollIntoView({block:"start",behavior:"auto"});
+  } catch (error) { if (version === readinessVersion) { $("#source-check-notice").textContent = error.message; $("#source-check-notice").classList.add("failure"); } }
+  finally { lock(false); }
+}
+$("#source-check-form").addEventListener("submit", event => { event.preventDefault(); checkReadiness(); });
+$("#check-source-service").addEventListener("change", () => { clearReadiness(); checkWindows(); });
+$("#check-source-window").addEventListener("change", clearReadiness);
 async function operate(action) {
   if (busy) return;
   lock(true);

@@ -1,5 +1,24 @@
 .source-registration, .source-search-box { padding: 22px; border: 1px solid var(--line); border-radius: 9px; background: #fff; margin-bottom: 24px; }
 .source-registration h2, .source-search-box h2 { margin-bottom: 18px; font-size: 16px; }
+.source-field-note { margin-top: 6px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.source-readiness form label { display: grid; gap: 6px; font-size: 13px; color: var(--muted); min-width: 0; }
+.source-readiness form { align-items: end; }.source-readiness form label:first-child { flex: 1; }
+.source-readiness select { width: 100%; }.source-readiness form button { padding: 9px 18px; }
+.source-check-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 18px; }
+.source-check-heading h3 { font-size: 15px; }.source-check-time { color: var(--muted); font-size: 12px; }
+.source-check-steps { padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; margin: 16px 0; }
+.source-check-step { padding: 14px 16px; border: 1px solid var(--line); border-radius: 8px; background: #f8fbff; min-width: 0; }
+.source-check-step-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; }
+.source-check-step-heading span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.source-check-step.pass .source-check-step-heading span { color: var(--success); }.source-check-step.blocked { background: #fff7ed; border-color: #efd7b4; }
+.source-check-step.blocked .source-check-step-heading span { color: #95631b; }
+.source-check-step p { font-size: 13px; line-height: 1.8; color: var(--muted); margin-top: 9px; overflow-wrap: anywhere; }
+.source-check-next { color: var(--ink); }.source-check-details { margin: 16px 0; font-size: 13px; }.source-check-details > summary { cursor: pointer; color: var(--accent); }
+.source-check-entry { border: 1px solid var(--line); border-radius: 7px; padding: 12px 14px; margin: 10px 0; overflow-wrap: anywhere; }
+.source-check-entry p { font-size: 13px; line-height: 1.8; margin-top: 8px; color: var(--muted); }
+.source-check-actions { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }.source-check-actions a { color: var(--accent); font-size: 13px; text-decoration: none; }
+#source-check-notice.failure { color: var(--danger); }
+@media (max-width: 720px) { .source-check-steps { grid-template-columns: 1fr; }.source-readiness form label:first-child { flex-basis: 100%; } }
 .source-registration .form-grid { grid-template-columns: 1fr 1fr 2fr; }
 .source-registration .form-field { margin-bottom: 12px; }
 .source-registration footer, .source-search-box form { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }

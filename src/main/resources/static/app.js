@@ -1217,7 +1217,8 @@ document.addEventListener("keydown", (event) => {
 const mobileLayout = window.matchMedia("(max-width: 720px)");
 mobileLayout.addEventListener("change", () => setSidebar(false));
 setSidebar(false);
-loadConfiguration().then(() => {
+const requestedService = new URLSearchParams(window.location.search).get("service");
+loadConfiguration(requestedService && /^[a-z][a-z0-9-]{0,63}$/.test(requestedService) ? requestedService : "").then(() => {
   const requestedRun = new URLSearchParams(window.location.search).get("run");
   if (requestedRun && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedRun)) selectRun(requestedRun);
 });

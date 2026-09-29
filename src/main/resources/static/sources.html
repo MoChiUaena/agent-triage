@@ -29,11 +29,22 @@
     <main class="workspace settings-workspace">
       <div class="settings-heading"><div><h1>项目源码</h1><p>登记本机 Java 项目，把排查结果关联到类、方法和接口位置。</p></div><button class="secondary" id="refresh-sources" type="button">刷新</button></div>
       <p class="settings-notice" id="source-notice" role="status" hidden></p>
+      <section id="source-readiness" class="source-search-box source-readiness" aria-label="服务接入检查">
+        <h2>检查服务接入</h2>
+        <p class="source-result-note">核对已登记服务的观测、源码入口和构建摘要，查看还需要完成哪些步骤。</p>
+        <form id="source-check-form">
+          <label for="check-source-service">服务<select id="check-source-service"><option value="">正在读取服务…</option></select></label>
+          <label for="check-source-window">检查窗口<select id="check-source-window"><option value="5">最近 5 分钟</option></select></label>
+          <button id="check-source-ready" class="primary" type="submit" disabled>检查接入</button>
+        </form>
+        <p id="source-check-notice" class="source-result-note" role="status">只读观测与本机索引，不调用模型、不生成业务请求。</p>
+        <div id="source-check-result" aria-live="polite"></div>
+      </section>
       <form id="source-registration" class="source-registration">
         <h2>登记项目</h2>
         <div class="form-grid">
           <div class="form-field"><label for="source-name">项目名称</label><input id="source-name" required maxlength="80" placeholder="例如：工单服务" /></div>
-          <div class="form-field"><label for="source-service">绑定服务</label><select id="source-service" required><option value="">正在读取服务…</option></select></div>
+          <div class="form-field"><label for="source-service">绑定服务</label><select id="source-service" required><option value="">正在读取服务…</option></select><p class="source-field-note">服务列表来自 Agent 启动配置，新增服务后重启生效。</p></div>
           <div class="form-field"><label for="source-directory">本机项目目录</label><input id="source-directory" required maxlength="2048" placeholder="填写包含 Java 源码的文件夹路径" autocomplete="off" /></div>
         </div>
         <footer><p>只解析 Java 文件，不编译或运行项目。模型读取源码默认关闭。</p><button class="primary" id="register-source" type="submit" disabled>登记并索引</button></footer>
