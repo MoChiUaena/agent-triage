@@ -41,11 +41,13 @@ class AssignmentHandler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--base-port", type=int, default=18320)
+    parser.add_argument("--base-port", type=int, help="Default: 18320 for V1, 18340 for V3")
     parser.add_argument("--serve-assignment", action="store_true", help="Keep only the local assignment fixture running")
     parser.add_argument("--slow", action="store_true")
     parser.add_argument("--protocol-v3", action="store_true", help="Verify endpoint-scoped MVC observations")
     args = parser.parse_args()
+    if args.base_port is None:
+        args.base_port = 18340 if args.protocol_v3 else 18320
     if args.serve_assignment:
         AssignmentHandler.slow = args.slow
         ThreadingHTTPServer(("127.0.0.1", args.base_port), AssignmentHandler).serve_forever()
