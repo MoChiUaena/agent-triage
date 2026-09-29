@@ -13,6 +13,7 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         double downstreamMs;
         boolean timeout;
         MvcEndpoint endpoint;
+        FailureLocations.Location failureLocation;
     }
     private final ObservationRecorder recorder;
     TriageRequestFilter(ObservationRecorder recorder) { this.recorder = recorder; }
@@ -24,11 +25,15 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         long start = System.nanoTime();
         boolean failed = false;
         try { chain.doFilter(request, response); }
-        catch (ServletException | IOException | RuntimeException e) { failed = true; throw e; }
+        catch (ServletException | IOException | RuntimeException e) {
+            failed = true;
+            if (context.failureLocation == null) context.failureLocation = recorder.requestFailure(e);
+            throw e;
+        }
         finally {
             CURRENT.remove();
             if (!request.isAsyncStarted()) recorder.recordHttp(ObservationRecorder.elapsed(start), context.downstreamMs,
-                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint);
+                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint, context.failureLocation);
         }
     }
 }

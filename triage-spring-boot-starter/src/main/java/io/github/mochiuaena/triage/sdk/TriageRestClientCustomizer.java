@@ -51,6 +51,7 @@ final class TriageRestClientCustomizer implements RestClientCustomizer {
         });
     }
     private void markTimeout(TriageRequestFilter.Context context, Throwable error) {
+        if (context.failureLocation == null) context.failureLocation = FailureLocations.capture(error, properties, "HTTP_CLIENT_FAILURE");
         var seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Throwable, Boolean>());
         for (Throwable cause = error; cause != null && seen.add(cause); cause = cause.getCause()) {
             if (cause instanceof SocketTimeoutException || cause instanceof HttpTimeoutException) { context.timeout = true; break; }

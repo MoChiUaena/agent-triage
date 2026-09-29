@@ -15,11 +15,16 @@ public class TriageObservationProperties {
     private int maxWindowMinutes = 15;
     private int capacity = 10_000;
     private boolean endpointObservations;
+    private boolean exceptionLocations;
+    private java.util.List<String> applicationPackages = java.util.List.of();
 
     void validate() {
         if (kind == null || !identity(serviceId) || !identity(downstreamId))
             throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
         if (endpointObservations && kind != Kind.HTTP) throw new IllegalArgumentException("triage.sdk endpoint-observations requires HTTP kind");
+        if (applicationPackages == null || applicationPackages.size() > 8 || applicationPackages.stream().anyMatch(value -> !FailureLocations.javaName(value, 160, true))
+            || exceptionLocations && (!endpointObservations || applicationPackages.isEmpty()))
+            throw new IllegalArgumentException("triage.sdk exception-locations requires endpoint-observations and 1..8 application-packages");
         if (maxWindowMinutes < 1 || maxWindowMinutes > 60 || capacity < 10 || capacity > 100_000)
             throw new IllegalArgumentException("triage.sdk window must be 1..60 minutes and capacity 10..100000");
         if (requestPathPrefix == null || !requestPathPrefix.matches("/(?:[a-zA-Z0-9_-]+/)+")
@@ -56,4 +61,8 @@ public class TriageObservationProperties {
     public void setCapacity(int value) { capacity = value; }
     public boolean isEndpointObservations() { return endpointObservations; }
     public void setEndpointObservations(boolean value) { endpointObservations = value; }
+    public boolean isExceptionLocations() { return exceptionLocations; }
+    public void setExceptionLocations(boolean value) { exceptionLocations = value; }
+    public java.util.List<String> getApplicationPackages() { return applicationPackages; }
+    public void setApplicationPackages(java.util.List<String> value) { applicationPackages = value == null ? null : java.util.List.copyOf(value); }
 }

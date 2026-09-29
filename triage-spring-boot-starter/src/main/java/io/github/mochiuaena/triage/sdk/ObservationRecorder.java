@@ -10,8 +10,12 @@ import static org.springframework.http.HttpStatus.*;
 public final class ObservationRecorder {
     private static final int QUERY_GRACE_SECONDS = 120;
     record Error(Instant timestamp, String traceId, String level, String message) {}
+    record EndpointError(Instant timestamp, String traceId, String level, String message,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                         FailureLocations.Location failureLocation) {}
     record DatabaseError(Instant timestamp, String traceId, String level, String message, String code) {}
-    record HttpSample(Instant timestamp, double requestMs, double downstreamMs, boolean timeout, Error error, MvcEndpoint endpoint) {}
+    record HttpSample(Instant timestamp, double requestMs, double downstreamMs, boolean timeout, Error error, MvcEndpoint endpoint,
+                      FailureLocations.Location failureLocation) {}
     record DatabaseSample(Instant timestamp, double requestMs, double acquisitionMs, double queryMs, String code,
                           DatabaseError error) {}
     record PoolSample(Instant timestamp, int active, int pending) {}
@@ -28,7 +32,7 @@ public final class ObservationRecorder {
     record EndpointSummary(MvcEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms) {}
     record EndpointWindow(int schemaVersion, String kind, String service, String downstreamService, Instant windowStart, Instant windowEnd,
                           int requestCount, int timeoutCount, long recordedRequestCount, double requestP95Ms, double downstreamP95Ms,
-                          double downstreamTimeoutRate, Double baselineRequestP95Ms, List<Error> errors, boolean synthetic,
+                          double downstreamTimeoutRate, Double baselineRequestP95Ms, List<EndpointError> errors, boolean synthetic,
                           MvcEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount) {}
     private final TriageObservationProperties properties;
     private final Clock clock;
@@ -48,10 +52,14 @@ public final class ObservationRecorder {
         recordHttp(requestMs, downstreamMs, timeout, failed, trace, null);
     }
     synchronized void recordHttp(double requestMs, double downstreamMs, boolean timeout, boolean failed, String trace, MvcEndpoint endpoint) {
+        recordHttp(requestMs, downstreamMs, timeout, failed, trace, endpoint, null);
+    }
+    synchronized void recordHttp(double requestMs, double downstreamMs, boolean timeout, boolean failed, String trace, MvcEndpoint endpoint,
+                                 FailureLocations.Location location) {
         Instant time = now();
         Error error = timeout ? new Error(time, trace, "ERROR", properties.getDownstreamId() + " request timeout")
             : failed ? new Error(time, trace, "ERROR", "HTTP request failed") : null;
-        http.addLast(new HttpSample(time, requestMs, downstreamMs, timeout, error, endpoint)); recorded++;
+        http.addLast(new HttpSample(time, requestMs, downstreamMs, timeout, error, endpoint, location)); recorded++;
         trim(http, HttpSample::timestamp, properties.getCapacity());
     }
     synchronized void recordDatabase(double requestMs, double acquisitionMs, double queryMs, String code, String trace) {
@@ -120,8 +128,12 @@ public final class ObservationRecorder {
         int timeouts = (int) matching.stream().filter(HttpSample::timeout).count();
         return new EndpointWindow(3, "HTTP_ENDPOINTS", properties.getServiceId(), properties.getDownstreamId(), start, end, matching.size(), timeouts,
             recorded, p95(matching.stream().map(HttpSample::requestMs).toList()), p95(matching.stream().map(HttpSample::downstreamMs).toList()),
-            matching.isEmpty() ? 0 : (double) timeouts / matching.size(), null, errors(matching), false, selected, summaries, unattributed, other);
+            matching.isEmpty() ? 0 : (double) timeouts / matching.size(), null,
+            matching.stream().filter(v -> v.error() != null).sorted(Comparator.comparing(HttpSample::timestamp).reversed()).limit(3)
+                .map(v -> new EndpointError(v.error().timestamp(), v.error().traceId(), v.error().level(), v.error().message(), v.failureLocation())).toList(),
+            false, selected, summaries, unattributed, other);
     }
+    FailureLocations.Location requestFailure(Throwable error) { return FailureLocations.capture(error, properties, "REQUEST_EXCEPTION"); }
     private List<Error> errors(List<HttpSample> matching) {
         return matching.stream().filter(v -> v.error() != null).sorted(Comparator.comparing(HttpSample::timestamp).reversed())
             .limit(3).map(HttpSample::error).toList();
