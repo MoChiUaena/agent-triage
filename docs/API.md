@@ -54,6 +54,10 @@ V3 的指标证据含本机使用的 `requestDetails`，`graph.endpointMatches` 
 
 日志证据中的 `failureLocations` 供本机匹配使用，`sourceAnalysis.graph.failureMatches` 保存观测、日志引用与片段。它包含位置对应、候选、歧义、文件或行号不符、索引外和文件失效状态。两类模型请求均移除 `failureLocations`，位置匹配的额外片段不扩展候选选择请求。V1/V2 不接收位置字段，旧记录仍可读取。
 
+开启构建摘要核对的 V3 可在接口描述及 HTTP 失败帧附带可选 `sourceHash`，仅接受 64 位小写 SHA-256。接口 ID 仍由方法签名与路径生成，摘要作为执行时的快照保存。`endpointMatches[].version` 和 `failureMatches[].frames[].version` 给出 `MATCHED`、`DIFFERENT`、`UNKNOWN` 或 `UNAVAILABLE`，并保留运行与索引摘要；旧记录该对象可为空。
+
+摘要不同的入口或帧为 `SOURCE_MISMATCH`，不返回对应源码引用。`sourceAnalysis.state` 和 `graph.state` 为 `SOURCE_VERSION_DIFFERENT` 时，保留运行诊断，停止调用关系展开与源码模型请求。普通异常栈无法确定实际类来源时不附加猜测的摘要。新增摘要随本机观测描述一起从模型输入移除。
+
 ## 查询与订阅
 
 | 请求 | 结果 |

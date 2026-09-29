@@ -41,7 +41,7 @@ class EndpointRunApiTest {
     }
     @BeforeEach void setup() throws Exception {
         jdbc.update("DELETE FROM source_projects"); jdbc.update("DELETE FROM model_selection"); jdbc.update("DELETE FROM model_providers");
-        STUB.requests.clear(); STUB.locations = false;
+        STUB.requests.clear(); STUB.locations = false; STUB.sourceHash = null; STUB.handlerHash = null;
         Files.writeString(root.resolve("PrivateRoutingController.java"), """
             package fixture;
             class PrivateRoutingController {
@@ -125,6 +125,28 @@ class EndpointRunApiTest {
         sources.reindex(project.id());
         assertThat(http.getForObject("/api/runs/" + result.id(), Run.class).sourceAnalysis().graph().failureMatches()).isEqualTo(result.sourceAnalysis().graph().failureMatches());
     }
+    @Test void differentBuildSourceDigestKeepsRuntimeDiagnosisAndPreventsSourceModelDispatch() {
+        STUB.locations = true; STUB.sourceHash = "e".repeat(64);
+        var provider = providers.create(new ProviderConfig.Input("版本协议验证", ProviderConfig.Protocol.OPENAI_COMPATIBLE, STUB.url(), "endpoint-stub", "test-only-local", .2, 2, 4, 1600, 0));
+        providers.select("MODEL", provider.id()); var project = sources.bound("ticket-service");
+        sources.sharing(project.id(), project.revision(), true, provider.id(), provider.version(), providers.current().selectionToken());
+        Run result = run(STUB.failed.id(), true, true);
+        assertThat(result.sourceAnalysis().state()).isEqualTo("SOURCE_VERSION_DIFFERENT");
+        assertThat(result.sourceAnalysis().excerpts()).isEmpty(); assertThat(result.sourceAnalysis().graph().nodes()).isEmpty();
+        var frame = result.sourceAnalysis().graph().failureMatches().getFirst().frames().getFirst();
+        assertThat(frame.state()).isEqualTo("SOURCE_MISMATCH"); assertThat(frame.version().state()).isEqualTo("DIFFERENT"); assertThat(frame.excerpts()).isEmpty();
+        assertThat(result.diagnosis()).isNotNull(); assertThat(STUB.requests).hasSize(2);
+        assertThat(STUB.requests.toString()).doesNotContain("sourceHash", "e".repeat(64), "local-frame-private-marker");
+        assertThat(http.getForObject("/api/runs/" + result.id(), Run.class).sourceAnalysis()).isEqualTo(result.sourceAnalysis());
+    }
+    @Test void handlerBuildDigestStopsAStaleEntryEvenWhenNoErrorFramesArePresent() {
+        STUB.handlerHash = "d".repeat(64);
+        Run result = run(STUB.healthy.id(), true);
+        assertThat(result.sourceAnalysis().state()).isEqualTo("SOURCE_VERSION_DIFFERENT");
+        assertThat(result.sourceAnalysis().graph().endpointMatches().getFirst().state()).isEqualTo("SOURCE_MISMATCH");
+        assertThat(result.sourceAnalysis().graph().endpointMatches().getFirst().version().state()).isEqualTo("DIFFERENT");
+        assertThat(result.sourceAnalysis().excerpts()).isEmpty();
+    }
     static RequestEndpoint endpoint(String route, List<String> parameters) {
         try {
             String identity = String.join("\0", "GET", route, "fixture.PrivateRoutingController", "ticket", String.join(",", parameters));
@@ -137,6 +159,8 @@ class EndpointRunApiTest {
         final ExecutorService workers = Executors.newCachedThreadPool();
         final List<JsonNode> requests = new CopyOnWriteArrayList<>();
         volatile boolean locations;
+        volatile String sourceHash;
+        volatile String handlerHash;
         final RequestEndpoint healthy = endpoint("/api/tickets/summary", List.of());
         final RequestEndpoint failed = endpoint("/api/tickets/{id}", List.of("java.lang.String"));
         Stub() {
@@ -153,15 +177,17 @@ class EndpointRunApiTest {
                             .put("windowStart",end.minusSeconds(minutes*60L).toString()).put("windowEnd",end.toString()).put("requestCount",count).put("timeoutCount",timeouts).put("recordedRequestCount",5)
                             .put("requestP95Ms",timeouts>0?300:20).put("downstreamP95Ms",timeouts>0?280:10).put("downstreamTimeoutRate",(double)timeouts/count).putNull("baselineRequestP95Ms")
                             .put("synthetic",false).put("unattributedRequestCount",0).put("otherEndpointRequestCount",0);
-                        value.set("endpoint",JSON.valueToTree(all?null:bad?failed:healthy)); var endpoints=value.putArray("endpoints");
-                        if (all||bad) add(endpoints,failed,2,2); if (all||!bad) add(endpoints,healthy,3,0);
+                        RequestEndpoint currentHealthy = hashed(healthy), currentFailed = hashed(failed);
+                        value.set("endpoint",JSON.valueToTree(all?null:bad?currentFailed:currentHealthy)); var endpoints=value.putArray("endpoints");
+                        if (all||bad) add(endpoints,currentFailed,2,2); if (all||!bad) add(endpoints,currentHealthy,3,0);
                         var errors=value.putArray("errors");
                         if (timeouts>0) {
                             var error = errors.addObject().put("timestamp",end.minusSeconds(1).toString()).put("traceId","fixture-trace").put("level","ERROR").put("message",timeouts>0 ? "assignment-service request timeout" : "HTTP request failed");
                             if (locations) {
                                 var detail = error.putObject("failureLocation").put("kind","HTTP_CLIENT_FAILURE").put("truncated",false);
                                 detail.putArray("exceptionTypes").add("fixture.LocalFailureMarker");
-                                detail.putArray("frames").addObject().put("className","fixture.StackOnlyProbe").put("methodName","locate").put("fileName","StackOnlyProbe.java").put("lineNumber",5);
+                                var frame = detail.putArray("frames").addObject().put("className","fixture.StackOnlyProbe").put("methodName","locate").put("fileName","StackOnlyProbe.java").put("lineNumber",5);
+                                if (sourceHash != null) frame.put("sourceHash", sourceHash);
                             }
                         }
                         respond(exchange,JSON.writeValueAsBytes(value));
@@ -189,6 +215,7 @@ class EndpointRunApiTest {
                 }); server.start();
             } catch (Exception e) { throw new IllegalStateException(e); }
         }
+        RequestEndpoint hashed(RequestEndpoint endpoint) { return new RequestEndpoint(endpoint.id(), endpoint.httpMethod(), endpoint.routeTemplate(), endpoint.handlerClass(), endpoint.handlerMethod(), endpoint.parameterTypes(), endpoint.stage(), handlerHash); }
         static void add(ArrayNode values, RequestEndpoint endpoint, int count, int timeouts) {
             var item=values.addObject(); item.set("endpoint",JSON.valueToTree(endpoint)); item.put("requestCount",count).put("timeoutCount",timeouts).put("requestP95Ms",timeouts>0?300:20).put("downstreamP95Ms",timeouts>0?280:10);
         }

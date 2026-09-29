@@ -15,10 +15,16 @@ public final class TriageModel {
         public static ServiceInfo order() { return new ServiceInfo("order-service", "订单服务", "inventory-service", "库存服务"); }
     }
     public record RequestEndpoint(String id, String httpMethod, String routeTemplate, String handlerClass, String handlerMethod,
-                                  List<String> parameterTypes, String stage) {}
+                                  List<String> parameterTypes, String stage, String sourceHash) {
+        public RequestEndpoint(String id, String httpMethod, String routeTemplate, String handlerClass, String handlerMethod, List<String> parameterTypes, String stage) {
+            this(id, httpMethod, routeTemplate, handlerClass, handlerMethod, parameterTypes, stage, null);
+        }
+    }
     public record EndpointSummary(RequestEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms) {}
     public record RequestDetails(RequestEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount) {}
-    public record FailureFrame(String className, String methodName, String fileName, Integer lineNumber) {}
+    public record FailureFrame(String className, String methodName, String fileName, Integer lineNumber, String sourceHash) {
+        public FailureFrame(String className, String methodName, String fileName, Integer lineNumber) { this(className, methodName, fileName, lineNumber, null); }
+    }
     public record FailureLocation(String kind, List<String> exceptionTypes, List<FailureFrame> frames, Boolean truncated) {}
     public record RequestFailure(Instant timestamp, String traceId, FailureLocation location) {}
 

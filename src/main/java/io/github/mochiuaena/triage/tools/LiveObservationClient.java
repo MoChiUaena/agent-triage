@@ -184,6 +184,7 @@ public class LiveObservationClient {
             || value.httpMethod() == null || !List.of("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "TRACE").contains(value.httpMethod())
             || value.routeTemplate() == null || !value.routeTemplate().startsWith("/") || value.routeTemplate().length() > 160 || value.routeTemplate().codePoints().anyMatch(Character::isISOControl)
             || !javaName(value.handlerClass(), 240, true) || !javaName(value.handlerMethod(), 80, false)
+            || !sourceHash(value.sourceHash())
             || value.parameterTypes() == null || value.parameterTypes().size() > 8 || value.parameterTypes().stream().anyMatch(type -> type == null || type.length() > 128 || !javaName(type.replace("[]", ""), 128, true))) throw unexpected();
         try {
             String identity = String.join("\0", value.httpMethod(), value.routeTemplate(), value.handlerClass(), value.handlerMethod(), String.join(",", value.parameterTypes()));
@@ -197,6 +198,7 @@ public class LiveObservationClient {
         for (String part : parts) if (part.isEmpty() || !Character.isJavaIdentifierStart(part.codePointAt(0)) || !part.codePoints().allMatch(Character::isJavaIdentifierPart)) return false;
         return true;
     }
+    private boolean sourceHash(String value) { return value == null || value.matches("[a-f0-9]{64}"); }
     private void validateFailure(FailureLocation value) {
         if (value.kind() == null || !List.of("HTTP_CLIENT_FAILURE", "REQUEST_EXCEPTION").contains(value.kind())
             || value.exceptionTypes() == null || value.exceptionTypes().isEmpty() || value.exceptionTypes().size() > 4
@@ -206,7 +208,7 @@ public class LiveObservationClient {
             if (frame == null || !javaName(frame.className(), 240, true)
                 || !("<init>".equals(frame.methodName()) || "<clinit>".equals(frame.methodName()) || javaName(frame.methodName(), 80, false))
                 || frame.fileName() != null && !frame.fileName().matches("[\\p{L}\\p{N}_$-]{1,150}\\.java")
-                || frame.lineNumber() != null && (frame.lineNumber() < 1 || frame.lineNumber() > 1_000_000)) throw unexpected();
+                || frame.lineNumber() != null && (frame.lineNumber() < 1 || frame.lineNumber() > 1_000_000) || !sourceHash(frame.sourceHash())) throw unexpected();
         }
     }
 

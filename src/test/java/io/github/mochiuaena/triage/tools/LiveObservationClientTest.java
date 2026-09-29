@@ -148,6 +148,7 @@ class LiveObservationClientTest {
             node -> ((ObjectNode) node.at("/errors/0/failureLocation/frames/0")).put("lineNumber", "42"),
             node -> ((ObjectNode) node.at("/errors/0/failureLocation/frames/0")).put("lineNumber", -1),
             node -> ((ObjectNode) node.at("/errors/0/failureLocation/frames/0")).put("lineNumber", 1.5),
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation/frames/0")).put("sourceHash", "private-hash"),
             node -> { var frames = (com.fasterxml.jackson.databind.node.ArrayNode) node.at("/errors/0/failureLocation/frames"); for (int i = 0; i < 8; i++) frames.add(frames.get(0).deepCopy()); },
             node -> ((ObjectNode) node.at("/errors/0/failureLocation")).putArray("exceptionTypes").add("private/body"));
         for (var mutation : mutations) {
@@ -156,6 +157,19 @@ class LiveObservationClientTest {
         }
         var unknown = located(); ((ObjectNode) unknown.at("/errors/0/failureLocation/frames/0")).putNull("fileName").putNull("lineNumber"); response.set(json.writeValueAsBytes(unknown));
         assertThat(client.snapshot(context).errors().getFirst().failureLocation().frames().getFirst().lineNumber()).isNull();
+    }
+    @Test void endpointAndFailureSourceDigestsAreLocalOptionalFieldsWithStrictHashValidation() throws Exception {
+        endpointClient(); var value = located();
+        ((ObjectNode) value.at("/endpoints/0/endpoint")).put("sourceHash", "a".repeat(64));
+        ((ObjectNode) value.at("/errors/0/failureLocation/frames/0")).put("sourceHash", "b".repeat(64));
+        response.set(json.writeValueAsBytes(value));
+        assertThat(client.snapshot(context).requestDetails().endpoints().getFirst().endpoint().sourceHash()).isEqualTo("a".repeat(64));
+        var metrics = new LiveMetricsTool(client).execute(context, "").getFirst();
+        var logs = new LiveErrorLogsTool(client).execute(context, "").getFirst();
+        assertThat(json.writeValueAsString(io.github.mochiuaena.triage.model.ModelEvidence.project(List.of(metrics, logs))))
+            .doesNotContain("sourceHash", "a".repeat(64), "b".repeat(64));
+        ((ObjectNode) value.at("/endpoints/0/endpoint")).put("sourceHash", "invalid"); response.set(json.writeValueAsBytes(value));
+        assertThatThrownBy(() -> client.snapshot(context)).isInstanceOf(ObservationFailure.class);
     }
     @Test void endpointMetadataIsValidatedAndSelectionCannotChangeItsHandlerIdentity() throws Exception {
         endpointClient(); var value = v3(); response.set(json.writeValueAsBytes(value));

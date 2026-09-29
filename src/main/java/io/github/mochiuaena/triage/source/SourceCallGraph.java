@@ -69,6 +69,10 @@ final class SourceCallGraph {
         if (index.formatVersion() < 2) return new EndpointMatch(endpoint, summary.requestCount(), summary.timeoutCount(), "REINDEX_REQUIRED", "当前索引缺少方法参数信息，请重新索引。", List.of());
         List<Symbol> named = methods.getOrDefault(endpoint.handlerClass() + "#" + endpoint.handlerMethod(), List.of()).stream()
             .filter(value -> value.details().parameters().size() == endpoint.parameterTypes().size()).toList();
+        var version = SourceVersionCheck.compare(endpoint.sourceHash(), named);
+        if ("DIFFERENT".equals(version.state())) return new EndpointMatch(endpoint, summary.requestCount(), summary.timeoutCount(), "SOURCE_MISMATCH",
+            "运行构建与当前处理方法的源码摘要不同，未采用这个源码入口。", List.of(), version);
+        if (endpoint.sourceHash() != null) named = named.stream().filter(value -> value.fileHash().equals(endpoint.sourceHash())).toList();
         List<Symbol> exact = named.stream().filter(value -> {
             Owner owner = owner(value); if (owner == null) return false;
             for (int i = 0; i < value.details().parameters().size(); i++) {
@@ -97,7 +101,7 @@ final class SourceCallGraph {
             case "AMBIGUOUS" -> "当前索引有多个同名方法或类型候选，未确认唯一源码入口。";
             default -> "当前项目索引没有找到对应处理方法，请检查绑定目录和源码版本。";
         };
-        return new EndpointMatch(endpoint, summary.requestCount(), summary.timeoutCount(), state, message, selected.stream().map(Symbol::id).toList());
+        return new EndpointMatch(endpoint, summary.requestCount(), summary.timeoutCount(), state, message, selected.stream().map(Symbol::id).toList(), version);
     }
 
     private Match resolve(Symbol caller, Invocation call) {

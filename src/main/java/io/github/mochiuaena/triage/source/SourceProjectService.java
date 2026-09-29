@@ -106,12 +106,16 @@ public class SourceProjectService {
         return new SourceCallGraph(project.index()).build(List.of(symbol), (identity, focus) -> excerptAt(project, identity, focus), () -> {});
     }
     private CallGraph graph(Stored project, List<Excerpt> candidates, List<EndpointMatch> matches, ExecutionSession session) {
+        var failures = session.synthetic() ? List.<FailureMatch>of() : new SourceFailureLocations(project.index())
+            .match(session.evidence(), (identity, focus) -> excerptAt(project, identity, focus), session::checkDeadline);
+        boolean different = matches.stream().anyMatch(value -> "SOURCE_MISMATCH".equals(value.state()))
+            || failures.stream().flatMap(value -> value.frames().stream()).anyMatch(value -> "SOURCE_MISMATCH".equals(value.state()));
+        if (different) return new CallGraph("SOURCE_VERSION_DIFFERENT", "观测中有源码摘要与当前索引不同的类，未展开调用关系。请登记对应构建的源码再排查。",
+            false, List.of(), List.of(), List.of(), List.of(), List.copyOf(matches), failures);
         List<String> roots = matches.isEmpty() ? candidates.stream().filter(value -> !value.method().isBlank() && !value.route().isBlank()).map(Excerpt::id).toList()
             : matches.stream().flatMap(value -> value.sourceIds().stream()).distinct().toList();
         if (roots.isEmpty() && matches.isEmpty()) roots = candidates.stream().filter(value -> !value.method().isBlank() && !value.method().equals("<init>") && !value.method().equals("main")).limit(2).map(Excerpt::id).toList();
         CallGraph graph = new SourceCallGraph(project.index()).build(roots, (identity, focus) -> excerptAt(project, identity, focus), session::checkDeadline);
-        var failures = session.synthetic() ? List.<FailureMatch>of() : new SourceFailureLocations(project.index())
-            .match(session.evidence(), (identity, focus) -> excerptAt(project, identity, focus), session::checkDeadline);
         graph = new CallGraph(graph.state(), graph.message(), graph.truncated(), graph.rootIds(), graph.nodes(), graph.edges(), graph.evidenceLinks(), List.copyOf(matches), failures);
         return SourceEvidenceLinks.attach(graph, session.evidence(), session.synthetic());
     }
@@ -171,6 +175,8 @@ public class SourceProjectService {
             if (candidates.isEmpty() && matches.isEmpty() && !hasFailureLocations) return analysis(project, "NO_MATCH", false, "未找到匹配的类、方法或接口。可以在源码页面用方法名或接口路径检索。", List.of());
             graph = graph(project, candidates, matches, session);
             session.recordSourceGraph(graph);
+            if ("SOURCE_VERSION_DIFFERENT".equals(graph.state())) return analysis(project, "SOURCE_VERSION_DIFFERENT", false,
+                "运行构建与当前源码不同，已保留运行诊断；未展开调用关系或请求源码模型检查。", List.of(), graph);
             if (candidates.isEmpty()) {
                 boolean located = graph.failureMatches().stream().flatMap(value -> value.frames().stream()).anyMatch(value -> !value.excerpts().isEmpty());
                 return analysis(project, located ? "LOCAL" : "NO_MATCH", false,

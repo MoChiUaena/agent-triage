@@ -31,6 +31,9 @@ final class SourceFailureLocations {
         if (named.isEmpty()) return result(frame, "UNMATCHED", "当前索引没有对应的类和方法，可能位于索引外或来自其他运行版本。", List.of());
         var files = named.stream().filter(symbol -> frame.fileName() == null || filename(symbol.path()).equals(frame.fileName())).toList();
         if (files.isEmpty()) return result(frame, "FILE_MISMATCH", "类和方法同名，但文件名不同，未绑定到源码。", List.of());
+        var version = SourceVersionCheck.compare(frame.sourceHash(), files);
+        if ("DIFFERENT".equals(version.state())) return result(frame, "SOURCE_MISMATCH", "运行构建与本机源码摘要不同，未将观测行号绑定到当前代码。", List.of());
+        if (frame.sourceHash() != null) files = files.stream().filter(symbol -> symbol.fileHash().equals(frame.sourceHash())).toList();
         var matches = files.stream().filter(symbol -> frame.lineNumber() == null || frame.lineNumber() >= symbol.startLine() && frame.lineNumber() <= symbol.endLine()).toList();
         if (matches.isEmpty()) return result(frame, "LINE_MISMATCH", "观测行号不在当前方法范围内，请核对运行版本并重新索引。", List.of());
         var excerpts = new ArrayList<Excerpt>();
@@ -51,6 +54,9 @@ final class SourceFailureLocations {
     }
     private String filename(String path) { String normalized = path.replace('\\', '/'); return normalized.substring(normalized.lastIndexOf('/') + 1); }
     private FrameMatch result(FailureFrame frame, String state, String message, List<Excerpt> excerpts) {
-        return new FrameMatch(frame, state, message, List.copyOf(excerpts));
+        var files = named(frame.className(), frame.methodName());
+        if (files.isEmpty() && frame.className().contains("$")) files = named(frame.className().replace('$', '.'), frame.methodName());
+        files = files.stream().filter(symbol -> frame.fileName() == null || filename(symbol.path()).equals(frame.fileName())).toList();
+        return new FrameMatch(frame, state, message, List.copyOf(excerpts), SourceVersionCheck.compare(frame.sourceHash(), files));
     }
 }

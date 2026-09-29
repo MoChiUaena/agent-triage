@@ -94,7 +94,7 @@ def main():
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         processes.append(process)
 
-    def investigate(endpoint=None):
+    def investigate(endpoint=None, different=False):
         body = {"question": "服务请求为什么变慢？" if args.protocol_v3 else "工单接口 /api/tickets/{id} 为什么慢？", "service": "ticket-service",
             "windowMinutes": 5, "includeSource": True, "expectedSourceRevision": binding["revision"], "expectedSourceProjectId": binding["id"]}
         if endpoint:
@@ -107,8 +107,8 @@ def main():
             status, value = request(agent, "/api/runs/" + value["id"])
         assert value["status"] == "SUCCEEDED" and valid_citations(value), value.get("failure")
         analysis = value["sourceAnalysis"]
-        assert analysis["state"] == "LOCAL" and not analysis["modelUsed"]
-        assert analysis["excerpts"]
+        assert analysis["state"] == ("SOURCE_VERSION_DIFFERENT" if different else "LOCAL") and not analysis["modelUsed"], analysis["state"]
+        assert not analysis["excerpts"] if different else analysis["excerpts"]
         for excerpt in analysis["excerpts"]:
             lines = (external / excerpt["path"]).read_text(encoding="utf-8").splitlines()
             assert excerpt["content"] == "\n".join(lines[excerpt["startLine"] - 1:excerpt["endLine"]])
@@ -117,6 +117,7 @@ def main():
     try:
         start(ROOT / "verification/ticket-service", "ticket", [f"--server.port={ports[1]}", f"--triage.sdk.downstream-base-url={dependency}",
             f"--triage.sdk.endpoint-observations={str(args.protocol_v3).lower()}", f"--triage.sdk.exception-locations={str(args.protocol_v3).lower()}",
+            f"--triage.sdk.source-version-checks={str(args.protocol_v3).lower()}",
             "--triage.sdk.application-packages=example.helpdesk"])
         start(ROOT, "agent", [f"--server.port={ports[0]}", "--triage.mode=DEMO", "--spring.datasource.url=jdbc:h2:mem:source-smoke;DB_CLOSE_DELAY=-1",
             f"--spring.config.additional-location={configuration.as_uri()}", f"--triage.settings.key-file={output / 'local.key'}"])
@@ -155,6 +156,7 @@ def main():
         if args.protocol_v3:
             assert graph["endpointMatches"][0]["state"] == "MATCHED"
             assert graph["endpointMatches"][0]["endpoint"]["handlerMethod"] == "ticket"
+            assert graph["endpointMatches"][0]["version"]["state"] == "MATCHED"
             failures = graph["failureMatches"]
             assert len(failures) == 2 and all(match["kind"] == "HTTP_CLIENT_FAILURE" for match in failures)
             expected_line = next(i + 1 for i, text in enumerate((external / "src/main/java/example/helpdesk/AssignmentGateway.java").read_text(encoding="utf-8").splitlines())
@@ -162,6 +164,7 @@ def main():
             for failure in failures:
                 gateway_frame = next(frame for frame in failure["frames"] if frame["frame"]["className"] == "example.helpdesk.AssignmentGateway")
                 assert gateway_frame["state"] == "LINE_MATCH" and gateway_frame["frame"]["lineNumber"] == expected_line
+                assert gateway_frame["version"]["state"] == "MATCHED" and gateway_frame["frame"]["sourceHash"]
                 assert gateway_frame["excerpts"][0]["startLine"] <= expected_line <= gateway_frame["excerpts"][0]["endLine"]
             assert {match["traceId"] for match in failures} == {entry["traceId"] for entry in evidence(failed, "query_error_logs")["data"]["entries"]}
             for _ in range(2):
@@ -202,6 +205,7 @@ def main():
         status, matches = request(agent, "/api/source-projects/" + binding["id"] + "/search?q=%2Fapi%2Ftickets")
         assert status == 200 and any(value["route"] == "/api/tickets/{id}" for value in matches)
         modified = external / "src/main/java/example/helpdesk/AssignmentGateway.java"
+        original_gateway = modified.read_bytes()
         modified.write_text(modified.read_text(encoding="utf-8") + "\n// source changed\n", encoding="utf-8")
         gateway = next(value for value in references if value["method"] == "lookup")
         assert request(agent, "/api/source-projects/" + binding["id"] + "/excerpts/" + gateway["id"])[0] == 409
@@ -211,6 +215,16 @@ def main():
         if args.protocol_v3:
             assert request(agent, "/api/history/endpoints?service=ticket-service")[1]
             assert request(agent, "/api/runs/" + healthy["id"])[1]["endpoint"] == healthy_endpoint
+            different = investigate(failed_endpoint["id"], different=True)
+            assert different["sourceAnalysis"]["graph"]["state"] == "SOURCE_VERSION_DIFFERENT"
+            assert different["sourceAnalysis"]["graph"]["nodes"] == [] and different["sourceAnalysis"]["graph"]["edges"] == []
+            mismatch = next(frame for match in different["sourceAnalysis"]["graph"]["failureMatches"] for frame in match["frames"]
+                if frame["frame"]["className"] == "example.helpdesk.AssignmentGateway")
+            assert mismatch["state"] == "SOURCE_MISMATCH" and mismatch["version"]["state"] == "DIFFERENT" and not mismatch["excerpts"]
+            assert request(agent, "/api/runs/" + failed["id"])[1]["sourceAnalysis"] == failed["sourceAnalysis"]
+            modified.write_bytes(original_gateway)
+            status, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, {"X-Triage-Source": "1"})
+            assert status == 200
         alternative = external / "src/main/java/example/helpdesk/ArchivedTicketService.java"
         alternative.write_text("package example.helpdesk; import java.util.Map; class ArchivedTicketService implements TicketService { public Map<String,Object> find(String id) { return Map.of(); } }\n", encoding="utf-8")
         status, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, {"X-Triage-Source": "1"})
@@ -233,7 +247,7 @@ def main():
         (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         print("Source smoke passed: independent helpdesk JVM, actual timeouts, Controller/interface/Gateway/HTTP chain, verified call lines, ambiguity, evidence links, index management and history")
         if args.protocol_v3:
-            print("Endpoint smoke passed: actual MVC handlers, healthy/timeout isolation, observed failure lines, source entry, saved scope, history filters and statistics")
+            print("Endpoint smoke passed: MVC handlers, healthy/timeout isolation, observed lines, verified build source digests, stale source rejection and frozen history")
     finally:
         for process in reversed(processes):
             if process.poll() is None:

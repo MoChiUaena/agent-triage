@@ -47,9 +47,15 @@ public final class SourceModels {
     public record CallEdge(String id, String fromId, List<String> targetIds, String call, int line, String kind,
                            String resolution, String message, Excerpt callSite) {}
     public record EvidenceLink(List<String> edgeIds, List<String> evidenceIds, String kind, String message) {}
+    public record VersionCheck(String state, String message, String runtimeSourceHash, String indexedSourceHash) {}
     public record EndpointMatch(io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint, int requestCount, int timeoutCount,
-                                String state, String message, List<String> sourceIds) {}
-    public record FrameMatch(io.github.mochiuaena.triage.domain.TriageModel.FailureFrame frame, String state, String message, List<Excerpt> excerpts) {}
+                                String state, String message, List<String> sourceIds, VersionCheck version) {
+        public EndpointMatch(io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint, int requestCount, int timeoutCount,
+                             String state, String message, List<String> sourceIds) { this(endpoint, requestCount, timeoutCount, state, message, sourceIds, null); }
+    }
+    public record FrameMatch(io.github.mochiuaena.triage.domain.TriageModel.FailureFrame frame, String state, String message, List<Excerpt> excerpts, VersionCheck version) {
+        public FrameMatch(io.github.mochiuaena.triage.domain.TriageModel.FailureFrame frame, String state, String message, List<Excerpt> excerpts) { this(frame, state, message, excerpts, null); }
+    }
     public record FailureMatch(String evidenceId, Instant timestamp, String traceId, String kind, List<String> exceptionTypes,
                                boolean truncated, List<FrameMatch> frames) {}
     public record CallGraph(String state, String message, boolean truncated, List<String> rootIds, List<CallNode> nodes,
