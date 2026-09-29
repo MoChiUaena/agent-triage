@@ -33,6 +33,9 @@ jobs:
         run: |
           node --check src/main/resources/static/app.js
           node --check src/main/resources/static/settings.js
+      - name: Verify Spring Boot starter and independent application
+        shell: bash
+        run: ./mvnw -B -ntp -f integrations/pom.xml verify
   postgres:
     name: PostgreSQL HTTP integration
     runs-on: ubuntu-latest
@@ -75,6 +78,8 @@ jobs:
           ./mvnw -B -ntp -f sample-service/pom.xml verify
           ./mvnw -B -ntp -f database-service/pom.xml verify
           ./mvnw -B -ntp -DskipTests package
+          ./mvnw -B -ntp -f integrations/pom.xml -DskipTests package
+          python3 scripts/starter_smoke.py
           java -jar inventory-service/target/triage-inventory-service-0.1.0.jar > inventory.log 2>&1 &
           java -jar sample-service/target/triage-sample-service-0.1.0.jar > sample.log 2>&1 &
           java -jar target/agent-triage-0.1.0.jar --server.port=18083 '--spring.datasource.url=jdbc:h2:mem:live;DB_CLOSE_DELAY=-1' --triage.observation.source=LIVE --triage.settings.key-file=target/ci-live-key > agent.log 2>&1 &

@@ -1,0 +1,55 @@
+package io.github.mochiuaena.triage.sdk;
+
+import java.net.URI;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+
+@ConfigurationProperties("triage.sdk")
+public class TriageObservationProperties {
+    public enum Kind { HTTP, DATABASE }
+    private boolean enabled;
+    private Kind kind = Kind.HTTP;
+    private String serviceId;
+    private String downstreamId;
+    private URI downstreamBaseUrl;
+    private String requestPathPrefix = "/api/";
+    private int maxWindowMinutes = 15;
+    private int capacity = 10_000;
+
+    void validate() {
+        if (kind == null || !identity(serviceId) || !identity(downstreamId))
+            throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
+        if (maxWindowMinutes < 1 || maxWindowMinutes > 60 || capacity < 10 || capacity > 100_000)
+            throw new IllegalArgumentException("triage.sdk window must be 1..60 minutes and capacity 10..100000");
+        if (requestPathPrefix == null || !requestPathPrefix.matches("/(?:[a-zA-Z0-9_-]+/)+")
+                || requestPathPrefix.startsWith("/triage/"))
+            throw new IllegalArgumentException("triage.sdk request-path-prefix must be an API path ending with /, outside /triage/");
+        if (kind == Kind.HTTP && (downstreamBaseUrl == null
+                || !java.util.List.of("http", "https").contains(downstreamBaseUrl.getScheme())
+                || downstreamBaseUrl.getHost() == null || downstreamBaseUrl.getUserInfo() != null
+                || downstreamBaseUrl.getQuery() != null || downstreamBaseUrl.getFragment() != null
+                || !(downstreamBaseUrl.getPath().isEmpty() || downstreamBaseUrl.getPath().equals("/"))))
+            throw new IllegalArgumentException("triage.sdk downstream-base-url must be an HTTP origin without credentials or paths");
+    }
+    private boolean identity(String value) { return value != null && value.matches("[a-z][a-z0-9-]{0,63}"); }
+    boolean matches(URI uri) {
+        return downstreamBaseUrl.getScheme().equalsIgnoreCase(uri.getScheme())
+            && downstreamBaseUrl.getHost().equalsIgnoreCase(uri.getHost()) && port(downstreamBaseUrl) == port(uri);
+    }
+    private int port(URI uri) { return uri.getPort() >= 0 ? uri.getPort() : "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80; }
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean value) { enabled = value; }
+    public Kind getKind() { return kind; }
+    public void setKind(Kind value) { kind = value; }
+    public String getServiceId() { return serviceId; }
+    public void setServiceId(String value) { serviceId = value; }
+    public String getDownstreamId() { return downstreamId; }
+    public void setDownstreamId(String value) { downstreamId = value; }
+    public URI getDownstreamBaseUrl() { return downstreamBaseUrl; }
+    public void setDownstreamBaseUrl(URI value) { downstreamBaseUrl = value; }
+    public String getRequestPathPrefix() { return requestPathPrefix; }
+    public void setRequestPathPrefix(String value) { requestPathPrefix = value; }
+    public int getMaxWindowMinutes() { return maxWindowMinutes; }
+    public void setMaxWindowMinutes(int value) { maxWindowMinutes = value; }
+    public int getCapacity() { return capacity; }
+    public void setCapacity(int value) { capacity = value; }
+}

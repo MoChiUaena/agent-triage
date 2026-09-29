@@ -1,0 +1,28 @@
+server:
+  address: 127.0.0.1
+  port: 18098
+spring:
+  datasource:
+    url: jdbc:h2:mem:catalog;DB_CLOSE_DELAY=-1
+    hikari:
+      maximum-pool-size: 2
+      connection-timeout: 300
+triage:
+  sdk:
+    enabled: true
+    service-id: catalog-service
+    downstream-id: inventory-service
+    downstream-base-url: http://127.0.0.1:18084
+    max-window-minutes: 15
+---
+spring:
+  config:
+    activate:
+      on-profile: database
+server:
+  port: 18099
+triage:
+  sdk:
+    kind: DATABASE
+    service-id: catalog-db-service
+    downstream-id: catalog-db

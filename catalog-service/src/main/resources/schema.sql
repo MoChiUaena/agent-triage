@@ -1,0 +1,2 @@
+CREATE TABLE products (id VARCHAR(40) PRIMARY KEY, price DECIMAL(10,2) NOT NULL);
+INSERT INTO products VALUES ('demo', 29.90);

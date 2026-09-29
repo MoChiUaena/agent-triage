@@ -20,6 +20,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 - 查询服务指标、近期错误日志，检索 Markdown 排障文档。
 - 通过服务白名单登记多个本地应用，在页面选择服务；接入接口与示例见[接入说明](docs/SERVICE_INTEGRATION.md)。
+- 提供 [Spring Boot Starter](docs/STARTER.md) 复用只读观测接口，独立[商品应用](catalog-service/README.md)验证 HTTP 与 JDBC 接入。
 - 用 HikariCP 与 H2 实际触发[数据库连接池耗尽](docs/DATABASE_POOL.md)，区分获取连接超时与 SQL 查询失败，并验证释放后的恢复。
 - 在页面生成正常请求或库存超时请求，排查真实的本地请求记录。
 - 通过 SSE 展示工具执行进度，点击结论中的引用可以查看证据原文。
