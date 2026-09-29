@@ -81,19 +81,34 @@ public class SourceProjectService {
         return total == 1 ? 0 : total;
     }
     public Excerpt excerpt(UUID id, String symbol) { return excerpt(projects.require(id), symbol); }
-    public Excerpt excerpt(Stored project, String identity) {
+    public Excerpt excerpt(Stored project, String identity) { return excerptAt(project, identity, null); }
+    private Excerpt excerptAt(Stored project, String identity, Integer focus) {
         Symbol symbol = project.index().files().stream().flatMap(file -> file.symbols().stream()).filter(value -> value.id().equals(identity)).findFirst()
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "这个代码引用不属于当前项目索引。"));
         try {
             String text = SourceFiles.read(SourceFiles.root(project.root()), symbol.path());
             if (!SourceFiles.hash(text).equals(symbol.fileHash())) throw new java.io.IOException();
             List<String> lines = text.lines().toList();
-            int last = Math.min(symbol.endLine(), symbol.startLine() + 79);
-            String content = String.join("\n", lines.subList(symbol.startLine() - 1, Math.min(last, lines.size())));
-            while (content.length() > 3600 && last > symbol.startLine()) { last--; content = String.join("\n", lines.subList(symbol.startLine() - 1, last)); }
+            if (focus != null && (focus < symbol.startLine() || focus > symbol.endLine())) throw new java.io.IOException();
+            int first = focus == null ? symbol.startLine() : Math.max(symbol.startLine(), focus - 2);
+            int last = Math.min(symbol.endLine(), focus == null ? first + 79 : focus + 2);
+            String content = String.join("\n", lines.subList(first - 1, Math.min(last, lines.size())));
+            while (content.length() > 3600 && last > (focus == null ? first : focus)) { last--; content = String.join("\n", lines.subList(first - 1, last)); }
+            while (content.length() > 3600 && focus != null && first < focus) { first++; content = String.join("\n", lines.subList(first - 1, last)); }
             if (content.length() > 3600) throw new java.io.IOException();
-            return new Excerpt(symbol.id(), symbol.path(), symbol.fileHash(), symbol.className(), symbol.method(), symbol.route(), symbol.httpMethods(), symbol.calls(), symbol.startLine(), last, content);
+            return new Excerpt(symbol.id(), symbol.path(), symbol.fileHash(), symbol.className(), symbol.method(), symbol.route(), symbol.httpMethods(), symbol.calls(), first, last, content);
         } catch (Exception e) { throw new ResponseStatusException(CONFLICT, "源码文件已更改、不可读取或已被排除，请重新索引。"); }
+    }
+    public CallGraph chain(UUID id, String symbol) {
+        Stored project = projects.require(id);
+        excerpt(project, symbol); // Identity and file verification also apply to standalone graph requests.
+        return new SourceCallGraph(project.index()).build(List.of(symbol), (identity, focus) -> excerptAt(project, identity, focus), () -> {});
+    }
+    private CallGraph graph(Stored project, List<Excerpt> candidates, ExecutionSession session) {
+        List<String> roots = candidates.stream().filter(value -> !value.method().isBlank() && !value.route().isBlank()).map(Excerpt::id).toList();
+        if (roots.isEmpty()) roots = candidates.stream().filter(value -> !value.method().isBlank() && !value.method().equals("<init>") && !value.method().equals("main")).limit(2).map(Excerpt::id).toList();
+        CallGraph graph = new SourceCallGraph(project.index()).build(roots, (identity, focus) -> excerptAt(project, identity, focus), session::checkDeadline);
+        return SourceEvidenceLinks.attach(graph, session.evidence(), session.synthetic());
     }
     public Stored bound(String service) { return projects.byService(service).orElse(null); }
     public Map<String,Object> summary(String service) {
@@ -123,6 +138,7 @@ public class SourceProjectService {
     }
     public Analysis analyze(Stored project, ExecutionSession session, TriageEngine selected, boolean allowModel) {
         List<Excerpt> candidates = List.of();
+        CallGraph graph = null;
         try {
             session.checkDeadline();
             if (projects.require(project.id()).revision() != project.revision()) return analysis(project, "STALE", false, "源码索引已变化，请重新排查。", List.of());
@@ -138,30 +154,37 @@ public class SourceProjectService {
                 query.insert(0, "retrieve exchange send timeout ");
             candidates = search(project, query.substring(0, Math.min(200, query.length())));
             if (candidates.isEmpty()) return analysis(project, "NO_MATCH", false, "未找到匹配的类、方法或接口。可以在源码页面用方法名或接口路径检索。", List.of());
-            if (!allowModel || !authorized(project, selected)) return analysis(project, "LOCAL", false, "已检索本机代码，未向模型发送源码。引用仅供核查，不能证明本次请求的执行路径。", candidates);
+            graph = graph(project, candidates, session);
+            session.recordSourceGraph(graph);
+            if (!allowModel || !authorized(project, selected)) return analysis(project, "LOCAL", false, "已检索本机代码，未向模型发送源码。引用仅供核查，不能证明本次请求的执行路径。", candidates, graph);
+            if (session.evidence().stream().noneMatch(value -> value.source().equals("read_service_metrics") && value.data().get("requestCount") instanceof Number count && count.longValue() > 0))
+                return analysis(project, "LOCAL", false, "缺少可用运行观测，保留本机源码检索结果，未请求源码模型检查。", candidates, graph);
             List<Excerpt> local = candidates;
             List<String> ids = selected.selectSources(session, () -> {
                 if (!authorized(project, selected)) throw new RunFailure("SOURCE_PERMISSION_CHANGED", "源码授权已变化。");
                 return local.stream().map(value -> excerpt(project, value.id())).toList();
             });
-            if (ids == null) return analysis(project, "LOCAL", false, "模型剩余轮次或时长不足，保留本机检索结果。", candidates);
-            if (!authorized(project, selected)) return analysis(project, "MODEL_REJECTED", true, "源码授权已变化，未采用模型返回的引用。", candidates);
+            if (ids == null) return analysis(project, "LOCAL", false, "模型剩余轮次或时长不足，保留本机检索结果。", candidates, graph);
+            if (!authorized(project, selected)) return analysis(project, "MODEL_REJECTED", true, "源码授权已变化，未采用模型返回的引用。", candidates, graph);
             Set<String> allowed = new HashSet<>(candidates.stream().map(Excerpt::id).toList());
             if (ids.size() > 3 || new HashSet<>(ids).size() != ids.size() || !allowed.containsAll(ids))
                 throw new RunFailure("INVALID_SOURCE_SELECTION", "模型代码引用无效。");
             List<Excerpt> chosen = ids.stream().map(id -> excerpt(project, id)).toList();
             return analysis(project, ids.isEmpty() ? "MODEL_NO_MATCH" : "MODEL_SELECTED", true,
-                ids.isEmpty() ? "模型未选中候选引用，保留本机检索结果。" : "模型从本机候选中选出代码引用。仍需核对调用路径和配置，不能据此确认根因。", ids.isEmpty() ? candidates : chosen);
+                ids.isEmpty() ? "模型未选中候选引用，保留本机检索结果。" : "模型从本机候选中选出代码引用。仍需核对调用路径和配置，不能据此确认根因。", ids.isEmpty() ? candidates : chosen, graph);
         } catch (RunFailure e) {
             if (Set.of("RUN_CANCELLED", "RUN_INTERRUPTED", "RUN_TIMEOUT").contains(e.code())) throw e;
             return analysis(project, e.code().equals("INVALID_SOURCE_SELECTION") ? "MODEL_REJECTED" : "MODEL_UNAVAILABLE", session.sourceModelDispatched(),
-                e.code().equals("INVALID_SOURCE_SELECTION") ? "模型返回的代码引用无效，保留本机检索结果和运行判断。" : "源码模型检查未完成，保留本机检索结果和运行判断。", candidates);
+                e.code().equals("INVALID_SOURCE_SELECTION") ? "模型返回的代码引用无效，保留本机检索结果和运行判断。" : "源码模型检查未完成，保留本机检索结果和运行判断。", candidates, graph);
         } catch (Exception e) {
-            return analysis(project, "STALE", false, "源码文件、索引或授权不可用，请检查后重新索引。运行判断已保留。", List.of());
+            return analysis(project, "STALE", session.sourceModelDispatched(), "源码文件、索引或授权不可用，请检查后重新索引。运行判断已保留。", List.of(), graph);
         }
     }
     private Analysis analysis(Stored project, String state, boolean modelUsed, String message, List<Excerpt> excerpts) {
-        return new Analysis(project.id(), project.name(), project.revision(), project.index().hash(), state, modelUsed, message, List.copyOf(excerpts));
+        return analysis(project, state, modelUsed, message, excerpts, null);
+    }
+    private Analysis analysis(Stored project, String state, boolean modelUsed, String message, List<Excerpt> excerpts, CallGraph graph) {
+        return new Analysis(project.id(), project.name(), project.revision(), project.index().hash(), state, modelUsed, message, List.copyOf(excerpts), graph);
     }
     public Map<String,Object> disclosure() {
         var engine = engines.snapshot(); var source = engine.source();

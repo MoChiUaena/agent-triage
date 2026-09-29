@@ -43,7 +43,7 @@ class SourceIntegrationTest {
         jdbc.update("DELETE FROM source_projects");
         jdbc.update("DELETE FROM model_selection");
         jdbc.update("DELETE FROM model_providers");
-        MODEL.requests.clear(); MODEL.beforeFinal = () -> {}; MODEL.forge = false; MODEL.sourceDelay = 0;
+        MODEL.requests.clear(); MODEL.beforeFinal = () -> {}; MODEL.beforeSourceReply = () -> {}; MODEL.forge = false; MODEL.sourceDelay = 0;
         provider = providers.create(input(4, 0)); providers.select("MODEL", provider.id());
         file = root.resolve("TicketController.java");
         Files.writeString(file, """
@@ -69,8 +69,11 @@ class SourceIntegrationTest {
         assertThat(project.sharingActive()).isTrue();
     }
     private Run queued(boolean include, boolean allowModel) {
+        return queued("订单请求慢，检查 ticket 方法", include, allowModel);
+    }
+    private Run queued(String question, boolean include, boolean allowModel) {
         var headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); headers.set("X-Triage-Source", "1");
-        var input = Map.of("question", "订单请求慢，检查 ticket 方法", "service", "order-service", "windowMinutes", 15,
+        var input = Map.of("question", question, "service", "order-service", "windowMinutes", 15,
             "scenario", "DOWNSTREAM_TIMEOUT", "includeSource", include, "allowSourceModel", allowModel,
             "expectedSelection", providers.current().selectionToken(), "expectedSourceRevision", project.revision());
         var created = http.postForEntity("/api/runs", new HttpEntity<>(input, headers), Run.class);
@@ -181,11 +184,50 @@ class SourceIntegrationTest {
         assertThat(cancelled.modelExecution().completedCalls()).isEqualTo(2);
         assertThat(http.getForObject("/api/runs/" + submitted.id(), Run.class)).isEqualTo(cancelled);
     }
+    @Test void expandingLocalCallGraphDoesNotExpandTheAuthorizedModelPayload() throws Exception {
+        Files.writeString(file, "class TicketController { Leaf leaf; @GetMapping(\"/tickets\") Object ticket(String id) { return leaf.open(id); } }");
+        Files.writeString(root.resolve("Leaf.java"), """
+            class Leaf {
+                Object open(String id) {
+                    // graph-only-private-fixture
+                    return null;
+                }
+            }
+            """);
+        project = sources.reindex(project.id()); share();
+        Run result = run(true, true);
+        assertThat(result.sourceAnalysis().graph().nodes()).anyMatch(value -> value.excerpt().content().contains("graph-only-private-fixture"));
+        assertThat(MODEL.requests).hasSize(3);
+        assertThat(MODEL.requests.toString()).doesNotContain("graph-only-private-fixture");
+    }
+    @Test void sourceSelectionDoesNotBypassTheOutOfScopeModelGate() {
+        share(); Run submitted = queued("写一首 ticket 的诗", true, true);
+        await().atMost(Duration.ofSeconds(5)).until(() -> http.getForObject("/api/runs/" + submitted.id(), Run.class).status().terminal());
+        Run result = http.getForObject("/api/runs/" + submitted.id(), Run.class);
+        assertThat(result.status()).isEqualTo(Status.INSUFFICIENT_EVIDENCE);
+        assertThat(result.sourceAnalysis().modelUsed()).isFalse();
+        assertThat(result.modelExecution().calls()).isZero();
+        assertThat(MODEL.requests).isEmpty();
+    }
+    @ParameterizedTest @ValueSource(strings = {"delete", "file-change"})
+    void sourceChangesAfterDispatchRetainTheFactThatCodeWasSent(String change) {
+        share();
+        MODEL.beforeSourceReply = () -> {
+            if (change.equals("delete")) sources.delete(project.id(), project.revision());
+            else try { Files.writeString(file, "class Changed {}"); } catch (Exception e) { throw new AssertionError(e); }
+        };
+        Run result = run(true, true);
+        assertThat(result.sourceAnalysis().state()).isEqualTo("STALE");
+        assertThat(result.sourceAnalysis().modelUsed()).isTrue();
+        assertThat(result.sourceAnalysis().graph()).isNotNull();
+        assertThat(MODEL.requests).hasSize(3);
+    }
     static class Stub implements AutoCloseable {
         final HttpServer server;
         final ExecutorService workers = Executors.newCachedThreadPool();
         final List<JsonNode> requests = new CopyOnWriteArrayList<>();
         volatile Runnable beforeFinal = () -> {};
+        volatile Runnable beforeSourceReply = () -> {};
         volatile boolean forge;
         volatile long sourceDelay;
         Stub() {
@@ -197,7 +239,9 @@ class SourceIntegrationTest {
                         Map<String,Object> message;
                         String finish;
                         if (request.path("messages").get(0).path("content").asText().contains("SOURCE_SELECTION")) {
-                            if (sourceDelay > 0) try { Thread.sleep(sourceDelay); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                            Runnable sourceHook = beforeSourceReply; long delay = sourceDelay;
+                            if (delay > 0) try { Thread.sleep(delay); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                            sourceHook.run();
                             var payload = JSON.readTree(request.path("messages").get(1).path("content").asText());
                             String id = forge ? "SRC-invented" : payload.path("candidates").get(0).path("id").asText();
                             message = Map.of("role", "assistant", "content", JSON.writeValueAsString(Map.of("sourceIds", List.of(id)))); finish = "stop";

@@ -87,6 +87,10 @@ public class RunService {
     }
     public Run submit(String question, ToolContext context, String expectedSelection, boolean includeSource,
                       boolean allowSourceModel, Long expectedSourceRevision) {
+        return submit(question, context, expectedSelection, includeSource, allowSourceModel, expectedSourceRevision, null);
+    }
+    public Run submit(String question, ToolContext context, String expectedSelection, boolean includeSource,
+                      boolean allowSourceModel, Long expectedSourceRevision, UUID expectedSourceProjectId) {
         if (allowSourceModel && !includeSource) throw new org.springframework.web.server.ResponseStatusException(
             org.springframework.http.HttpStatus.BAD_REQUEST, "请先开启本次源码检索。");
         ToolContext frozen = registry.freeze(context);
@@ -98,6 +102,8 @@ public class RunService {
         var project = includeSource && sources != null ? sources.bound(context.service()) : null;
         if (includeSource && project == null) throw new org.springframework.web.server.ResponseStatusException(
             org.springframework.http.HttpStatus.CONFLICT, "所选服务尚未绑定源码，请先登记项目。");
+        if (project != null && expectedSourceProjectId != null && !project.id().equals(expectedSourceProjectId))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "源码项目已变化，请刷新后重新提交。");
         if (project != null && expectedSourceRevision != null && project.revision() != expectedSourceRevision)
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "源码索引已变化，请刷新后重新提交。");
         if (allowSourceModel && !sources.authorized(project, selectedEngine))

@@ -66,7 +66,7 @@ public final class ExecutionSession {
             var previous = state.sourceAnalysis;
             if (previous != null) state.sourceAnalysis = new io.github.mochiuaena.triage.source.SourceModels.Analysis(
                 previous.projectId(), previous.projectName(), previous.revision(), previous.indexHash(), "MODEL_PENDING", true,
-                "已按本次授权请求模型读取候选代码，等待模型返回引用。", previous.excerpts());
+                "已按本次授权请求模型读取候选代码，等待模型返回引用。", previous.excerpts(), previous.graph());
             publish("SOURCE_MODEL_DISPATCH", null, "按本次授权向所选模型发送已验证的候选代码。", List.of());
             sourceModelDispatched = true;
         }
@@ -75,6 +75,15 @@ public final class ExecutionSession {
         synchronized (state) {
             checkDeadline(); state.sourceAnalysis = analysis;
             publish("SOURCE_COMPLETED", null, analysis.message(), analysis.excerpts().stream().map(value -> value.id()).toList());
+        }
+    }
+    public void recordSourceGraph(io.github.mochiuaena.triage.source.SourceModels.CallGraph graph) {
+        synchronized (state) {
+            checkDeadline(); var previous = state.sourceAnalysis;
+            if (previous == null) return;
+            state.sourceAnalysis = new io.github.mochiuaena.triage.source.SourceModels.Analysis(previous.projectId(), previous.projectName(), previous.revision(), previous.indexHash(),
+                "LOCAL_PENDING", false, "本机静态调用关系已读取，正在完成源码检查。", previous.excerpts(), graph);
+            publish("SOURCE_GRAPH_READY", null, "本机静态调用关系已读取，不代表本次执行路径。", List.of());
         }
     }
 

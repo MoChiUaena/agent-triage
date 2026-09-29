@@ -119,7 +119,21 @@ function openEdit(project) {
   $("#edit-source-error").hidden = true;
   $("#edit-source-dialog").showModal();
 }
-function clearSearch() { searchVersion++; $("#source-matches").replaceChildren(); $("#source-search-note").textContent = "检索和预览在本机完成。"; }
+function clearSearch() {
+  searchVersion++; $("#source-matches").replaceChildren(); $("#source-search-note").textContent = "检索和预览在本机完成。";
+  $("#source-chain-box").hidden = true; $("#source-chain-view").replaceChildren();
+}
+async function loadChain(excerpt) {
+  if (busy) return;
+  lock(true); const version = ++searchVersion;
+  try {
+    const graph = await api("/api/source-projects/" + $("#search-project").value + "/chains/" + excerpt.id);
+    if (version !== searchVersion) return;
+    sourceView.graph($("#source-chain-view"), graph);
+    $("#source-chain-box").hidden = false;
+    $("#source-chain-box").scrollIntoView({ block: "start", behavior: "auto" });
+  } catch (error) { clearSearch(); notice(error.message, true); } finally { lock(false); }
+}
 async function reload() {
   [projects, services] = await Promise.all([api("/api/source-projects"), api("/api/source-projects/services")]);
   render();
@@ -161,7 +175,8 @@ $("#source-search").addEventListener("submit", async event => {
   try {
     const result = await api("/api/source-projects/" + $("#search-project").value + "/search?q=" + encodeURIComponent($("#source-query").value.trim()));
     if (version !== searchVersion) return;
-    sourceView.render($("#source-matches"), result);
+    $("#source-chain-box").hidden = true;
+    sourceView.render($("#source-matches"), result, { onChain: loadChain });
     $("#source-search-note").textContent = result.length ? "找到 " + result.length + " 个引用。显示的是当前索引对应的代码片段。" : "没有匹配结果，请试试类名、方法名或接口路径。";
   } catch (error) { clearSearch(); notice(error.message, true); } finally { lock(false); }
 });

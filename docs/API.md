@@ -23,7 +23,7 @@
 
 每次运行以提交时刻为窗口终点，起点为终点减去 windowMinutes。
 
-源码检索可额外传入 `includeSource: true` 和 `expectedSourceRevision`，并带 `X-Triage-Source: 1`。`allowSourceModel: true` 还要求项目已授权给当前已保存的模型配置；两项默认关闭。结果中的 `sourceAnalysis` 保存当时的项目版本与代码片段，旧记录该字段为空。源码配置变化返回 409，未带标记返回 403。
+源码检索可额外传入 `includeSource: true`、`expectedSourceProjectId` 和 `expectedSourceRevision`，并带 `X-Triage-Source: 1`。页面同时核对项目 ID 与版本，删除后重新登记也会要求刷新。`allowSourceModel: true` 还要求项目已授权给当前已保存的模型配置；两项默认关闭。结果中的 `sourceAnalysis` 保存当时的项目版本与代码片段，旧记录该字段为空。源码配置变化返回 409，未带标记返回 403。
 
 ## 源码项目
 
@@ -38,10 +38,13 @@
 | `POST /api/source-projects/{id}/reindex` | 重建索引，更新版本并关闭模型授权 |
 | `GET /api/source-projects/{id}/search?q=...` | 按类名、方法名或路径检索最多 5 个已验证片段 |
 | `GET /api/source-projects/{id}/excerpts/{symbol}` | 当前索引中的指定代码引用；文件变化返回 409 |
+| `GET /api/source-projects/{id}/chains/{symbol}` | 以指定方法为入口的本机静态调用关系；旧索引返回 `REINDEX_REQUIRED` |
 | `GET /api/source-projects/disclosure` | 当前可授权的模型服务、模型名、版本和选择标识 |
 | `POST /api/source-projects/{id}/sharing` | `revision`、`enabled`，开启时还需匹配的 `providerId`、`providerVersion`、`selection` |
 
 服务绑定冲突、项目版本变化返回 409。解绑只将 `service` 设为 null，保留项目用于本机检索；修改或删除项目不会改写已有历史片段。完整范围见[源码接入说明](SOURCE_INTEGRATION.md)。
+
+`sourceAnalysis.graph` 保存运行时关联的静态调用关系。`nodes` 含方法签名和已验证片段，`edges` 含调用行、目标候选、匹配状态与调用行附近的片段；`evidenceLinks` 按观测类别引用本次证据 ID，不表示方法实际执行。`truncated` 表示有调用或候选未展开。旧记录的 `graph` 可为空。
 
 ## 查询与订阅
 

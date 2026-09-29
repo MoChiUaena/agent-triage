@@ -28,7 +28,7 @@ public class RunController {
                             @NotBlank @Pattern(regexp = "[a-z][a-z0-9-]{0,63}") String service,
                             @Min(1) @Max(60) int windowMinutes, Scenario scenario,
                             @Size(max = 240) String expectedSelection, boolean includeSource, boolean allowSourceModel,
-                            @Min(1) Long expectedSourceRevision) {}
+                            @Min(1) Long expectedSourceRevision, UUID expectedSourceProjectId) {}
 
     private final RunService service;
     private final RunRepository repository;
@@ -61,7 +61,7 @@ public class RunController {
         catch (RuntimeException e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, "所选服务的观测接口不可用，请检查服务是否启动。"); }
         Run run = service.submit(request.question().strip(),
             new ToolContext(request.service(), request.windowMinutes(), scenario, Instant.now(), target),
-            request.expectedSelection(), request.includeSource(), request.allowSourceModel(), request.expectedSourceRevision());
+            request.expectedSelection(), request.includeSource(), request.allowSourceModel(), request.expectedSourceRevision(), request.expectedSourceProjectId());
         return ResponseEntity.accepted().location(URI.create("/api/runs/" + run.id())).body(run);
     }
 

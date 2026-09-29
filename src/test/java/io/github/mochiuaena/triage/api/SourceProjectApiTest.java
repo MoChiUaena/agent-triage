@@ -101,5 +101,26 @@ class SourceProjectApiTest {
         assertThat(Files.readString(root.resolve("TicketController.java"))).contains("client.retrieve");
         assertThat(http.getForObject("/api/runs/" + run.id(), Run.class)).isEqualTo(saved);
         assertThat(http.getForEntity(endpoint + "/search?q=ticket", String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        View replacement = create();
+        assertThat(replacement.revision()).isEqualTo(project.revision());
+        var stalePage = Map.of("question", "订单请求慢", "service", "order-service", "windowMinutes", 5, "scenario", "DOWNSTREAM_TIMEOUT", "includeSource", true,
+            "expectedSourceRevision", project.revision(), "expectedSourceProjectId", project.id());
+        assertThat(http.postForEntity("/api/runs", new HttpEntity<>(stalePage, headers()), String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+    }
+    @Test void standaloneChainVerifiesTargetsAndShowsCallsBeyondTheFirstExcerpt() throws Exception {
+        String body = "class TicketController { Gateway gateway;\n@GetMapping(\"/tickets\") Object ticket(String id) {\n" + "int ignored = 0;\n" + "ignored++;\n".repeat(100) + "return gateway.lookup(id);\n}\n}";
+        Files.writeString(root.resolve("TicketController.java"), body);
+        Files.writeString(root.resolve("Gateway.java"), "class Gateway { Object lookup(String id) { return null; } }");
+        View project = http.postForObject("/api/source-projects", new HttpEntity<>(Map.of("name", "调用项目", "service", "order-service", "directory", root.toString()), headers()), View.class);
+        var reference = Arrays.stream(http.getForObject("/api/source-projects/" + project.id() + "/search?q=ticket", Excerpt[].class)).filter(value -> value.method().equals("ticket")).findFirst().orElseThrow();
+        assertThat(reference.content()).doesNotContain("gateway.lookup(id)");
+        String endpoint = "/api/source-projects/" + project.id() + "/chains/" + reference.id();
+        CallGraph graph = http.getForObject(endpoint, CallGraph.class);
+        assertThat(graph.nodes()).hasSize(2);
+        assertThat(graph.edges().getFirst().callSite().content()).contains("gateway.lookup(id)");
+        assertThat(graph.edges().getFirst().line()).isGreaterThan(reference.endLine());
+        Files.writeString(root.resolve("Gateway.java"), "class Gateway { Object changed() { return null; } }");
+        assertThat(http.getForEntity(endpoint, String.class).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(http.getForEntity("/api/source-projects/" + project.id() + "/chains/SRC-forged", String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 }

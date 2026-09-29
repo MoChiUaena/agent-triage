@@ -41,10 +41,11 @@ function renderSource(run) {
   const analysis = run.sourceAnalysis;
   $("#code-count").textContent = String(analysis?.excerpts?.length || 0);
   let message = analysis?.message;
-  if (analysis && terminal(run) && ["QUEUED", "MODEL_PENDING"].includes(analysis.state))
+  if (analysis && terminal(run) && ["QUEUED", "LOCAL_PENDING", "MODEL_PENDING"].includes(analysis.state))
     message = "本次源码检查未完成。" + (analysis.modelUsed ? "已按本次授权请求模型读取候选代码。" : "尚未向模型发送源码。");
   $("#code-note").textContent = analysis ? analysis.projectName + " · 索引 v" + analysis.revision + "。" + message : "本次没有开启源码检索。";
   sourceView.render($("#code-excerpts"), analysis?.excerpts || []);
+  sourceView.graph($("#code-graph"), analysis?.graph, { evidenceLink: id => citation(run, id) });
 }
 
 function serviceInfo(run) {
@@ -330,6 +331,7 @@ function resetResult() {
   $("#code-count").textContent = "0";
   $("#code-note").textContent = "勾选本次源码检索后，匹配的代码位置会显示在这里。";
   $("#code-excerpts").replaceChildren();
+  $("#code-graph").replaceChildren();
   $("#cancel-run").hidden = true;
   $("#cancel-note").hidden = true;
   $("#model-usage").hidden = true;
@@ -1039,6 +1041,7 @@ $("#investigate-form").addEventListener("submit", async (event) => {
     includeSource: $("#include-source").checked && !$("#include-source").disabled,
     allowSourceModel: $("#allow-source-model").checked && !$("#allow-source-model").disabled,
     expectedSourceRevision: runtimeConfig.sourceProject?.available ? runtimeConfig.sourceProject.revision : null,
+    expectedSourceProjectId: runtimeConfig.sourceProject?.available ? runtimeConfig.sourceProject.id : null,
   };
   resetResult();
   setStatus("QUEUED");
@@ -1057,11 +1060,11 @@ $("#investigate-form").addEventListener("submit", async (event) => {
     await refreshHistory();
   } catch (error) {
     if (version === selectionVersion) {
-      const changed = error.message.includes("运行模式或模型配置已变更");
+      const changed = ["运行模式或模型配置已变更", "源码索引已变化", "源码项目已变化", "当前源码未授权"].some(message => error.message.includes(message));
       setStatus(changed ? "未开始" : "FAILED");
       emptyResult(
-        changed ? "运行配置已变更" : "未能开始排查",
-        changed ? "请确认当前模型后重新提交。" : "请检查连接后重试。",
+        changed ? "排查配置已变更" : "未能开始排查",
+        changed ? "请确认服务、模型和源码后重新提交。" : "请检查连接后重试。",
       );
       if (changed) {
         const previousMode = runtimeConfig?.mode;

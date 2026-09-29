@@ -37,4 +37,5 @@ public class SourceProjectController {
     }
     @GetMapping("/{id}/search") public List<SourceModels.Excerpt> search(@PathVariable UUID id, @RequestParam String q) { return projects.search(id, q); }
     @GetMapping("/{id}/excerpts/{symbol}") public SourceModels.Excerpt excerpt(@PathVariable UUID id, @PathVariable String symbol) { return projects.excerpt(id, symbol); }
+    @GetMapping("/{id}/chains/{symbol}") public SourceModels.CallGraph chain(@PathVariable UUID id, @PathVariable String symbol) { return projects.chain(id, symbol); }
 }

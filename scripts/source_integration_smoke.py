@@ -7,6 +7,7 @@ import shutil
 import socket
 import subprocess
 import threading
+import urllib.request
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -91,7 +92,7 @@ def main():
 
     def investigate():
         status, value = request(agent, "/api/runs", {"question": "工单接口 /api/tickets/{id} 为什么慢？", "service": "ticket-service",
-            "windowMinutes": 5, "includeSource": True, "expectedSourceRevision": binding["revision"]}, {"X-Triage-Source": "1"})
+            "windowMinutes": 5, "includeSource": True, "expectedSourceRevision": binding["revision"], "expectedSourceProjectId": binding["id"]}, {"X-Triage-Source": "1"})
         assert status == 202, (status, value)
         deadline = time.monotonic() + 10
         while value["status"] in ("RUNNING", "QUEUED") and time.monotonic() < deadline:
@@ -122,7 +123,7 @@ def main():
                 raise TimeoutError("Source fixture startup timed out")
             time.sleep(.5)
         status, binding = request(agent, "/api/source-projects", {"name": "外部工单项目", "service": "ticket-service", "directory": str(external)}, {"X-Triage-Source": "1"})
-        assert status == 200 and binding["files"] == 3 and not binding["modelSharing"], (status, binding)
+        assert status == 200 and binding["files"] == 6 and not binding["modelSharing"], (status, binding)
         normal = investigate()
         assert evidence(normal, "read_service_metrics")["data"]["timeoutCount"] == 0
         AssignmentHandler.slow = True
@@ -132,6 +133,23 @@ def main():
         assert evidence(failed, "read_service_metrics")["data"]["timeoutCount"] == 2
         excerpts = failed["sourceAnalysis"]["excerpts"]
         assert any(value["method"] == "lookup" and "retrieve" in value["content"] for value in excerpts)
+        graph = failed["sourceAnalysis"]["graph"]
+        assert graph["state"] == "READY" and not graph["truncated"]
+        assert {node["excerpt"]["className"] for node in graph["nodes"]} >= {"example.helpdesk.TicketController", "example.helpdesk.DefaultTicketService", "example.helpdesk.AssignmentGateway", "example.helpdesk.TicketFormatter"}
+        assert any(edge["resolution"] == "CANDIDATE" and "注入待确认" in edge["message"] for edge in graph["edges"])
+        boundaries = [edge for edge in graph["edges"] if edge["kind"] == "HTTP"]
+        assert len(boundaries) == 1
+        assert graph["evidenceLinks"][0]["kind"] == "HTTP_TIMEOUT"
+        assert graph["evidenceLinks"][0]["edgeIds"] == [boundaries[0]["id"]]
+        for node in graph["nodes"]:
+            excerpt = node["excerpt"]
+            lines = (external / excerpt["path"]).read_text(encoding="utf-8").splitlines()
+            assert excerpt["content"] == "\n".join(lines[excerpt["startLine"] - 1:excerpt["endLine"]])
+        for edge in graph["edges"]:
+            excerpt = edge["callSite"]
+            assert excerpt["startLine"] <= edge["line"] <= excerpt["endLine"]
+            lines = (external / excerpt["path"]).read_text(encoding="utf-8").splitlines()
+            assert excerpt["content"] == "\n".join(lines[excerpt["startLine"] - 1:excerpt["endLine"]])
         status, matches = request(agent, "/api/source-projects/" + binding["id"] + "/search?q=%2Fapi%2Ftickets")
         assert status == 200 and any(value["route"] == "/api/tickets/{id}" for value in matches)
         modified = external / "src/main/java/example/helpdesk/AssignmentGateway.java"
@@ -141,10 +159,27 @@ def main():
         status, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, {"X-Triage-Source": "1"})
         assert status == 200 and binding["revision"] == 2
         assert request(agent, "/api/runs/" + failed["id"])[1]["sourceAnalysis"] == failed["sourceAnalysis"]
+        alternative = external / "src/main/java/example/helpdesk/ArchivedTicketService.java"
+        alternative.write_text("package example.helpdesk; import java.util.Map; class ArchivedTicketService implements TicketService { public Map<String,Object> find(String id) { return Map.of(); } }\n", encoding="utf-8")
+        status, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, {"X-Triage-Source": "1"})
+        ambiguous = investigate()["sourceAnalysis"]["graph"]
+        interface_edges = [edge for edge in ambiguous["edges"] if edge["call"] == "service.find"]
+        assert len(interface_edges) == 1 and interface_edges[0]["resolution"] == "AMBIGUOUS" and len(interface_edges[0]["targetIds"]) == 2
+        # Exercise management using only this generated source binding; no files are deleted.
+        endpoint = agent + "/api/source-projects/" + binding["id"]
+        data = json.dumps({"revision": binding["revision"], "name": binding["name"], "directory": str(external), "service": None}).encode()
+        with urllib.request.urlopen(urllib.request.Request(endpoint, data=data, method="PUT", headers={"Content-Type": "application/json", "X-Triage-Source": "1"})) as response:
+            unbound = json.load(response)
+        assert unbound["service"] is None and not unbound["modelSharing"]
+        assert not request(agent, "/api/config?service=ticket-service")[1]["sourceProject"]["available"]
+        confirmation = json.dumps({"confirmId": binding["id"], "revision": unbound["revision"]}).encode()
+        with urllib.request.urlopen(urllib.request.Request(endpoint, data=confirmation, method="DELETE", headers={"Content-Type": "application/json", "X-Triage-Source": "1"})) as response:
+            assert response.status == 204
+        assert modified.is_file() and request(agent, "/api/runs/" + failed["id"])[1]["sourceAnalysis"] == failed["sourceAnalysis"]
         summary = {"normal": "passed", "actualTimeouts": 2, "sourceFiles": binding["files"], "routeReference": "passed",
-            "changedFileRejected": True, "reindexRevision": binding["revision"], "modelCalls": 0}
+            "changedFileRejected": True, "reindexRevision": binding["revision"], "staticChain": "passed", "ambiguousImplementation": "passed", "indexManagement": "passed", "modelCalls": 0}
         (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-        print("Source smoke passed: independent helpdesk JVM, actual HTTP requests/timeouts, route and method references, verified lines, stale-file rejection and history")
+        print("Source smoke passed: independent helpdesk JVM, actual timeouts, Controller/interface/Gateway/HTTP chain, verified call lines, ambiguity, evidence links, index management and history")
     finally:
         for process in reversed(processes):
             if process.poll() is None:

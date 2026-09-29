@@ -25,4 +25,25 @@
 .source-opt-in input { margin-top: 4px; accent-color: var(--accent); }
 .source-opt-in a { color: var(--accent); width: fit-content; }
 .source-result-note { padding: 14px 20px; background: #f6f8fc; border-radius: 6px; }
+.source-excerpt-actions { padding: 10px 16px; border-top: 1px solid var(--line); }
+.call-graph { margin: 20px 0 28px; min-width: 0; }
+.call-graph-heading { font-size: 16px; margin-bottom: 12px; }
+.call-root, .call-limit { color: var(--muted); font-size: 13px; line-height: 1.8; margin: 12px 0; overflow-wrap: anywhere; }
+.call-evidence { padding: 16px; border: 1px solid #cddcf1; border-radius: 7px; background: #f2f7ff; margin: 15px 0; font-size: 13px; line-height: 1.8; }
+.call-evidence strong { font-size: 14px; }
+.call-evidence p { margin: 7px 0; }
+.call-steps { list-style: none; padding: 0; display: grid; gap: 12px; }
+.call-step { padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: #fff; min-width: 0; }
+.call-step.has-observation { border-left: 3px solid var(--accent); }
+.call-step-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.call-step-heading strong { font-size: 14px; line-height: 1.7; overflow-wrap: anywhere; min-width: 0; }
+.call-state { color: var(--accent); background: var(--accent-soft); padding: 3px 7px; border-radius: 4px; font-size: 12px; flex-shrink: 0; }
+.call-state.uncertain { color: #946322; background: #fff5df; }
+.call-location, .call-message { color: var(--muted); font-size: 13px; line-height: 1.8; margin: 8px 0; overflow-wrap: anywhere; }
+.call-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.call-actions button { white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.call-preview { min-width: 0; }
+.call-other { margin-top: 16px; }
+.call-other > summary { padding: 12px 0; cursor: pointer; font-size: 13px; color: var(--muted); }
+.call-limit { padding: 12px 15px; background: #fff8e9; border-radius: 6px; }
 @media (max-width: 900px) { .source-registration .form-grid { grid-template-columns: 1fr; gap: 0; } }

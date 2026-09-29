@@ -37,11 +37,11 @@ public class JavaSourceIndexer {
                         String text = SourceFiles.read(root, relative); totalBytes[0] += text.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
                         if (totalBytes[0] > 20 * 1024 * 1024) throw new IllegalArgumentException("源码超过 20 MB，请登记较小的模块目录。");
                         String hash = SourceFiles.hash(text);
-                        List<Symbol> symbols = parse(compiler, relative, hash, text);
-                        if (symbols == null) counts[2]++; else {
-                            counts[3] += symbols.size();
+                        Parsed parsed = parse(compiler, relative, hash, text);
+                        if (parsed == null) counts[2]++; else {
+                            counts[3] += parsed.symbols().size();
                             if (counts[3] > 10000) throw new IllegalArgumentException("项目超过 10000 个源码符号，请登记较小的模块目录。");
-                            files.add(new FileEntry(relative, hash, symbols));
+                            files.add(new FileEntry(relative, hash, parsed.symbols(), parsed.types()));
                         }
                     } catch (java.io.IOException e) { counts[1]++; }
                     return FileVisitResult.CONTINUE;
@@ -54,48 +54,49 @@ public class JavaSourceIndexer {
         } catch (java.io.IOException e) { throw new IllegalArgumentException("项目目录读取失败，请检查文件权限。"); }
         files.sort(Comparator.comparing(FileEntry::path));
         String aggregate = files.stream().map(file -> file.path() + ":" + file.hash()).collect(java.util.stream.Collectors.joining("\n"));
-        return new Index(SourceFiles.hash(aggregate), Instant.now(), counts[0], counts[1], counts[2], List.copyOf(files));
+        return new Index(SourceFiles.hash(aggregate), Instant.now(), counts[0], counts[1], counts[2], List.copyOf(files), 2);
     }
-    private List<Symbol> parse(JavaCompiler compiler, String path, String hash, String text) throws java.io.IOException {
+    private record Parsed(List<Symbol> symbols, List<TypeInfo> types) {}
+    private Parsed parse(JavaCompiler compiler, String path, String hash, String text) throws java.io.IOException {
         var diagnostics = new DiagnosticCollector<JavaFileObject>();
         try (var manager = compiler.getStandardFileManager(diagnostics, Locale.ROOT, java.nio.charset.StandardCharsets.UTF_8)) {
             URI uri; try { uri = new URI("string", null, "/" + path, null); } catch (Exception e) { throw new java.io.IOException(); }
             var source = new SimpleJavaFileObject(uri, JavaFileObject.Kind.SOURCE) { @Override public CharSequence getCharContent(boolean ignored) { return text; } };
             var task = (JavacTask) compiler.getTask(null, manager, diagnostics, List.of("-proc:none", "-source", "21"), null, List.of(source));
-            var units = task.parse(); var result = new ArrayList<Symbol>(); var positions = Trees.instance(task).getSourcePositions();
+            var units = task.parse(); var result = new ArrayList<Symbol>(); var types = new ArrayList<TypeInfo>(); var positions = Trees.instance(task).getSourcePositions();
             for (CompilationUnitTree unit : units) {
                 new TreeScanner<Void, Void>() {
                     String type = ""; String prefix = "";
+                    TypeInfo owner;
                     @Override public Void visitClass(ClassTree node, Void unused) {
                         String oldType = type, oldPrefix = prefix;
+                        TypeInfo oldOwner = owner;
                         if (node.getSimpleName().length() == 0) return null;
                         type = (oldType.isEmpty() ? unit.getPackageName() == null ? "" : unit.getPackageName() + "." : oldType + ".") + node.getSimpleName();
                         prefix = mapping(node.getModifiers().getAnnotations()) ? route(node.getModifiers().getAnnotations()) : "";
-                        add(node, "", node.getSimpleName().toString(), prefix == null ? "" : prefix, List.of(), List.of());
-                        super.visitClass(node, unused); type = oldType; prefix = oldPrefix; return null;
+                        owner = JavaCallMetadata.type(unit, node, type); types.add(owner);
+                        add(node, "", node.getSimpleName().toString(), prefix == null ? "" : prefix, List.of(), List.of(), null);
+                        super.visitClass(node, unused); type = oldType; prefix = oldPrefix; owner = oldOwner; return null;
                     }
                     @Override public Void visitMethod(MethodTree node, Void unused) {
-                        var calls = new LinkedHashSet<String>();
-                        new TreeScanner<Void, Void>() { @Override public Void visitMethodInvocation(MethodInvocationTree call, Void value) {
-                            calls.add(call.getMethodSelect().toString()); return super.visitMethodInvocation(call, value);
-                        }}.scan(node.getBody(), null);
+                        MethodInfo details = JavaCallMetadata.method(unit, node, owner, positions);
                         String route = route(node.getModifiers().getAnnotations());
                         List<String> verbs = verbs(node.getModifiers().getAnnotations());
                         add(node, node.getName().toString(), node.getName() + "(" + node.getParameters().stream().map(p -> p.getType().toString()).collect(java.util.stream.Collectors.joining(",")) + ")",
-                            route == null || prefix == null ? "" : (prefix + "/" + route).replaceAll("/+", "/"), verbs, calls.stream().limit(30).toList());
+                            route == null || prefix == null ? "" : (prefix + "/" + route).replaceAll("/+", "/"), verbs, details.invocations().stream().map(Invocation::expression).distinct().toList(), details);
                         return super.visitMethod(node, unused);
                     }
-                    void add(Tree node, String method, String signature, String route, List<String> verbs, List<String> calls) {
+                    void add(Tree node, String method, String signature, String route, List<String> verbs, List<String> calls, MethodInfo details) {
                         long start = positions.getStartPosition(unit, node), end = positions.getEndPosition(unit, node);
                         if (start < 0 || end <= start || result.size() >= 1000) return;
                         int first = (int) unit.getLineMap().getLineNumber(start), last = (int) unit.getLineMap().getLineNumber(end - 1);
                         String id = "SRC-" + SourceFiles.hash(path + ":" + hash + ":" + first + ":" + last + ":" + signature).substring(0, 24);
-                        result.add(new Symbol(id, path, hash, type, method, signature, route, verbs, calls, first, last));
+                        result.add(new Symbol(id, path, hash, type, method, signature, route, verbs, calls, first, last, details));
                     }
                 }.scan(unit, null);
             }
             if (diagnostics.getDiagnostics().stream().anyMatch(d -> d.getKind() == Diagnostic.Kind.ERROR)) return null;
-            return List.copyOf(result);
+            return new Parsed(List.copyOf(result), List.copyOf(types));
         }
     }
     private static String simple(String text) { return text.substring(text.lastIndexOf('.') + 1); }
