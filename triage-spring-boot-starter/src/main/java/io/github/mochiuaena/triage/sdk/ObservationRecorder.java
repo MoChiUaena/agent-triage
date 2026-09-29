@@ -8,6 +8,7 @@ import static org.springframework.http.HttpStatus.*;
 
 /** In-memory projection. No URLs, headers, SQL text, bodies or exception messages are retained. */
 public final class ObservationRecorder {
+    private static final int QUERY_GRACE_SECONDS = 120;
     record Error(Instant timestamp, String traceId, String level, String message) {}
     record DatabaseError(Instant timestamp, String traceId, String level, String message, String code) {}
     record HttpSample(Instant timestamp, double requestMs, double downstreamMs, boolean timeout, Error error) {}
@@ -58,11 +59,11 @@ public final class ObservationRecorder {
     synchronized void pool(int maximum, int active, int pending) {
         maximumConnections = maximum;
         pools.addLast(new PoolSample(now(), active, pending));
-        trim(pools, PoolSample::timestamp, properties.getMaxWindowMinutes() * 60 * 20 + 20);
+        trim(pools, PoolSample::timestamp, (properties.getMaxWindowMinutes() * 60 + QUERY_GRACE_SECONDS) * 20 + 20);
     }
     synchronized void configurePool(int maximum) { maximumConnections = maximum; }
     private <T> void trim(Deque<T> values, java.util.function.Function<T, Instant> timestamp, int capacity) {
-        Instant cutoff = now().minusSeconds(properties.getMaxWindowMinutes() * 60L);
+        Instant cutoff = now().minusSeconds(properties.getMaxWindowMinutes() * 60L + QUERY_GRACE_SECONDS);
         values.removeIf(value -> timestamp.apply(value).isBefore(cutoff));
         while (values.size() > capacity) {
             Instant dropped = timestamp.apply(values.removeFirst());
@@ -73,7 +74,7 @@ public final class ObservationRecorder {
         if (minutes < 1 || minutes > properties.getMaxWindowMinutes() || end == null || end.isAfter(now().plusSeconds(5)))
             throw new ResponseStatusException(BAD_REQUEST, "Invalid observation window");
         Instant start = end.minusSeconds(minutes * 60L);
-        if (start.isBefore(now().minusSeconds(properties.getMaxWindowMinutes() * 60L + 5))
+        if (start.isBefore(now().minusSeconds(properties.getMaxWindowMinutes() * 60L + QUERY_GRACE_SECONDS))
                 || droppedThrough != null && !droppedThrough.isBefore(start))
             throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "Observation window is no longer fully retained; reduce the window");
         if (properties.getKind() == TriageObservationProperties.Kind.DATABASE) return databaseWindow(start, end);
