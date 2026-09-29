@@ -12,7 +12,7 @@ import java.util.*;
 /** Startup-owned allowlist. Addresses never come from a run or a model tool call. */
 @Component
 public final class ServiceRegistry {
-    public enum Protocol { LAB, OBSERVATIONS_V1, DATABASE_V2 }
+    public enum Protocol { LAB, OBSERVATIONS_V1, DATABASE_V2, OBSERVATIONS_V3 }
     public record Config(String id, String name, String downstreamId, String downstreamName,
                          String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled) {}
     public record Target(ServiceInfo info, URI baseUrl, Protocol protocol, int maxWindowMinutes, boolean labEnabled) {}
@@ -80,6 +80,6 @@ public final class ServiceRegistry {
         if (target.protocol() == Protocol.LAB && context.scenario() != io.github.mochiuaena.triage.domain.TriageModel.Scenario.NORMAL
             && context.scenario() != io.github.mochiuaena.triage.domain.TriageModel.Scenario.DOWNSTREAM_TIMEOUT)
             throw new IllegalArgumentException("Unsupported legacy lab scenario");
-        return new ToolContext(context.service(), context.windowMinutes(), context.scenario(), context.endTime(), target);
+        return new ToolContext(context.service(), context.windowMinutes(), context.scenario(), context.endTime(), target, context.endpoint());
     }
 }

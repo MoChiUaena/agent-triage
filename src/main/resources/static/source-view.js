@@ -51,7 +51,15 @@ window.sourceView = {
     const kinds = { HTTP: "HTTP 请求", DATABASE_ACQUIRE: "获取数据库连接", DATABASE_QUERY: "数据库操作" };
     const wrapper = element("section", "call-graph");
     wrapper.append(element("h3", "call-graph-heading", "本机静态调用关系"), element("p", "source-result-note", graph.message));
-    if (graph.rootIds?.length) wrapper.append(element("p", "call-root", "入口候选：" + graph.rootIds.map(method).join(" / ")));
+    const matches = graph.endpointMatches || [];
+    if (graph.rootIds?.length) wrapper.append(element("p", "call-root", (matches.length ? "按请求匹配的入口：" : "入口候选：") + graph.rootIds.map(method).join(" / ")));
+    for (const match of matches) {
+      const box = element("div", "call-entry-match");
+      box.append(element("strong", "", match.endpoint.httpMethod + " " + match.endpoint.routeTemplate + " · " + match.requestCount + " 次请求 · " + match.timeoutCount + " 次超时"),
+        element("p", "", match.endpoint.handlerClass + "." + match.endpoint.handlerMethod + "(" + match.endpoint.parameterTypes.join(", ") + ")"),
+        element("p", "", match.message + " MVC 匹配信息不证明处理方法体或后续调用已执行。"));
+      wrapper.append(box);
+    }
     for (const link of graph.evidenceLinks || []) {
       const box = element("div", "call-evidence");
       box.append(element("strong", "", "运行证据与核查位置"), element("p", "", link.message));

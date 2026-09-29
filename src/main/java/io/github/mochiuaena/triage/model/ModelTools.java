@@ -102,7 +102,7 @@ final class ModelTools {
 
     String execute(PreparedCall call) {
         var evidence = session.callTool(call.name(), call.query());
-        try { return json.writeValueAsString(evidence); }
+        try { return json.writeValueAsString(ModelEvidence.project(evidence)); }
         catch (Exception e) { throw new RunFailure("INVALID_TOOL_OUTPUT", "无法序列化工具结果。"); }
     }
 }

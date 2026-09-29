@@ -33,6 +33,7 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
         data.put("timeoutCount", observation.timeoutCount());
         data.put("sampleLimit", 3);
         data.put("synthetic", false);
+        if (observation.requestDetails() != null) data.put("endpointScoped", context.endpoint() != null);
         if (observation.databasePool() != null) {
             data.put("observationType", "DATABASE_POOL");
             data.put("requestCount", observation.requestCount());

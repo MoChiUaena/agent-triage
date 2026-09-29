@@ -27,6 +27,6 @@ final class MutableExecution {
     }
     Run snapshot() {
         return new Run(initial.id(), initial.question(), initial.service(), initial.windowMinutes(), initial.scenario(),
-            initial.mode(), initial.synthetic(), status, initial.createdAt(), finishedAt, toolCalls, List.copyOf(events), List.copyOf(evidence), diagnosis, failure, modelExecution, initial.serviceInfo(), sourceAnalysis);
+            initial.mode(), initial.synthetic(), status, initial.createdAt(), finishedAt, toolCalls, List.copyOf(events), List.copyOf(evidence), diagnosis, failure, modelExecution, initial.serviceInfo(), sourceAnalysis, initial.endpoint());
     }
 }

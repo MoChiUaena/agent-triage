@@ -4,6 +4,7 @@ import io.github.mochiuaena.triage.execution.TriageEngine;
 import io.github.mochiuaena.triage.execution.ExecutionSession;
 import io.github.mochiuaena.triage.execution.RunFailure;
 import io.github.mochiuaena.triage.tools.ServiceRegistry;
+import io.github.mochiuaena.triage.domain.TriageModel.RequestDetails;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.Semaphore;
@@ -104,11 +105,20 @@ public class SourceProjectService {
         excerpt(project, symbol); // Identity and file verification also apply to standalone graph requests.
         return new SourceCallGraph(project.index()).build(List.of(symbol), (identity, focus) -> excerptAt(project, identity, focus), () -> {});
     }
-    private CallGraph graph(Stored project, List<Excerpt> candidates, ExecutionSession session) {
-        List<String> roots = candidates.stream().filter(value -> !value.method().isBlank() && !value.route().isBlank()).map(Excerpt::id).toList();
-        if (roots.isEmpty()) roots = candidates.stream().filter(value -> !value.method().isBlank() && !value.method().equals("<init>") && !value.method().equals("main")).limit(2).map(Excerpt::id).toList();
+    private CallGraph graph(Stored project, List<Excerpt> candidates, List<EndpointMatch> matches, ExecutionSession session) {
+        List<String> roots = matches.isEmpty() ? candidates.stream().filter(value -> !value.method().isBlank() && !value.route().isBlank()).map(Excerpt::id).toList()
+            : matches.stream().flatMap(value -> value.sourceIds().stream()).distinct().toList();
+        if (roots.isEmpty() && matches.isEmpty()) roots = candidates.stream().filter(value -> !value.method().isBlank() && !value.method().equals("<init>") && !value.method().equals("main")).limit(2).map(Excerpt::id).toList();
         CallGraph graph = new SourceCallGraph(project.index()).build(roots, (identity, focus) -> excerptAt(project, identity, focus), session::checkDeadline);
+        if (!matches.isEmpty()) graph = new CallGraph(graph.state(), graph.message(), graph.truncated(), graph.rootIds(), graph.nodes(), graph.edges(), graph.evidenceLinks(), List.copyOf(matches));
         return SourceEvidenceLinks.attach(graph, session.evidence(), session.synthetic());
+    }
+    private List<EndpointMatch> endpointMatches(Stored project, ExecutionSession session) {
+        var details = session.evidence().stream().filter(value -> value.source().equals("read_service_metrics"))
+            .map(value -> value.data().get("requestDetails")).filter(RequestDetails.class::isInstance).map(RequestDetails.class::cast).findFirst().orElse(null);
+        if (details == null) return List.of();
+        var resolver = new SourceCallGraph(project.index());
+        return details.endpoints().stream().map(resolver::endpoint).toList();
     }
     public Stored bound(String service) { return projects.byService(service).orElse(null); }
     public Map<String,Object> summary(String service) {
@@ -152,10 +162,13 @@ public class SourceProjectService {
                 query.insert(0, "getConnection query execute ");
             else if (session.evidence().stream().anyMatch(e -> e.data().get("timeoutCount") instanceof Number n && n.longValue() > 0))
                 query.insert(0, "retrieve exchange send timeout ");
-            candidates = search(project, query.substring(0, Math.min(200, query.length())));
-            if (candidates.isEmpty()) return analysis(project, "NO_MATCH", false, "未找到匹配的类、方法或接口。可以在源码页面用方法名或接口路径检索。", List.of());
-            graph = graph(project, candidates, session);
+            List<EndpointMatch> matches = endpointMatches(project, session);
+            candidates = matches.isEmpty() ? search(project, query.substring(0, Math.min(200, query.length())))
+                : matches.stream().flatMap(value -> value.sourceIds().stream()).distinct().limit(5).map(id -> excerpt(project, id)).toList();
+            if (candidates.isEmpty() && matches.isEmpty()) return analysis(project, "NO_MATCH", false, "未找到匹配的类、方法或接口。可以在源码页面用方法名或接口路径检索。", List.of());
+            graph = graph(project, candidates, matches, session);
             session.recordSourceGraph(graph);
+            if (candidates.isEmpty()) return analysis(project, "NO_MATCH", false, "已读取接口匹配信息，但当前源码索引没有对应入口。请检查目录或重新索引。", List.of(), graph);
             if (!allowModel || !authorized(project, selected)) return analysis(project, "LOCAL", false, "已检索本机代码，未向模型发送源码。引用仅供核查，不能证明本次请求的执行路径。", candidates, graph);
             if (session.evidence().stream().noneMatch(value -> value.source().equals("read_service_metrics") && value.data().get("requestCount") instanceof Number count && count.longValue() > 0))
                 return analysis(project, "LOCAL", false, "缺少可用运行观测，保留本机源码检索结果，未请求源码模型检查。", candidates, graph);

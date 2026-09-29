@@ -46,6 +46,16 @@ triage:
 
 商品请求响应中的 `X-Triage-Trace-Id` 对应 SDK 错误事件标识。SDK 不接收外部 traceId，也不会自动与业务日志已有链路关联。异步 Servlet、WebFlux、跨线程调用和多个下游暂未支持。
 
+## 按接口观测
+
+HTTP 应用可额外设置 `triage.sdk.endpoint-observations: true`，Agent 对应服务设置 `protocol: OBSERVATIONS_V3`。页面会显示窗口中实际匹配过的接口，可单独查询每个接口的请求数、超时和耗时。原 `/triage/observations` 的 V1 响应保持不变，V3 使用独立的 `/triage/endpoint-observations`，默认关闭。
+
+V3 记录 HTTP 方法、Spring MVC 注册的路径模板、处理方法的类名、方法名与参数类型，不读取实际请求 URL、路径变量、查询参数、请求头或正文。例如请求 `/api/tickets/T-1` 只保留模板 `/api/tickets/{id}`。同一路径的不同 HTTP 方法分别统计，未匹配处理方法的请求计入未关联数量。
+
+记录来自 MVC 的处理方法选择阶段，不能证明方法体或后续调用执行过，也不跟踪完整转发、异步或分布式调用。超过 8 个参数或标识长度上限的处理方法不保留描述信息。列表最多展示 8 个接口，优先展示超时较多的接口；其他接口请求数单独保留。底层请求容量和窗口限制与 V1 相同。
+
+Agent 在本机用这些标识关联源码入口，默认模型请求会移除路由与处理方法描述，仅使用相应窗口的观测数值。源码片段读取仍需独立的项目授权和本次勾选，详见[源码接入](SOURCE_INTEGRATION.md)。
+
 ## 数据库模式
 
 业务应用需要已有的 HikariCP `DataSource`，最大连接数在 1–64 之间。设置 `kind: DATABASE`，并以数据库标识填写 `downstream-id`；该模式不安装 HTTP 采集过滤器。

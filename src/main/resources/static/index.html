@@ -167,6 +167,11 @@
               </select>
             </div>
           </div>
+          <div class="endpoint-controls" id="endpoint-controls" hidden>
+            <div class="control"><label for="endpoint">接口范围</label><select id="endpoint"><option value="">全部接口</option></select></div>
+            <button class="secondary" id="refresh-endpoints" type="button">刷新接口</button>
+            <p id="endpoint-note">读取本窗口实际匹配到的接口。</p>
+          </div>
           <label class="sr-only" for="question">排查问题</label>
           <textarea
             id="question"

@@ -44,6 +44,7 @@ def main():
     parser.add_argument("--base-port", type=int, default=18320)
     parser.add_argument("--serve-assignment", action="store_true", help="Keep only the local assignment fixture running")
     parser.add_argument("--slow", action="store_true")
+    parser.add_argument("--protocol-v3", action="store_true", help="Verify endpoint-scoped MVC observations")
     args = parser.parse_args()
     if args.serve_assignment:
         AssignmentHandler.slow = args.slow
@@ -72,7 +73,7 @@ def main():
       downstream-id: assignment-service
       downstream-name: 分配服务
       base-url: {ticket}
-      protocol: OBSERVATIONS_V1
+      protocol: {"OBSERVATIONS_V3" if args.protocol_v3 else "OBSERVATIONS_V1"}
       max-window-minutes: 15
 """, encoding="utf-8")
     java = str(Path(os.environ["JAVA_HOME"]) / "bin" / ("java.exe" if os.name == "nt" else "java")) if os.environ.get("JAVA_HOME") else "java"
@@ -90,9 +91,12 @@ def main():
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         processes.append(process)
 
-    def investigate():
-        status, value = request(agent, "/api/runs", {"question": "工单接口 /api/tickets/{id} 为什么慢？", "service": "ticket-service",
-            "windowMinutes": 5, "includeSource": True, "expectedSourceRevision": binding["revision"], "expectedSourceProjectId": binding["id"]}, {"X-Triage-Source": "1"})
+    def investigate(endpoint=None):
+        body = {"question": "服务请求为什么变慢？" if args.protocol_v3 else "工单接口 /api/tickets/{id} 为什么慢？", "service": "ticket-service",
+            "windowMinutes": 5, "includeSource": True, "expectedSourceRevision": binding["revision"], "expectedSourceProjectId": binding["id"]}
+        if endpoint:
+            body["endpointId"] = endpoint
+        status, value = request(agent, "/api/runs", body, {"X-Triage-Source": "1"})
         assert status == 202, (status, value)
         deadline = time.monotonic() + 10
         while value["status"] in ("RUNNING", "QUEUED") and time.monotonic() < deadline:
@@ -108,7 +112,7 @@ def main():
         return value
 
     try:
-        start(ROOT / "verification/ticket-service", "ticket", [f"--server.port={ports[1]}", f"--triage.sdk.downstream-base-url={dependency}"])
+        start(ROOT / "verification/ticket-service", "ticket", [f"--server.port={ports[1]}", f"--triage.sdk.downstream-base-url={dependency}", f"--triage.sdk.endpoint-observations={str(args.protocol_v3).lower()}"])
         start(ROOT, "agent", [f"--server.port={ports[0]}", "--triage.mode=DEMO", "--spring.datasource.url=jdbc:h2:mem:source-smoke;DB_CLOSE_DELAY=-1",
             f"--spring.config.additional-location={configuration.as_uri()}", f"--triage.settings.key-file={output / 'local.key'}"])
         deadline = time.monotonic() + 60
@@ -132,8 +136,9 @@ def main():
         failed = investigate()
         assert evidence(failed, "read_service_metrics")["data"]["timeoutCount"] == 2
         excerpts = failed["sourceAnalysis"]["excerpts"]
-        assert any(value["method"] == "lookup" and "retrieve" in value["content"] for value in excerpts)
         graph = failed["sourceAnalysis"]["graph"]
+        references = excerpts + [node["excerpt"] for node in graph["nodes"]]
+        assert any(value["method"] == "lookup" and "retrieve" in value["content"] for value in references)
         assert graph["state"] == "READY" and not graph["truncated"]
         assert {node["excerpt"]["className"] for node in graph["nodes"]} >= {"example.helpdesk.TicketController", "example.helpdesk.DefaultTicketService", "example.helpdesk.AssignmentGateway", "example.helpdesk.TicketFormatter"}
         assert any(edge["resolution"] == "CANDIDATE" and "注入待确认" in edge["message"] for edge in graph["edges"])
@@ -141,6 +146,23 @@ def main():
         assert len(boundaries) == 1
         assert graph["evidenceLinks"][0]["kind"] == "HTTP_TIMEOUT"
         assert graph["evidenceLinks"][0]["edgeIds"] == [boundaries[0]["id"]]
+        if args.protocol_v3:
+            assert graph["endpointMatches"][0]["state"] == "MATCHED"
+            assert graph["endpointMatches"][0]["endpoint"]["handlerMethod"] == "ticket"
+            for _ in range(2):
+                assert request(ticket, "/api/tickets/summary")[0] == 200
+            choices = request(agent, "/api/services/ticket-service/endpoints?windowMinutes=5")[1]["endpoints"]
+            healthy_endpoint = next(item["endpoint"] for item in choices if item["endpoint"]["routeTemplate"] == "/api/tickets/summary")
+            failed_endpoint = next(item["endpoint"] for item in choices if item["endpoint"]["routeTemplate"] == "/api/tickets/{id}")
+            healthy = investigate(healthy_endpoint["id"])
+            healthy_metrics = evidence(healthy, "read_service_metrics")["data"]
+            assert healthy_metrics["requestCount"] == 2 and healthy_metrics["timeoutCount"] == 0
+            assert healthy["endpoint"] == healthy_endpoint and healthy["sourceAnalysis"]["graph"]["nodes"][0]["signature"] == "ticket()"
+            endpoint_failed = investigate(failed_endpoint["id"])
+            failed_metrics = evidence(endpoint_failed, "read_service_metrics")["data"]
+            assert failed_metrics["requestCount"] == 3 and failed_metrics["timeoutCount"] == 2
+            assert endpoint_failed["sourceAnalysis"]["graph"]["nodes"][0]["signature"] == "ticket(String)"
+            assert request(agent, "/api/runs/" + healthy["id"])[1]["endpoint"] == healthy_endpoint
         for node in graph["nodes"]:
             excerpt = node["excerpt"]
             lines = (external / excerpt["path"]).read_text(encoding="utf-8").splitlines()
@@ -154,7 +176,7 @@ def main():
         assert status == 200 and any(value["route"] == "/api/tickets/{id}" for value in matches)
         modified = external / "src/main/java/example/helpdesk/AssignmentGateway.java"
         modified.write_text(modified.read_text(encoding="utf-8") + "\n// source changed\n", encoding="utf-8")
-        gateway = next(value for value in excerpts if value["method"] == "lookup")
+        gateway = next(value for value in references if value["method"] == "lookup")
         assert request(agent, "/api/source-projects/" + binding["id"] + "/excerpts/" + gateway["id"])[0] == 409
         status, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, {"X-Triage-Source": "1"})
         assert status == 200 and binding["revision"] == 2
@@ -176,10 +198,12 @@ def main():
         with urllib.request.urlopen(urllib.request.Request(endpoint, data=confirmation, method="DELETE", headers={"Content-Type": "application/json", "X-Triage-Source": "1"})) as response:
             assert response.status == 204
         assert modified.is_file() and request(agent, "/api/runs/" + failed["id"])[1]["sourceAnalysis"] == failed["sourceAnalysis"]
-        summary = {"normal": "passed", "actualTimeouts": 2, "sourceFiles": binding["files"], "routeReference": "passed",
+        summary = {"normal": "passed", "actualTimeouts": 2, "protocol": 3 if args.protocol_v3 else 1, "sourceFiles": binding["files"], "routeReference": "passed",
             "changedFileRejected": True, "reindexRevision": binding["revision"], "staticChain": "passed", "ambiguousImplementation": "passed", "indexManagement": "passed", "modelCalls": 0}
         (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         print("Source smoke passed: independent helpdesk JVM, actual timeouts, Controller/interface/Gateway/HTTP chain, verified call lines, ambiguity, evidence links, index management and history")
+        if args.protocol_v3:
+            print("Endpoint smoke passed: actual MVC handlers, generic questions, healthy/timeout endpoint isolation, overloaded source entry and frozen history")
     finally:
         for process in reversed(processes):
             if process.poll() is None:

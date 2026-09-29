@@ -100,6 +100,44 @@ class LiveObservationClientTest {
         assertThat(snapshot.timeoutCount()).isEqualTo(1);
         assertThat(new LiveMetricsTool(client).execute(context, "").getFirst().summary()).contains("结算服务", "商品服务").doesNotContain("订单", "库存");
     }
+    private io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint() throws Exception {
+        String identity = String.join("\0", "GET", "/api/orders/{id}", "example.OrderController", "order", "java.lang.String");
+        String id = "EP-" + java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(identity.getBytes(StandardCharsets.UTF_8))).substring(0, 32);
+        return new io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint(id, "GET", "/api/orders/{id}", "example.OrderController", "order", List.of("java.lang.String"), "MVC_SELECTED");
+    }
+    private ObjectNode v3() throws Exception {
+        var value = valid(); value.put("schemaVersion", 3).put("kind", "HTTP_ENDPOINTS").putNull("endpoint").put("unattributedRequestCount", 0).put("otherEndpointRequestCount", 0);
+        var summary = value.putArray("endpoints").addObject(); summary.set("endpoint", json.valueToTree(endpoint()));
+        summary.put("requestCount", 5).put("timeoutCount", 1).put("requestP95Ms", 310.4).put("downstreamP95Ms", 310.0);
+        return value;
+    }
+    private void endpointClient() {
+        server.createContext("/triage/endpoint-observations", exchange -> { byte[] body = response.get(); exchange.sendResponseHeaders(200, body.length); try (var out = exchange.getResponseBody()) { out.write(body); } });
+        String origin = "http://127.0.0.1:" + server.getAddress().getPort();
+        registry = new ServiceRegistry(new ObservationSource("LIVE", origin), List.of(new ServiceRegistry.Config("checkout-service", "结算服务", "stock-service", "商品服务", origin, ServiceRegistry.Protocol.OBSERVATIONS_V3, 15, false)));
+        client = new LiveObservationClient(registry, json); context = new ToolContext("checkout-service", 5, Scenario.OBSERVED, end, registry.defaultTarget());
+    }
+    @Test void endpointMetadataIsValidatedAndSelectionCannotChangeItsHandlerIdentity() throws Exception {
+        endpointClient(); var value = v3(); response.set(json.writeValueAsBytes(value));
+        var all = client.snapshot(context);
+        assertThat(all.requestDetails().endpoints().getFirst().endpoint()).isEqualTo(endpoint());
+        value.set("endpoint", json.valueToTree(endpoint())); response.set(json.writeValueAsBytes(value));
+        var selected = new ToolContext(context.service(), 5, Scenario.OBSERVED, end, registry.defaultTarget(), endpoint());
+        assertThat(client.snapshot(selected).requestDetails().endpoint()).isEqualTo(endpoint());
+        assertThatThrownBy(() -> client.snapshot(context)).isInstanceOf(ObservationFailure.class);
+    }
+    @Test void endpointDetailsRejectWrongHashesMissingValuesDuplicatesAndMixedScope() throws Exception {
+        endpointClient();
+        List<Consumer<ObjectNode>> changes = List.of(node -> ((ObjectNode) node.at("/endpoints/0/endpoint")).put("id", "EP-" + "f".repeat(32)),
+            node -> ((ObjectNode) node.at("/endpoints/0/endpoint")).put("handlerClass", "private\nmalformed"),
+            node -> ((ObjectNode) node.at("/endpoints/0/endpoint")).put("stage", "METHOD_EXECUTED"),
+            node -> ((ObjectNode) node.at("/endpoints/0")).remove("requestP95Ms"),
+            node -> ((ObjectNode) node.at("/endpoints/0")).put("requestCount", 4),
+            node -> node.withArray("endpoints").add(node.at("/endpoints/0").deepCopy()),
+            node -> node.put("unattributedRequestCount", -1));
+        for (var change : changes) { var value = v3(); change.accept(value); response.set(json.writeValueAsBytes(value));
+            assertThatThrownBy(() -> client.snapshot(context)).isInstanceOfSatisfying(ObservationFailure.class, error -> assertThat(error.code()).isEqualTo("OBSERVATION_CONTRACT")); }
+    }
 
     @Test void refusesWrongIdentityWindowVersionCountersAndUnboundedErrors() throws Exception {
         List<Consumer<ObjectNode>> changes = List.of(

@@ -15,13 +15,15 @@ Agent 从启动配置读取服务白名单。页面选择服务后，只读工�
 | `id`、`name` | 服务标识和页面名称，标识须为小写字母、数字及连字符 |
 | `downstream-id`、`downstream-name` | 本次观测覆盖的下游 |
 | `base-url` | 带端口的本机 HTTP origin，不含路径、凭据或查询参数 |
-| `protocol` | HTTP 下游观测用 `OBSERVATIONS_V1`；数据库观测用 `DATABASE_V2`；`LAB` 保留给原有订单演示 |
+| `protocol` | HTTP 窗口观测用 `OBSERVATIONS_V1`；需要按接口查询时用 `OBSERVATIONS_V3`；数据库观测用 `DATABASE_V2`；`LAB` 保留给原有订单演示 |
 | `max-window-minutes` | 允许查询的最长窗口，1–60，默认 60 |
 | `lab-enabled` | 默认关闭；`LAB` 和 `DATABASE_V2` 可显式开启样例流量控制 |
 
 配置列表会替换默认服务。修改后重启 Agent 生效。不配置列表时，原有 `TRIAGE_OBSERVATION_SOURCE` 和 `TRIAGE_OBSERVATION_BASE_URL` 继续生效。
 
 服务列表只在服务器配置中填写。提交请求和模型工具参数只能选择登记的服务 ID，不能传入 URL；未知 ID 或超出该服务的窗口会在访问服务前被拒绝。公共配置和执行记录不包含观测地址。
+
+V3 需要业务应用开启 Starter 的 `endpoint-observations`，查询路径为 `/triage/endpoint-observations`，窗口参数相同。可选 `endpointId` 必须来自已观测的接口列表，不能填写 URL 或原始业务 ID。V3 保留路径模板与 MVC 处理方法，按接口返回窗口指标及最多 3 条错误事件；未选择接口时返回服务窗口与最多 8 个接口摘要。方法匹配信息与完整执行轨迹有区别，范围见[Starter 说明](STARTER.md)。
 
 ## 只读接口
 

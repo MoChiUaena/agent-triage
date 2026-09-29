@@ -112,7 +112,7 @@ public class RunService {
             selectedEngine.mode(), synthetic, Status.QUEUED, context.endTime(), null, 0,
             List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "任务已创建。", List.of())), List.of(), null, null,
             selectedEngine.modelName() == null ? null : new ModelExecution(selectedEngine.modelName(), null, 0, null, selectedEngine.source()), frozen.serviceInfo(),
-            project == null ? null : sources.queued(project));
+            project == null ? null : sources.queued(project), frozen.endpoint());
         repository.insert(run);
         RunControl control = new RunControl(stateFrom(run));
         FutureTask<Void> task = new FutureTask<>(() -> { execute(run, frozen, deadline, selectedEngine, control, project, allowSourceModel); return null; }) {
@@ -220,7 +220,7 @@ public class RunService {
             events.add(new Event(events.size() + 1, Instant.now(), "RUN_FAILED", null, "服务重启，之前的执行已中断。", List.of()));
             repository.save(new Run(run.id(), run.question(), run.service(), run.windowMinutes(), run.scenario(), run.mode(), run.synthetic(),
                 Status.FAILED, run.createdAt(), Instant.now(), run.toolCalls(), List.copyOf(events), run.evidence(), null,
-                new Failure("SERVER_RESTARTED", "服务重启；保留已收集证据，请重新执行。"), run.modelExecution(), run.serviceInfo(), run.sourceAnalysis()));
+                new Failure("SERVER_RESTARTED", "服务重启；保留已收集证据，请重新执行。"), run.modelExecution(), run.serviceInfo(), run.sourceAnalysis(), run.endpoint()));
         }
     }
 

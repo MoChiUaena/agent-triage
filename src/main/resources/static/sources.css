@@ -32,6 +32,14 @@
 .call-evidence { padding: 16px; border: 1px solid #cddcf1; border-radius: 7px; background: #f2f7ff; margin: 15px 0; font-size: 13px; line-height: 1.8; }
 .call-evidence strong { font-size: 14px; }
 .call-evidence p { margin: 7px 0; }
+.call-entry-match { padding: 14px 16px; background: #f6f9fd; border: 1px solid var(--line); border-radius: 7px; margin: 14px 0; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.call-entry-match p { margin-top: 8px; color: var(--muted); }
+.endpoint-controls { border-top: 1px solid var(--line); padding: 14px 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.endpoint-controls .control { flex: 1; min-width: 200px; display: grid; gap: 0; border: 0; margin: 0; padding: 0; }
+.endpoint-controls label { display: block; color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+.endpoint-controls select { width: 100%; height: 36px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 5px; background: #fff; font-size: 13px; }
+.endpoint-controls p { width: 100%; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.endpoint-controls button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 5px; background: #fff; }
 .call-steps { list-style: none; padding: 0; display: grid; gap: 12px; }
 .call-step { padding: 16px; border: 1px solid var(--line); border-radius: 7px; background: #fff; min-width: 0; }
 .call-step.has-observation { border-left: 3px solid var(--accent); }

@@ -25,6 +25,43 @@ let runtimeConfig = null;
 let configVersion = 0;
 let labBusy = false;
 let cancellingRun = null;
+let endpointVersion = 0;
+let endpointLoading = false;
+let endpointChoices = [];
+let endpointWindow = null;
+
+async function loadEndpoints(preserve = false) {
+  const version = ++endpointVersion;
+  const config = runtimeConfig;
+  $("#endpoint-controls").hidden = !config?.endpointSupported;
+  if (!config?.endpointSupported) { endpointLoading = false; endpointChoices = []; $("#endpoint").value = ""; return; }
+  endpointLoading = true; $("#submit-button").disabled = true; $("#refresh-endpoints").disabled = true;
+  const selected = preserve ? $("#endpoint").value : "";
+  const minutes = Number($("#window").value);
+  $("#endpoint-note").textContent = "正在读取本窗口实际匹配到的接口…";
+  try {
+    const value = await request("/api/services/" + encodeURIComponent(config.service) + "/endpoints?windowMinutes=" + minutes);
+    if (version !== endpointVersion || runtimeConfig !== config) return;
+    endpointChoices = value.endpoints || []; endpointWindow = minutes;
+    const all = element("option", "", "全部接口"); all.value = "";
+    $("#endpoint").replaceChildren(all, ...endpointChoices.map(item => {
+      const option = element("option", "", item.endpoint.httpMethod + " " + item.endpoint.routeTemplate + " · " + item.requestCount + " 次请求 · " + item.timeoutCount + " 次超时");
+      option.value = item.endpoint.id; return option;
+    }));
+    $("#endpoint").value = endpointChoices.some(item => item.endpoint.id === selected) ? selected : "";
+    $("#endpoint-note").textContent = endpointChoices.length ? "按 MVC 匹配的接口分别排查。处理方法匹配不等于完整执行轨迹。"
+      + (value.otherEndpointRequestCount ? " 部分接口超出列表上限。" : "") + (value.unattributedRequestCount ? " 有 " + value.unattributedRequestCount + " 次请求未关联处理方法。" : "") : "本窗口没有可选接口，请先访问业务接口。";
+  } catch (error) {
+    if (version !== endpointVersion || runtimeConfig !== config) return;
+    endpointChoices = []; endpointWindow = null; $("#endpoint").replaceChildren();
+    $("#endpoint-note").textContent = error.message;
+  } finally {
+    if (version === endpointVersion) {
+      endpointLoading = false; $("#refresh-endpoints").disabled = false;
+      $("#submit-button").disabled = submitting || labBusy || !runtimeConfig?.observationAvailable || endpointWindow === null;
+    }
+  }
+}
 
 function configureSource(config) {
   const project = config.sourceProject;
@@ -58,6 +95,7 @@ function scenarioText(scenario) {
 
 async function loadConfiguration(serviceId = $("#service").value) {
   const version = ++configVersion;
+  endpointVersion++; endpointLoading = false; endpointWindow = null;
   runtimeConfig = null;
   $("#submit-button").disabled = true;
   document.querySelectorAll("[data-lab-scenario]").forEach(button => button.disabled = true);
@@ -134,6 +172,7 @@ async function loadConfiguration(serviceId = $("#service").value) {
     $("#submit-button").disabled =
       submitting || labBusy || (live && !config.observationAvailable);
     $("#form-error").hidden = true;
+    await loadEndpoints();
   } catch (error) {
     if (version !== configVersion) return;
     runtimeConfig = null;
@@ -799,6 +838,7 @@ function renderRun(run) {
     ],
     ["记录 ID", run.id.slice(0, 8)],
   ];
+  if (run.endpoint) info.splice(3, 0, ["接口范围", run.endpoint.httpMethod + " " + run.endpoint.routeTemplate]);
   if (run.modelExecution) {
     const model = run.modelExecution;
     if (model.assessment)
@@ -1021,9 +1061,10 @@ async function refreshHistory() {
 
 $("#investigate-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (submitting || labBusy) return;
+  if (submitting || labBusy || endpointLoading) return;
   if (!runtimeConfig) return showError("请先连接服务，确认运行模式。");
   if (runtimeConfig.service !== $("#service").value) return showError("服务配置正在切换，请稍后重试。");
+  if (runtimeConfig.endpointSupported && endpointWindow !== Number($("#window").value)) return showError("请先刷新所选时间窗口的接口列表。");
   const question = $("#question").value.trim();
   if (!question) return showError("请输入排查问题。");
   const version = ++selectionVersion;
@@ -1042,6 +1083,7 @@ $("#investigate-form").addEventListener("submit", async (event) => {
     allowSourceModel: $("#allow-source-model").checked && !$("#allow-source-model").disabled,
     expectedSourceRevision: runtimeConfig.sourceProject?.available ? runtimeConfig.sourceProject.revision : null,
     expectedSourceProjectId: runtimeConfig.sourceProject?.available ? runtimeConfig.sourceProject.id : null,
+    endpointId: runtimeConfig.endpointSupported ? $("#endpoint").value || null : null,
   };
   resetResult();
   setStatus("QUEUED");
@@ -1060,7 +1102,7 @@ $("#investigate-form").addEventListener("submit", async (event) => {
     await refreshHistory();
   } catch (error) {
     if (version === selectionVersion) {
-      const changed = ["运行模式或模型配置已变更", "源码索引已变化", "源码项目已变化", "当前源码未授权"].some(message => error.message.includes(message));
+      const changed = ["运行模式或模型配置已变更", "源码索引已变化", "源码项目已变化", "当前源码未授权", "所选接口"].some(message => error.message.includes(message));
       setStatus(changed ? "未开始" : "FAILED");
       emptyResult(
         changed ? "排查配置已变更" : "未能开始排查",
@@ -1125,6 +1167,8 @@ document.querySelectorAll("[data-lab-scenario]").forEach((button) => {
 });
 $("#refresh-history").addEventListener("click", refreshHistory);
 $("#config-retry").addEventListener("click", () => loadConfiguration());
+$("#refresh-endpoints").addEventListener("click", () => loadEndpoints(true));
+$("#window").addEventListener("change", () => loadEndpoints(true));
 $("#include-source").addEventListener("change", () => {
   $("#allow-source-model").checked = false;
   $("#allow-source-model").disabled = !$("#include-source").checked || !runtimeConfig?.sourceProject?.modelSharing;

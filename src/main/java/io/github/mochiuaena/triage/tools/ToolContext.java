@@ -5,7 +5,11 @@ import java.time.Instant;
 import java.util.Objects;
 
 /** The scenario and time window are frozen when the run is submitted. */
-public record ToolContext(String service, int windowMinutes, Scenario scenario, Instant endTime, ServiceRegistry.Target target) {
+public record ToolContext(String service, int windowMinutes, Scenario scenario, Instant endTime, ServiceRegistry.Target target,
+                          io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint) {
+    public ToolContext(String service, int windowMinutes, Scenario scenario, Instant endTime, ServiceRegistry.Target target) {
+        this(service, windowMinutes, scenario, endTime, target, null);
+    }
     public ToolContext(String service, int windowMinutes, Scenario scenario, Instant endTime) {
         this(service, windowMinutes, scenario, endTime, null);
     }
@@ -14,6 +18,8 @@ public record ToolContext(String service, int windowMinutes, Scenario scenario, 
             throw new IllegalArgumentException("Service must match its registered target");
         if (windowMinutes < 1 || windowMinutes > 60) throw new IllegalArgumentException("Window must be 1..60 minutes");
         if (target != null && windowMinutes > target.maxWindowMinutes()) throw new IllegalArgumentException("Window exceeds the service limit");
+        if (endpoint != null && (target == null || target.protocol() != ServiceRegistry.Protocol.OBSERVATIONS_V3
+            || endpoint.id() == null || !endpoint.id().matches("EP-[a-f0-9]{32}"))) throw new IllegalArgumentException("Endpoint does not match its observation protocol");
         Objects.requireNonNull(scenario);
         Objects.requireNonNull(endTime);
     }

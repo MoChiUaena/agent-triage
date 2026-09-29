@@ -14,6 +14,10 @@ public final class TriageModel {
     public record ServiceInfo(String id, String name, String downstreamId, String downstreamName) {
         public static ServiceInfo order() { return new ServiceInfo("order-service", "订单服务", "inventory-service", "库存服务"); }
     }
+    public record RequestEndpoint(String id, String httpMethod, String routeTemplate, String handlerClass, String handlerMethod,
+                                  List<String> parameterTypes, String stage) {}
+    public record EndpointSummary(RequestEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms) {}
+    public record RequestDetails(RequestEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount) {}
 
     public enum Status {
         QUEUED, RUNNING, SUCCEEDED, INSUFFICIENT_EVIDENCE, FAILED, CANCELLED;
@@ -63,7 +67,14 @@ public final class TriageModel {
                       String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
                       int toolCalls, List<Event> events, List<Evidence> evidence,
                       Diagnosis diagnosis, Failure failure, ModelExecution modelExecution, ServiceInfo serviceInfo,
-                      io.github.mochiuaena.triage.source.SourceModels.Analysis sourceAnalysis) {
+                      io.github.mochiuaena.triage.source.SourceModels.Analysis sourceAnalysis, RequestEndpoint endpoint) {
+        public Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
+                   String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
+                   int toolCalls, List<Event> events, List<Evidence> evidence, Diagnosis diagnosis, Failure failure,
+                   ModelExecution modelExecution, ServiceInfo serviceInfo, io.github.mochiuaena.triage.source.SourceModels.Analysis sourceAnalysis) {
+            this(id, question, service, windowMinutes, scenario, mode, synthetic, status, createdAt, finishedAt,
+                toolCalls, events, evidence, diagnosis, failure, modelExecution, serviceInfo, sourceAnalysis, null);
+        }
         public Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
                    String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
                    int toolCalls, List<Event> events, List<Evidence> evidence, Diagnosis diagnosis, Failure failure,

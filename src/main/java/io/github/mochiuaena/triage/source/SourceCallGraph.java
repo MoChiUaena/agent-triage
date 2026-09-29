@@ -32,7 +32,7 @@ final class SourceCallGraph {
     CallGraph build(List<String> requested, Reader reader, Runnable checkpoint) {
         if (index.formatVersion() < 2) return new CallGraph("REINDEX_REQUIRED", "当前索引没有方法调用信息，请重新索引。", false, List.of(), List.of(), List.of(), List.of());
         var nodes = new LinkedHashMap<String,CallNode>(); var edges = new ArrayList<CallEdge>(); var roots = new ArrayList<String>();
-        var queue = new ArrayDeque<Symbol>(); boolean truncated = false;
+        var queue = new ArrayDeque<Symbol>(); boolean truncated = requested.stream().distinct().count() > 3;
         for (String id : requested.stream().distinct().limit(3).toList()) {
             Symbol symbol = symbols.get(id);
             if (symbol == null || symbol.details() == null || symbol.method().isBlank()) continue;
@@ -63,6 +63,41 @@ final class SourceCallGraph {
         return new CallGraph(roots.isEmpty() ? "NO_ENTRY" : "READY", roots.isEmpty() ? "未找到可展开的方法，请按接口路径或方法名检索。"
             : "根据本次索引匹配静态调用关系；接口注入、动态分派和实际执行路径仍需核实。", truncated,
             List.copyOf(roots), List.copyOf(nodes.values()), List.copyOf(edges), List.of());
+    }
+    EndpointMatch endpoint(io.github.mochiuaena.triage.domain.TriageModel.EndpointSummary summary) {
+        var endpoint = summary.endpoint();
+        if (index.formatVersion() < 2) return new EndpointMatch(endpoint, summary.requestCount(), summary.timeoutCount(), "REINDEX_REQUIRED", "当前索引缺少方法参数信息，请重新索引。", List.of());
+        List<Symbol> named = methods.getOrDefault(endpoint.handlerClass() + "#" + endpoint.handlerMethod(), List.of()).stream()
+            .filter(value -> value.details().parameters().size() == endpoint.parameterTypes().size()).toList();
+        List<Symbol> exact = named.stream().filter(value -> {
+            Owner owner = owner(value); if (owner == null) return false;
+            for (int i = 0; i < value.details().parameters().size(); i++) {
+                List<String> types = typeNames(value.details().parameters().get(i).type(), owner);
+                if (types.size() != 1 || !types.getFirst().equals(endpoint.parameterTypes().get(i))) return false;
+            }
+            return true;
+        }).toList();
+        List<Symbol> uncertain = named.stream().filter(value -> {
+            Owner owner = owner(value); if (owner == null) return false;
+            for (int i = 0; i < value.details().parameters().size(); i++) {
+                String parameter = value.details().parameters().get(i).type(); List<String> names = typeNames(parameter, owner);
+                if (names.size() == 1 && names.getFirst().equals(endpoint.parameterTypes().get(i))) continue;
+                String raw = raw(parameter).replace("[]", "");
+                boolean declared = primitive(raw) || JAVA_LANG.contains(raw) || raw.contains(".") || names.stream().anyMatch(types::containsKey)
+                    || owner.type().imports().stream().anyMatch(name -> !name.endsWith(".*") && name.endsWith("." + raw));
+                if (declared) return false;
+            }
+            return true;
+        }).toList();
+        List<Symbol> selected = exact.isEmpty() ? uncertain : exact;
+        String state = selected.isEmpty() ? "NO_MATCH" : selected.size() > 1 ? "AMBIGUOUS" : exact.isEmpty() ? "CANDIDATE" : "MATCHED";
+        String message = switch (state) {
+            case "MATCHED" -> "类名、方法和参数类型与服务提供的 MVC 匹配信息一致；仍需核对运行代码与本机源码版本。";
+            case "CANDIDATE" -> "类名和方法匹配，参数类型尚未完整确定，仅作为候选。";
+            case "AMBIGUOUS" -> "当前索引有多个同名方法或类型候选，未确认唯一源码入口。";
+            default -> "当前项目索引没有找到对应处理方法，请检查绑定目录和源码版本。";
+        };
+        return new EndpointMatch(endpoint, summary.requestCount(), summary.timeoutCount(), state, message, selected.stream().map(Symbol::id).toList());
     }
 
     private Match resolve(Symbol caller, Invocation call) {

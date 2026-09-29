@@ -28,7 +28,8 @@ public class RunController {
                             @NotBlank @Pattern(regexp = "[a-z][a-z0-9-]{0,63}") String service,
                             @Min(1) @Max(60) int windowMinutes, Scenario scenario,
                             @Size(max = 240) String expectedSelection, boolean includeSource, boolean allowSourceModel,
-                            @Min(1) Long expectedSourceRevision, UUID expectedSourceProjectId) {}
+                            @Min(1) Long expectedSourceRevision, UUID expectedSourceProjectId,
+                            @Pattern(regexp="EP-[a-f0-9]{32}") String endpointId) {}
 
     private final RunService service;
     private final RunRepository repository;
@@ -51,6 +52,8 @@ public class RunController {
             @RequestHeader(value = "X-Triage-Source", required = false) String sourceMarker) {
         if (request.includeSource() && !"1".equals(sourceMarker)) throw new ResponseStatusException(FORBIDDEN, "源码排查需要从本机页面明确开启。");
         ServiceRegistry.Target target = registry.require(request.service());
+        if (request.endpointId() != null && (observation.synthetic() || target.protocol() != ServiceRegistry.Protocol.OBSERVATIONS_V3))
+            throw new ResponseStatusException(BAD_REQUEST, "所选服务尚未支持按接口排查，请核对观测协议。");
         if (request.windowMinutes() > target.maxWindowMinutes())
             throw new ResponseStatusException(BAD_REQUEST, "时间窗口超过所选服务允许的 " + target.maxWindowMinutes() + " 分钟。");
         if (observation.synthetic() && request.scenario() != Scenario.NORMAL && request.scenario() != Scenario.DOWNSTREAM_TIMEOUT)
@@ -59,8 +62,13 @@ public class RunController {
         try { scenario = observation.synthetic() ? request.scenario() : live.scenario(target); }
         catch (ObservationFailure e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, e.getMessage()); }
         catch (RuntimeException e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, "所选服务的观测接口不可用，请检查服务是否启动。"); }
+        Instant end = Instant.now(); RequestEndpoint endpoint = null;
+        if (request.endpointId() != null) {
+            try { endpoint = live.endpointSnapshot(target, request.windowMinutes(), end, request.endpointId()).requestDetails().endpoint(); }
+            catch (ObservationFailure e) { throw new ResponseStatusException(e.code().equals("OBSERVATION_ENDPOINT_CHANGED") ? CONFLICT : SERVICE_UNAVAILABLE, e.getMessage()); }
+        }
         Run run = service.submit(request.question().strip(),
-            new ToolContext(request.service(), request.windowMinutes(), scenario, Instant.now(), target),
+            new ToolContext(request.service(), request.windowMinutes(), scenario, end, target, endpoint),
             request.expectedSelection(), request.includeSource(), request.allowSourceModel(), request.expectedSourceRevision(), request.expectedSourceProjectId());
         return ResponseEntity.accepted().location(URI.create("/api/runs/" + run.id())).body(run);
     }
@@ -74,6 +82,19 @@ public class RunController {
 
     @GetMapping("/runs/{id}")
     public Run get(@PathVariable UUID id) { return repository.find(id).orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "执行记录不存在。")); }
+
+    @GetMapping("/services/{id}/endpoints")
+    public Map<String,Object> endpoints(@PathVariable String id, @RequestParam(defaultValue="15") int windowMinutes) {
+        var target = registry.require(id);
+        if (windowMinutes < 1 || windowMinutes > target.maxWindowMinutes()) throw new ResponseStatusException(BAD_REQUEST, "接口查询窗口超过服务允许的范围。");
+        if (observation.synthetic() || target.protocol() != ServiceRegistry.Protocol.OBSERVATIONS_V3) return Map.of("supported", false, "endpoints", List.of());
+        try {
+            var snapshot = live.endpointSnapshot(target, windowMinutes, Instant.now(), null);
+            var details = snapshot.requestDetails();
+            return Map.of("supported", true, "endpoints", details.endpoints(), "windowStart", snapshot.windowStart(), "windowEnd", snapshot.windowEnd(),
+                "unattributedRequestCount", details.unattributedRequestCount(), "otherEndpointRequestCount", details.otherEndpointRequestCount());
+        } catch (ObservationFailure e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, e.getMessage()); }
+    }
 
     @PostMapping("/runs/{id}/cancel")
     public Run cancel(@PathVariable UUID id) { return service.cancel(id); }
@@ -89,6 +110,7 @@ public class RunController {
         config.put("protocol", target.protocol());
         config.put("maxWindowMinutes", target.maxWindowMinutes());
         config.put("labEnabled", target.labEnabled());
+        config.put("endpointSupported", target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V3);
         config.put("observationSource", observation.kind().name());
         if (!observation.synthetic()) {
             try {

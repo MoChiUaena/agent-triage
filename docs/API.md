@@ -23,6 +23,8 @@
 
 每次运行以提交时刻为窗口终点，起点为终点减去 windowMinutes。
 
+支持 V3 的服务可以先调用 `GET /api/services/{id}/endpoints?windowMinutes=5` 获取本窗口接口列表，再在提交体传入 `endpointId`。省略时查询整个服务窗口。所选接口的描述保存在 `run.endpoint`，后续指标和错误事件沿用提交时的接口与时间窗口；接口已离开可选列表返回 409。旧记录该字段为空。该列表仅允许本机同源读取。
+
 源码检索可额外传入 `includeSource: true`、`expectedSourceProjectId` 和 `expectedSourceRevision`，并带 `X-Triage-Source: 1`。页面同时核对项目 ID 与版本，删除后重新登记也会要求刷新。`allowSourceModel: true` 还要求项目已授权给当前已保存的模型配置；两项默认关闭。结果中的 `sourceAnalysis` 保存当时的项目版本与代码片段，旧记录该字段为空。源码配置变化返回 409，未带标记返回 403。
 
 ## 源码项目
@@ -45,6 +47,8 @@
 服务绑定冲突、项目版本变化返回 409。解绑只将 `service` 设为 null，保留项目用于本机检索；修改或删除项目不会改写已有历史片段。完整范围见[源码接入说明](SOURCE_INTEGRATION.md)。
 
 `sourceAnalysis.graph` 保存运行时关联的静态调用关系。`nodes` 含方法签名和已验证片段，`edges` 含调用行、目标候选、匹配状态与调用行附近的片段；`evidenceLinks` 按观测类别引用本次证据 ID，不表示方法实际执行。`truncated` 表示有调用或候选未展开。旧记录的 `graph` 可为空。
+
+V3 的指标证据含本机使用的 `requestDetails`，`graph.endpointMatches` 记录观测处理方法与源码的匹配结果。已确定的不兼容参数不会被当作匹配；类型解析不完整时标为候选。默认模型工具结果及源码候选选择的观测输入会移除 `requestDetails`，不会附带整个接口列表或处理方法描述。
 
 ## 查询与订阅
 

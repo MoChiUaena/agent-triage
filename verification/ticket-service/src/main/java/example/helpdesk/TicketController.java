@@ -21,4 +21,6 @@ class TicketController {
             throw new ResponseStatusException(HttpStatus.GATEWAY_TIMEOUT, "Assignment request did not complete");
         }
     }
+    @GetMapping("/summary")
+    Map<String, Object> ticket() { return Map.of("open", 1); }
 }

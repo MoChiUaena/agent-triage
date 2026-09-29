@@ -41,6 +41,8 @@ jobs:
         run: ./mvnw -B -ntp -f integrations/pom.xml verify
       - name: Verify local source integration with independent helpdesk service
         run: python scripts/source_integration_smoke.py
+      - name: Verify endpoint-scoped requests and source entry mapping
+        run: python scripts/source_integration_smoke.py --protocol-v3
   postgres:
     name: PostgreSQL HTTP integration
     runs-on: ubuntu-latest

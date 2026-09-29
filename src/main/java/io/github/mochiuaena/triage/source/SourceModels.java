@@ -47,6 +47,13 @@ public final class SourceModels {
     public record CallEdge(String id, String fromId, List<String> targetIds, String call, int line, String kind,
                            String resolution, String message, Excerpt callSite) {}
     public record EvidenceLink(List<String> edgeIds, List<String> evidenceIds, String kind, String message) {}
+    public record EndpointMatch(io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint, int requestCount, int timeoutCount,
+                                String state, String message, List<String> sourceIds) {}
     public record CallGraph(String state, String message, boolean truncated, List<String> rootIds, List<CallNode> nodes,
-                            List<CallEdge> edges, List<EvidenceLink> evidenceLinks) {}
+                            List<CallEdge> edges, List<EvidenceLink> evidenceLinks, List<EndpointMatch> endpointMatches) {
+        public CallGraph(String state, String message, boolean truncated, List<String> rootIds, List<CallNode> nodes,
+                         List<CallEdge> edges, List<EvidenceLink> evidenceLinks) {
+            this(state, message, truncated, rootIds, nodes, edges, evidenceLinks, List.of());
+        }
+    }
 }

@@ -155,6 +155,12 @@ class SourceCallGraphTest {
         assertThat(result.edges()).hasSize(30);
         assertThat(result.truncated()).isTrue();
     }
+    @Test void observedSignatureCannotMatchAnIncompatibleSourceOverload() throws Exception {
+        write("Entry.java", "class Entry { void read(int id) {} }");
+        var observed = new io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint("fixture", "GET", "/api/entry", "Entry", "read", List.of("java.lang.String"), "MVC_SELECTED");
+        var result = new SourceCallGraph(index()).endpoint(new io.github.mochiuaena.triage.domain.TriageModel.EndpointSummary(observed, 1, 0, 10, 0));
+        assertThat(result.state()).isEqualTo("NO_MATCH"); assertThat(result.sourceIds()).isEmpty();
+    }
     @Test void evidenceIsLinkedByCategoryWithoutClaimingExecutedMethodsAndOldIndexesAskForReindex() throws Exception {
         helpdesk(); Index index = index(); CallGraph graph = graph(index, "helpdesk.Controller", "ticket");
         var metrics = new Evidence("runtime-metrics", "read_service_metrics", "指标", "窗口", Map.of("requestCount", 2, "timeoutCount", 1));

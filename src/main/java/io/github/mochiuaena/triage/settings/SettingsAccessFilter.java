@@ -16,7 +16,7 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
     @Override protected boolean shouldNotFilter(HttpServletRequest request) {
         return !(request.getServletPath().startsWith("/api/settings")
             || request.getServletPath().startsWith("/api/evaluation") || history(request)
-            || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/status") || source(request)
+            || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/") || source(request)
             || request.getServletPath().startsWith("/api/runs"));
     }
 
