@@ -33,17 +33,15 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 ## 快速启动
 
-免构建的演示包在 [v0.1.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0) 中提供。需要 JDK 21，完整解压后运行：
+免构建的演示包在 [v0.2.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.2.0) 中提供，包含订单、库存、数据库和 Starter 示例。需要 JDK 21，完整解压后运行：
 
-该发布包固定在首版订单／库存流程。main 中的多服务、数据库和取消功能请按下面的源码方式构建；发布附件不会随 main 更新。
-
-包含后续功能的 [v0.2.0 候选包](docs/releases/v0.2.0.md)可从源码构建，提供四种服务接入和六个进程的统一启动方式。
+包内提供四种服务接入和六个进程的统一启动方式，端口与使用范围见 [v0.2.0 说明](docs/releases/v0.2.0.md)。[v0.1.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0) 保留首版订单／库存流程，附件不随 main 更新。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
 ```
 
-macOS/Linux 使用 `bash start-demo.sh`，另需 curl。脚本启动三个服务，首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面是从源码启动的方式。
+macOS/Linux 使用 `bash start-demo.sh`，另需 curl。脚本启动六个进程，首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面是从源码启动的方式。
 
 需要 JDK 21+。仓库自带 Maven Wrapper，首次构建会下载 Maven 和依赖。
 
