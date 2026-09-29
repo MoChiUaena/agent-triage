@@ -27,7 +27,8 @@ public class RunController {
     public record CreateRun(@NotBlank @Size(max = 200) String question,
                             @NotBlank @Pattern(regexp = "[a-z][a-z0-9-]{0,63}") String service,
                             @Min(1) @Max(60) int windowMinutes, Scenario scenario,
-                            @Size(max = 240) String expectedSelection) {}
+                            @Size(max = 240) String expectedSelection, boolean includeSource, boolean allowSourceModel,
+                            @Min(1) Long expectedSourceRevision) {}
 
     private final RunService service;
     private final RunRepository repository;
@@ -35,15 +36,20 @@ public class RunController {
     private final ObservationSource observation;
     private final LiveObservationClient live;
     private final ServiceRegistry registry;
+    private final io.github.mochiuaena.triage.source.SourceProjectService sources;
     public RunController(RunService service, RunRepository repository, TriageEngine engine,
-                         ObservationSource observation, LiveObservationClient live, ServiceRegistry registry) {
+                         ObservationSource observation, LiveObservationClient live, ServiceRegistry registry,
+                         io.github.mochiuaena.triage.source.SourceProjectService sources) {
         this.service = service; this.repository = repository; this.engine = engine;
         this.observation = observation; this.live = live;
         this.registry = registry;
+        this.sources = sources;
     }
 
     @PostMapping("/runs")
-    public ResponseEntity<Run> create(@Valid @RequestBody CreateRun request) {
+    public ResponseEntity<Run> create(@Valid @RequestBody CreateRun request,
+            @RequestHeader(value = "X-Triage-Source", required = false) String sourceMarker) {
+        if (request.includeSource() && !"1".equals(sourceMarker)) throw new ResponseStatusException(FORBIDDEN, "源码排查需要从本机页面明确开启。");
         ServiceRegistry.Target target = registry.require(request.service());
         if (request.windowMinutes() > target.maxWindowMinutes())
             throw new ResponseStatusException(BAD_REQUEST, "时间窗口超过所选服务允许的 " + target.maxWindowMinutes() + " 分钟。");
@@ -55,7 +61,7 @@ public class RunController {
         catch (RuntimeException e) { throw new ResponseStatusException(SERVICE_UNAVAILABLE, "所选服务的观测接口不可用，请检查服务是否启动。"); }
         Run run = service.submit(request.question().strip(),
             new ToolContext(request.service(), request.windowMinutes(), scenario, Instant.now(), target),
-            request.expectedSelection());
+            request.expectedSelection(), request.includeSource(), request.allowSourceModel(), request.expectedSourceRevision());
         return ResponseEntity.accepted().location(URI.create("/api/runs/" + run.id())).body(run);
     }
 
@@ -103,6 +109,7 @@ public class RunController {
         if (current.modelName() != null) config.put("model", current.modelName());
         if (current.source() != null) config.put("provider", current.source());
         config.put("selectionToken", current.selectionToken());
+        config.put("sourceProject", sources.summary(target.info().id()));
         return config;
     }
 }

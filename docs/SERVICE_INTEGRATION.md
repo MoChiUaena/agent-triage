@@ -4,6 +4,8 @@ Agent 从启动配置读取服务白名单。页面选择服务后，只读工�
 
 目前支持本机 HTTP 服务，可排查请求延迟、单一下游 HTTP 超时和数据库连接池耗尽。同步 Spring MVC 应用可使用 [Spring Boot Starter](STARTER.md) 提供观测接口；其他应用需把已有指标与错误事件转换为下面的 JSON。Agent 不会自动解析任意 Actuator 指标或日志文件。远程地址和需要鉴权的接口尚未支持。
 
+服务登记后，可以在“项目源码”页面绑定本机 Java 项目，把排查结果关联到代码位置，详见[源码接入](SOURCE_INTEGRATION.md)。
+
 ## 配置服务
 
 [examples/services.yml](../examples/services.yml) 登记了订单演示、结算接入和数据库样例。[数据库 V2 契约与启动方式](DATABASE_POOL.md)另有说明；本页下面的 JSON 为 HTTP V1 契约。配置项如下：

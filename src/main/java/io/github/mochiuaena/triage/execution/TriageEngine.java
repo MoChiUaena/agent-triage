@@ -14,6 +14,8 @@ public interface TriageEngine {
     }
     default TriageEngine snapshot() { return this; }
     Decision investigate(ExecutionSession session);
+    default java.util.List<String> selectSources(ExecutionSession session,
+            java.util.function.Supplier<java.util.List<io.github.mochiuaena.triage.source.SourceModels.Excerpt>> verified) { return null; }
 
     record Decision(Status status, Diagnosis diagnosis) {}
 }

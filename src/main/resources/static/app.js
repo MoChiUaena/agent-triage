@@ -26,6 +26,27 @@ let configVersion = 0;
 let labBusy = false;
 let cancellingRun = null;
 
+function configureSource(config) {
+  const project = config.sourceProject;
+  $("#include-source").checked = false;
+  $("#include-source").disabled = !project?.available;
+  $("#source-binding-note").textContent = project?.available ? "本次检索源码：" + project.name + " · 索引 v" + project.revision : "所选服务还没有绑定源码";
+  $("#source-model-option").hidden = !project?.available;
+  $("#allow-source-model").checked = false;
+  $("#allow-source-model").disabled = true;
+  $("#source-model-label").textContent = project?.modelSharing ? "本次允许模型查看候选代码 · " + config.model + "（可能产生费用）" : "模型读取未开启，可在项目源码页确认授权";
+}
+
+function renderSource(run) {
+  const analysis = run.sourceAnalysis;
+  $("#code-count").textContent = String(analysis?.excerpts?.length || 0);
+  let message = analysis?.message;
+  if (analysis && terminal(run) && ["QUEUED", "MODEL_PENDING"].includes(analysis.state))
+    message = "本次源码检查未完成。" + (analysis.modelUsed ? "已按本次授权请求模型读取候选代码。" : "尚未向模型发送源码。");
+  $("#code-note").textContent = analysis ? analysis.projectName + " · 索引 v" + analysis.revision + "。" + message : "本次没有开启源码检索。";
+  sourceView.render($("#code-excerpts"), analysis?.excerpts || []);
+}
+
 function serviceInfo(run) {
   return run.serviceInfo || { id: run.service, name: run.service === "order-service" ? "订单服务" : run.service,
     downstreamId: "inventory-service", downstreamName: "库存服务" };
@@ -43,6 +64,7 @@ async function loadConfiguration(serviceId = $("#service").value) {
   try {
     const config = await request("/api/config" + (serviceId ? "?service=" + encodeURIComponent(serviceId) : ""));
     if (version !== configVersion) return;
+    configureSource(config);
     if (!["DEMO", "MODEL"].includes(config.mode))
       throw new Error("运行模式无效。");
     runtimeConfig = config;
@@ -305,6 +327,9 @@ function emptyResult(heading, message) {
 }
 
 function resetResult() {
+  $("#code-count").textContent = "0";
+  $("#code-note").textContent = "勾选本次源码检索后，匹配的代码位置会显示在这里。";
+  $("#code-excerpts").replaceChildren();
   $("#cancel-run").hidden = true;
   $("#cancel-note").hidden = true;
   $("#model-usage").hidden = true;
@@ -751,6 +776,7 @@ function renderRun(run) {
   renderMetrics(run);
   renderDiagnosis(run);
   renderEvidence(run);
+  renderSource(run);
   const elapsed = run.finishedAt
     ? Math.max(0, new Date(run.finishedAt) - new Date(run.createdAt))
     : null;
@@ -1010,6 +1036,9 @@ $("#investigate-form").addEventListener("submit", async (event) => {
     windowMinutes: Number($("#window").value),
     scenario: $("#scenario").value,
     expectedSelection: runtimeConfig.selectionToken,
+    includeSource: $("#include-source").checked && !$("#include-source").disabled,
+    allowSourceModel: $("#allow-source-model").checked && !$("#allow-source-model").disabled,
+    expectedSourceRevision: runtimeConfig.sourceProject?.available ? runtimeConfig.sourceProject.revision : null,
   };
   resetResult();
   setStatus("QUEUED");
@@ -1018,7 +1047,7 @@ $("#investigate-form").addEventListener("submit", async (event) => {
   try {
     const run = await request("/api/runs", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Triage-Source": "1" },
       body: JSON.stringify(body),
     });
     if (version === selectionVersion) {
@@ -1093,6 +1122,10 @@ document.querySelectorAll("[data-lab-scenario]").forEach((button) => {
 });
 $("#refresh-history").addEventListener("click", refreshHistory);
 $("#config-retry").addEventListener("click", () => loadConfiguration());
+$("#include-source").addEventListener("change", () => {
+  $("#allow-source-model").checked = false;
+  $("#allow-source-model").disabled = !$("#include-source").checked || !runtimeConfig?.sourceProject?.modelSharing;
+});
 $("#service").addEventListener("change", () => {
   selectionVersion++;
   closeStream();

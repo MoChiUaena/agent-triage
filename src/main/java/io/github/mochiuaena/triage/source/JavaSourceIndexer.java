@@ -23,12 +23,13 @@ public class JavaSourceIndexer {
         try {
             Files.walkFileTree(root, new SimpleFileVisitor<>() {
                 @Override public FileVisitResult preVisitDirectory(Path path, BasicFileAttributes attrs) throws java.io.IOException {
+                    checkDeadline();
                     if (!path.equals(root) && (EXCLUDED.contains(path.getFileName().toString()) || Files.isSymbolicLink(path)
                             || !path.toRealPath().equals(path) || !path.toRealPath().startsWith(root))) return FileVisitResult.SKIP_SUBTREE;
                     return FileVisitResult.CONTINUE;
                 }
                 @Override public FileVisitResult visitFile(Path path, BasicFileAttributes attrs) {
-                    if (Thread.currentThread().isInterrupted() || System.nanoTime() >= deadline) throw new IllegalArgumentException("源码索引超过时限，请登记较小的模块目录。");
+                    checkDeadline();
                     if (!path.getFileName().toString().endsWith(".java")) return FileVisitResult.CONTINUE;
                     if (++counts[0] > 2000) throw new IllegalArgumentException("项目超过 2000 个 Java 文件，请登记较小的模块目录。");
                     String relative = root.relativize(path).toString().replace('\\', '/');
@@ -46,6 +47,9 @@ public class JavaSourceIndexer {
                     return FileVisitResult.CONTINUE;
                 }
                 @Override public FileVisitResult visitFileFailed(Path path, java.io.IOException error) { counts[1]++; return FileVisitResult.CONTINUE; }
+                private void checkDeadline() {
+                    if (Thread.currentThread().isInterrupted() || System.nanoTime() >= deadline) throw new IllegalArgumentException("源码索引超过时限，请登记较小的模块目录。");
+                }
             });
         } catch (java.io.IOException e) { throw new IllegalArgumentException("项目目录读取失败，请检查文件权限。"); }
         files.sort(Comparator.comparing(FileEntry::path));
@@ -66,8 +70,8 @@ public class JavaSourceIndexer {
                         String oldType = type, oldPrefix = prefix;
                         if (node.getSimpleName().length() == 0) return null;
                         type = (oldType.isEmpty() ? unit.getPackageName() == null ? "" : unit.getPackageName() + "." : oldType + ".") + node.getSimpleName();
-                        prefix = route(node.getModifiers().getAnnotations());
-                        add(node, "", node.getSimpleName().toString(), prefix, List.of(), List.of());
+                        prefix = mapping(node.getModifiers().getAnnotations()) ? route(node.getModifiers().getAnnotations()) : "";
+                        add(node, "", node.getSimpleName().toString(), prefix == null ? "" : prefix, List.of(), List.of());
                         super.visitClass(node, unused); type = oldType; prefix = oldPrefix; return null;
                     }
                     @Override public Void visitMethod(MethodTree node, Void unused) {
@@ -76,10 +80,9 @@ public class JavaSourceIndexer {
                             calls.add(call.getMethodSelect().toString()); return super.visitMethodInvocation(call, value);
                         }}.scan(node.getBody(), null);
                         String route = route(node.getModifiers().getAnnotations());
-                        List<String> verbs = node.getModifiers().getAnnotations().stream().map(a -> simple(a.getAnnotationType().toString()))
-                            .filter(a -> a.endsWith("Mapping") && !a.equals("RequestMapping")).map(a -> a.substring(0, a.length() - 7).toUpperCase(Locale.ROOT)).toList();
+                        List<String> verbs = verbs(node.getModifiers().getAnnotations());
                         add(node, node.getName().toString(), node.getName() + "(" + node.getParameters().stream().map(p -> p.getType().toString()).collect(java.util.stream.Collectors.joining(",")) + ")",
-                            route.isEmpty() && verbs.isEmpty() ? "" : (prefix + "/" + route).replaceAll("/+", "/"), verbs, calls.stream().limit(30).toList());
+                            route == null || prefix == null ? "" : (prefix + "/" + route).replaceAll("/+", "/"), verbs, calls.stream().limit(30).toList());
                         return super.visitMethod(node, unused);
                     }
                     void add(Tree node, String method, String signature, String route, List<String> verbs, List<String> calls) {
@@ -96,9 +99,30 @@ public class JavaSourceIndexer {
         }
     }
     private static String simple(String text) { return text.substring(text.lastIndexOf('.') + 1); }
+    private static final Set<String> MAPPINGS = Set.of("RequestMapping", "GetMapping", "PostMapping", "PutMapping", "PatchMapping", "DeleteMapping");
+    private static boolean mapping(List<? extends AnnotationTree> annotations) {
+        return annotations.stream().anyMatch(a -> MAPPINGS.contains(simple(a.getAnnotationType().toString())));
+    }
+    private static List<String> verbs(List<? extends AnnotationTree> annotations) {
+        var result = new LinkedHashSet<String>();
+        for (var annotation : annotations) {
+            String name = simple(annotation.getAnnotationType().toString());
+            if (!MAPPINGS.contains(name)) continue;
+            if (!name.equals("RequestMapping")) result.add(name.substring(0, name.length() - 7).toUpperCase(Locale.ROOT));
+            else for (var argument : annotation.getArguments()) if (argument instanceof AssignmentTree assignment && assignment.getVariable().toString().equals("method")) {
+                var value = assignment.getExpression();
+                List<? extends ExpressionTree> values = value instanceof NewArrayTree array && array.getInitializers() != null ? array.getInitializers() : List.of(value);
+                for (var verb : values) {
+                    String text = simple(verb.toString());
+                    if (Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE").contains(text)) result.add(text);
+                }
+            }
+        }
+        return List.copyOf(result);
+    }
     private static String route(List<? extends AnnotationTree> annotations) {
         for (var annotation : annotations) {
-            if (!simple(annotation.getAnnotationType().toString()).endsWith("Mapping")) continue;
+            if (!MAPPINGS.contains(simple(annotation.getAnnotationType().toString()))) continue;
             for (var argument : annotation.getArguments()) {
                 ExpressionTree value = argument;
                 if (argument instanceof AssignmentTree assignment) {
@@ -108,8 +132,10 @@ public class JavaSourceIndexer {
                 if (value instanceof LiteralTree literal && literal.getValue() instanceof String text) return text;
                 if (value instanceof NewArrayTree array && array.getInitializers() != null && !array.getInitializers().isEmpty()
                         && array.getInitializers().getFirst() instanceof LiteralTree literal && literal.getValue() instanceof String text) return text;
+                return null; // A constant, concatenation or other dynamic expression is not a resolved route.
             }
+            return "";
         }
-        return "";
+        return null;
     }
 }

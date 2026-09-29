@@ -2,7 +2,7 @@
 
 [![Verify](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml)
 
-Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口指标、错误日志和排障文档，排查下游 HTTP 超时和数据库连接池耗尽，并给出验证建议。仓库提供真实请求样例，也支持通过配置和只读接口接入其他本地 Spring Boot 服务。
+Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口指标、错误日志和排障文档，排查下游 HTTP 超时和数据库连接池耗尽，并给出验证建议。支持接入其他本地 Spring Boot 服务，也可以登记项目源码，把观测关联到候选文件、方法和接口位置。
 
 仓库提供两条真实请求链路：订单服务通过 HTTP 调用独立库存服务，数据库样例通过 HikariCP 查询 H2。实验操作可以实际触发下游超时、获取连接超时与 SQL 锁等待，Agent 读取对应窗口的指标和错误事件后给出判断。默认启动使用合成订单数据；模型模式由模型选择工具、判断和证据，应用核对观测后生成关键结论。
 
@@ -20,6 +20,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 - 查询服务指标、近期错误日志，检索 Markdown 排障文档。
 - 通过服务白名单登记多个本地应用，在页面选择服务；接入接口与示例见[接入说明](docs/SERVICE_INTEGRATION.md)。
+- 在[项目源码页](docs/SOURCE_INTEGRATION.md)登记本机 Java 项目，按类、方法或接口检索；排查结果展示带行号的代码引用，模型读取需要单独授权。
 - 提供 [Spring Boot Starter](docs/STARTER.md) 复用只读观测接口，独立[商品应用](catalog-service/README.md)验证 HTTP 与 JDBC 接入。
 - 用 HikariCP 与 H2 实际触发[数据库连接池耗尽](docs/DATABASE_POOL.md)，区分获取连接超时与 SQL 查询失败，并验证释放后的恢复。
 - 在页面生成正常请求或库存超时请求，排查真实的本地请求记录。
@@ -39,7 +40,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 包内提供四种服务接入和六个进程的统一启动方式，端口与使用范围见 [v0.2.0 说明](docs/releases/v0.2.0.md)。[v0.1.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0) 保留首版订单／库存流程，附件不随 main 更新。
 
-main 为 v0.3 开发版本，新增完整历史、运行统计和服务状态。体验这些功能可从源码启动，或构建 [v0.3 候选包](docs/releases/v0.3.0.md)；v0.2.0 的发布附件保持原版本。
+main 为 v0.3 开发版本，新增完整历史、运行统计、服务状态和本机源码接入。体验这些功能可从源码启动，或构建 [v0.3 候选包](docs/releases/v0.3.0.md)；v0.2.0 的发布附件保持原版本。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1

@@ -116,6 +116,10 @@ public class ProviderRegistry {
             public String modelName() { return model.modelName(); }
             public ModelSource source() { return source; }
             public Decision investigate(ExecutionSession session) { return model.investigate(session); }
+            public java.util.List<String> selectSources(ExecutionSession session,
+                    java.util.function.Supplier<java.util.List<io.github.mochiuaena.triage.source.SourceModels.Excerpt>> verified) {
+                return model.selectSources(session, verified);
+            }
         };
         Resolved resolved = new Resolved(stored.version(), selected, client, settings.timeout());
         cache.put(id, resolved);

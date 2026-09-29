@@ -132,10 +132,13 @@ class RunServiceTest {
     @Test void restartMarksUnfinishedRecordsFailedAndPreservesEvidence() throws Exception {
         configure(3, 2000, 10000, realTools());
         var id = UUID.randomUUID();
+        var source = new io.github.mochiuaena.triage.source.SourceModels.Analysis(UUID.randomUUID(), "源码项目", 1, "digest",
+            "MODEL_PENDING", true, "模型检查未完成", List.of());
         repository.insert(new Run(id, "订单查询", "order-service", 15, Scenario.NORMAL, "DEMO", true,
-            Status.RUNNING, Instant.now(), null, 0, List.of(), List.of(), null, null));
+            Status.RUNNING, Instant.now(), null, 0, List.of(), List.of(), null, null, null, null, source));
         service.recoverInterruptedRuns();
         assertThat(repository.find(id).orElseThrow().failure().code()).isEqualTo("SERVER_RESTARTED");
+        assertThat(repository.find(id).orElseThrow().sourceAnalysis()).isEqualTo(source);
     }
 
     @Test void fabricatedAndDuplicateEvidenceReferencesAreRejected() {

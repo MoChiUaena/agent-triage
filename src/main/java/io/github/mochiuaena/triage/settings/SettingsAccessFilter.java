@@ -16,7 +16,8 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
     @Override protected boolean shouldNotFilter(HttpServletRequest request) {
         return !(request.getServletPath().startsWith("/api/settings")
             || request.getServletPath().startsWith("/api/evaluation") || history(request)
-            || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/status") || source(request) || cancellation(request));
+            || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/status") || source(request)
+            || request.getServletPath().startsWith("/api/runs"));
     }
 
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain) throws ServletException, IOException {
@@ -35,7 +36,8 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
             } catch (RuntimeException e) { allowed = false; }
         }
         String marker = cancellation(request) ? "X-Triage-Run" : source(request) ? "X-Triage-Source" : history(request) ? "X-Triage-History" : "X-Triage-Settings";
-        if (!"GET".equals(request.getMethod()) && !"1".equals(request.getHeader(marker))) allowed = false;
+        boolean ordinaryRunCreate = request.getServletPath().equals("/api/runs") && "POST".equals(request.getMethod());
+        if (!"GET".equals(request.getMethod()) && !ordinaryRunCreate && !"1".equals(request.getHeader(marker))) allowed = false;
         if (!allowed) {
             response.setStatus(403);
             response.setContentType("application/problem+json");

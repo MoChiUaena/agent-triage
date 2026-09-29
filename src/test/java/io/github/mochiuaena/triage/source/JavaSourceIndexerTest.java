@@ -29,6 +29,24 @@ class JavaSourceIndexerTest {
         assertThat(method.calls()).contains("client.retrieve");
         assertThat(method.startLine()).isEqualTo(6); assertThat(method.endLine()).isEqualTo(7);
     }
+    @Test void doesNotInventDynamicRoutesAndReadsRequestMappingVerbs() throws Exception {
+        write("Routes.java", """
+            @RequestMapping("/api")
+            class Routes {
+              @GetMapping(PATH) void dynamic() {}
+              @RequestMapping(path="/fixed", method={RequestMethod.GET, RequestMethod.POST}) void fixed() {}
+              @GetMapping void root() {}
+              void plain() {}
+            }
+            """);
+        var symbols = new JavaSourceIndexer().index(root.toRealPath()).files().getFirst().symbols();
+        assertThat(symbols.stream().filter(s -> s.method().equals("dynamic")).findFirst().orElseThrow().route()).isEmpty();
+        assertThat(symbols.stream().filter(s -> s.method().equals("plain")).findFirst().orElseThrow().route()).isEmpty();
+        var fixed = symbols.stream().filter(s -> s.method().equals("fixed")).findFirst().orElseThrow();
+        assertThat(fixed.route()).isEqualTo("/api/fixed");
+        assertThat(fixed.httpMethods()).containsExactly("GET", "POST");
+        assertThat(symbols.stream().filter(s -> s.method().equals("root")).findFirst().orElseThrow().route()).isEqualTo("/api/");
+    }
     @Test void excludesBuildOutputCredentialsAndMalformedFilesWithoutReturningTheirText() throws Exception {
         write("src/Good.java", "class Good { void run() {} }");
         write("target/Ignored.java", "class Ignored {}");

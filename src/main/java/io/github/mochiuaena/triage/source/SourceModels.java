@@ -16,7 +16,7 @@ public final class SourceModels {
                          UUID providerId, Long providerVersion, String model, String selection) {}
     public record View(UUID id, String name, String service, String root, long revision, String indexHash, Instant indexedAt,
                        int files, int symbols, int skippedFiles, int parseFailures, boolean modelSharing,
-                       UUID providerId, String model) {}
+                       UUID providerId, String model, boolean sharingActive) {}
     public record Analysis(UUID projectId, String projectName, long revision, String indexHash, String state,
                            boolean modelUsed, String message, List<Excerpt> excerpts) {}
 }

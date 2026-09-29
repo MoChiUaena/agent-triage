@@ -62,7 +62,15 @@ public final class TriageModel {
     public record Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
                       String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
                       int toolCalls, List<Event> events, List<Evidence> evidence,
-                      Diagnosis diagnosis, Failure failure, ModelExecution modelExecution, ServiceInfo serviceInfo) {
+                      Diagnosis diagnosis, Failure failure, ModelExecution modelExecution, ServiceInfo serviceInfo,
+                      io.github.mochiuaena.triage.source.SourceModels.Analysis sourceAnalysis) {
+        public Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
+                   String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
+                   int toolCalls, List<Event> events, List<Evidence> evidence, Diagnosis diagnosis, Failure failure,
+                   ModelExecution modelExecution, ServiceInfo serviceInfo) {
+            this(id, question, service, windowMinutes, scenario, mode, synthetic, status, createdAt, finishedAt,
+                toolCalls, events, evidence, diagnosis, failure, modelExecution, serviceInfo, null);
+        }
         public Run(UUID id, String question, String service, int windowMinutes, Scenario scenario,
                    String mode, boolean synthetic, Status status, Instant createdAt, Instant finishedAt,
                    int toolCalls, List<Event> events, List<Evidence> evidence, Diagnosis diagnosis, Failure failure, ModelExecution modelExecution) {

@@ -1,0 +1,27 @@
+.source-registration, .source-search-box { padding: 22px; border: 1px solid var(--line); border-radius: 9px; background: #fff; margin-bottom: 24px; }
+.source-registration h2, .source-search-box h2 { margin-bottom: 18px; font-size: 16px; }
+.source-registration .form-grid { grid-template-columns: 1fr 1fr 2fr; }
+.source-registration .form-field { margin-bottom: 12px; }
+.source-registration footer, .source-search-box form { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.source-registration footer p { color: var(--muted); font-size: 13px; flex: 1; min-width: 220px; line-height: 1.8; }
+.source-projects { display: grid; gap: 14px; margin-bottom: 26px; }
+.source-project { border: 1px solid var(--line); border-radius: 9px; background: #fff; padding: 20px 22px; }
+.source-project header { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; align-items: center; }
+.source-project h3 { font-size: 16px; }
+.source-project p, .source-result-note { margin: 10px 0; color: var(--muted); line-height: 1.8; font-size: 13px; overflow-wrap: anywhere; }
+.source-project .source-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.source-search-box select, .source-search-box input { border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; min-width: 0; background: #fff; }
+.source-search-box input { flex: 1; min-width: 170px; }
+.source-excerpt { margin: 16px 0; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.source-excerpt summary { padding: 13px 16px; background: #f4f7fc; color: var(--accent); cursor: pointer; font-size: 13px; overflow-wrap: anywhere; }
+.source-symbol { padding: 10px 16px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.source-excerpt pre { overflow: auto; max-height: 430px; margin: 0; padding: 10px 0; background: #fbfcfe; font-size: 13px; line-height: 1.8; }
+.source-code-line { display: flex; min-width: max-content; }
+.source-line-number { width: 56px; flex: 0 0 56px; text-align: right; padding-right: 16px; color: #8795aa; user-select: none; }
+.source-code-line code { font-family: Consolas, "Microsoft YaHei", monospace; padding-right: 16px; }
+.source-opt-in { padding: 12px 20px; border-top: 1px solid var(--line); display: grid; gap: 10px; color: var(--muted); font-size: 13px; }
+.source-opt-in label { display: flex; gap: 9px; align-items: flex-start; line-height: 1.7; }
+.source-opt-in input { margin-top: 4px; accent-color: var(--accent); }
+.source-opt-in a { color: var(--accent); width: fit-content; }
+.source-result-note { padding: 14px 20px; background: #f6f8fc; border-radius: 6px; }
+@media (max-width: 900px) { .source-registration .form-grid { grid-template-columns: 1fr; gap: 0; } }

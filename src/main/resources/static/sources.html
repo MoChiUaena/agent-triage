@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>项目源码 · Agent Triage</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/settings.css" />
+  <link rel="stylesheet" href="/typography.css" />
+  <link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/sources.css" />
+  <script src="/source-view.js" defer></script>
+  <script src="/sources.js" defer></script>
+</head>
+<body class="settings-page">
+  <aside class="sidebar settings-sidebar" aria-label="工作区导航">
+    <a class="brand" href="/"><span class="brand-mark"><svg class="icon"><use href="/icons.svg#activity" /></svg></span><span>Agent Triage</span><span class="version">v0.3</span></a>
+    <nav class="settings-links">
+      <a href="/"><svg class="icon"><use href="/icons.svg#search" /></svg>服务排查</a>
+      <a href="/workspace.html"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史记录</a>
+      <a href="/sources.html" aria-current="page"><svg class="icon"><use href="/icons.svg#file" /></svg>项目源码</a>
+      <a href="/settings.html"><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a>
+    </nav>
+    <div class="sidebar-footer"><svg class="icon"><use href="/icons.svg#server" /></svg><div><strong>本地工作区</strong><span>源码目录仅在本机登记</span></div></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><nav class="breadcrumb" aria-label="当前位置"><a href="/">工作区</a><span class="divider">/</span><strong>项目源码</strong></nav><a class="back-link" href="/">返回排查 <svg class="icon"><use href="/icons.svg#arrow" /></svg></a></header>
+    <main class="workspace settings-workspace">
+      <div class="settings-heading"><div><h1>项目源码</h1><p>登记本机 Java 项目，把排查结果关联到类、方法和接口位置。</p></div><button class="secondary" id="refresh-sources" type="button">刷新</button></div>
+      <p class="settings-notice" id="source-notice" role="status" hidden></p>
+      <form id="source-registration" class="source-registration">
+        <h2>登记项目</h2>
+        <div class="form-grid">
+          <div class="form-field"><label for="source-name">项目名称</label><input id="source-name" required maxlength="80" placeholder="例如：工单服务" /></div>
+          <div class="form-field"><label for="source-service">绑定服务</label><select id="source-service" required><option value="">正在读取服务…</option></select></div>
+          <div class="form-field"><label for="source-directory">本机项目目录</label><input id="source-directory" required maxlength="2048" placeholder="填写包含 Java 源码的文件夹路径" autocomplete="off" /></div>
+        </div>
+        <footer><p>只解析 Java 文件，不编译或运行项目。模型读取源码默认关闭。</p><button class="primary" id="register-source" type="submit" disabled>登记并索引</button></footer>
+      </form>
+      <div class="providers-heading"><h2>已登记项目 <span id="source-project-count">0</span></h2></div>
+      <div id="source-projects" class="source-projects"><p class="settings-empty">正在加载项目…</p></div>
+      <section class="source-search-box" aria-label="本机代码检索">
+        <h2>查找代码</h2>
+        <form id="source-search"><label class="sr-only" for="search-project">项目</label><select id="search-project" required></select><label class="sr-only" for="source-query">关键词</label><input id="source-query" maxlength="200" required placeholder="类名、方法名或接口路径" /><button class="secondary" id="search-source" type="submit" disabled>检索</button></form>
+        <p id="source-search-note" class="source-result-note">检索和预览在本机完成。</p>
+        <div id="source-matches"></div>
+      </section>
+      <p class="settings-footnote">索引只保存路径、符号、行号和文件摘要。源码变动后需要重新索引；重新索引会关闭已有模型授权。</p>
+    </main>
+  </div>
+  <dialog id="source-sharing-dialog" aria-labelledby="sharing-title">
+    <form id="source-sharing-form">
+      <div class="dialog-heading"><h2 id="sharing-title">允许模型读取候选代码</h2><button class="icon-button" type="button" id="close-sharing" aria-label="关闭">×</button></div>
+      <div class="dialog-content"><p id="sharing-project"></p><p id="sharing-model"></p><p>开启后，排查页仍需勾选“本次允许模型查看候选代码”。每次最多发送 5 个片段，每个不超过 80 行、3600 字符，以及相关运行观测。请求可能产生费用。</p><p>模型服务或配置版本变化、重新索引后，需要再次授权。疑似包含凭据的文件会跳过，但这不能代替你检查代码中的敏感内容。</p><p class="error-banner" id="sharing-error" role="alert" hidden></p></div>
+      <div class="dialog-footer"><button class="secondary" id="cancel-sharing" type="button">取消</button><button class="primary" type="submit" id="confirm-sharing">允许读取</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

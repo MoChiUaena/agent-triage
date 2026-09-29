@@ -14,16 +14,19 @@ final class MutableExecution {
     Diagnosis diagnosis;
     Failure failure;
     ModelExecution modelExecution;
+    io.github.mochiuaena.triage.source.SourceModels.Analysis sourceAnalysis;
     final List<Event> events = new ArrayList<>();
     final List<Evidence> evidence = new ArrayList<>();
 
-    MutableExecution(Run initial) { this.initial = initial; this.modelExecution = initial.modelExecution(); }
+    MutableExecution(Run initial) {
+        this.initial = initial; this.modelExecution = initial.modelExecution(); this.sourceAnalysis = initial.sourceAnalysis();
+    }
     boolean synthetic() { return initial.synthetic(); }
     void event(String type, String tool, String message, List<String> ids) {
         events.add(new Event(events.size() + 1, Instant.now(), type, tool, message, List.copyOf(ids)));
     }
     Run snapshot() {
         return new Run(initial.id(), initial.question(), initial.service(), initial.windowMinutes(), initial.scenario(),
-            initial.mode(), initial.synthetic(), status, initial.createdAt(), finishedAt, toolCalls, List.copyOf(events), List.copyOf(evidence), diagnosis, failure, modelExecution, initial.serviceInfo());
+            initial.mode(), initial.synthetic(), status, initial.createdAt(), finishedAt, toolCalls, List.copyOf(events), List.copyOf(evidence), diagnosis, failure, modelExecution, initial.serviceInfo(), sourceAnalysis);
     }
 }

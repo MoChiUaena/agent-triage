@@ -22,12 +22,19 @@ public class RunService {
     private final List<ReadOnlyTool> tools;
     private final boolean synthetic;
     private final ServiceRegistry registry;
+    private final io.github.mochiuaena.triage.source.SourceProjectService sources;
     private final ConcurrentMap<UUID, RunControl> active = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor coordinators = pool("triage-run-", 4, 16);
     private final ThreadPoolExecutor toolWorkers = pool("triage-tool-", 4, 16);
     private final ThreadPoolExecutor modelWorkers = pool("triage-model-", 4, 16);
 
     @Autowired
+    public RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
+                      List<ReadOnlyTool> tools, ObservationSource observation, ServiceRegistry registry,
+                      io.github.mochiuaena.triage.source.SourceProjectService sources) {
+        this(repository, limits, engine, tools, observation.synthetic(), registry, sources);
+    }
+
     public RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
                       List<ReadOnlyTool> tools, ObservationSource observation, ServiceRegistry registry) {
         this(repository, limits, engine, tools, observation.synthetic(), registry);
@@ -49,12 +56,18 @@ public class RunService {
 
     private RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
                        List<ReadOnlyTool> tools, boolean synthetic, ServiceRegistry registry) {
+        this(repository, limits, engine, tools, synthetic, registry, null);
+    }
+    private RunService(RunRepository repository, ExecutionLimits limits, TriageEngine engine,
+                       List<ReadOnlyTool> tools, boolean synthetic, ServiceRegistry registry,
+                       io.github.mochiuaena.triage.source.SourceProjectService sources) {
         this.repository = repository;
         this.limits = limits;
         this.engine = engine;
         this.tools = List.copyOf(tools);
         this.synthetic = synthetic;
         this.registry = registry;
+        this.sources = sources;
     }
 
     private static ThreadPoolExecutor pool(String prefix, int workers, int queue) {
@@ -67,19 +80,36 @@ public class RunService {
     }
 
     public Run submit(String question, ToolContext context, String expectedSelection) {
+        return submit(question, context, expectedSelection, false);
+    }
+    public Run submit(String question, ToolContext context, String expectedSelection, boolean includeSource) {
+        return submit(question, context, expectedSelection, includeSource, false, null);
+    }
+    public Run submit(String question, ToolContext context, String expectedSelection, boolean includeSource,
+                      boolean allowSourceModel, Long expectedSourceRevision) {
+        if (allowSourceModel && !includeSource) throw new org.springframework.web.server.ResponseStatusException(
+            org.springframework.http.HttpStatus.BAD_REQUEST, "请先开启本次源码检索。");
         ToolContext frozen = registry.freeze(context);
         long deadline = System.nanoTime() + limits.runTimeout().toNanos();
         TriageEngine selectedEngine = engine.snapshot();
         if (expectedSelection != null && !expectedSelection.equals(selectedEngine.selectionToken()))
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
                 "运行模式或模型配置已变更，请刷新后重新提交。");
+        var project = includeSource && sources != null ? sources.bound(context.service()) : null;
+        if (includeSource && project == null) throw new org.springframework.web.server.ResponseStatusException(
+            org.springframework.http.HttpStatus.CONFLICT, "所选服务尚未绑定源码，请先登记项目。");
+        if (project != null && expectedSourceRevision != null && project.revision() != expectedSourceRevision)
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "源码索引已变化，请刷新后重新提交。");
+        if (allowSourceModel && !sources.authorized(project, selectedEngine))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "当前源码未授权给所选模型，请重新确认授权。");
         Run run = new Run(UUID.randomUUID(), question, context.service(), context.windowMinutes(), context.scenario(),
             selectedEngine.mode(), synthetic, Status.QUEUED, context.endTime(), null, 0,
             List.of(new Event(1, Instant.now(), "RUN_QUEUED", null, "任务已创建。", List.of())), List.of(), null, null,
-            selectedEngine.modelName() == null ? null : new ModelExecution(selectedEngine.modelName(), null, 0, null, selectedEngine.source()), frozen.serviceInfo());
+            selectedEngine.modelName() == null ? null : new ModelExecution(selectedEngine.modelName(), null, 0, null, selectedEngine.source()), frozen.serviceInfo(),
+            project == null ? null : sources.queued(project));
         repository.insert(run);
         RunControl control = new RunControl(stateFrom(run));
-        FutureTask<Void> task = new FutureTask<>(() -> { execute(run, frozen, deadline, selectedEngine, control); return null; }) {
+        FutureTask<Void> task = new FutureTask<>(() -> { execute(run, frozen, deadline, selectedEngine, control, project, allowSourceModel); return null; }) {
             @Override protected void done() { active.remove(run.id(), control); }
         };
         synchronized (control.state) {
@@ -136,7 +166,8 @@ public class RunService {
         return result;
     }
 
-    private void execute(Run run, ToolContext context, long deadline, TriageEngine selectedEngine, RunControl control) {
+    private void execute(Run run, ToolContext context, long deadline, TriageEngine selectedEngine, RunControl control,
+                         io.github.mochiuaena.triage.source.SourceModels.Stored project, boolean allowSourceModel) {
         MutableExecution state = control.state;
         ExecutionSession session = new ExecutionSession(run.question(), context, state, repository, limits, deadline, toolWorkers, modelWorkers, tools, control);
         try {
@@ -150,6 +181,9 @@ public class RunService {
                 if (decision == null || (decision.status() != Status.SUCCEEDED && decision.status() != Status.INSUFFICIENT_EVIDENCE))
                     throw new RunFailure("INVALID_RESULT", "排查没有返回有效结果。");
                 EvidenceValidator.validate(decision.diagnosis(), state.evidence);
+            }
+            if (project != null) session.recordSourceAnalysis(sources.analyze(project, session, selectedEngine, allowSourceModel));
+            synchronized (state) {
                 session.checkDeadline(); state.diagnosis = decision.diagnosis(); state.status = decision.status(); state.finishedAt = Instant.now();
                 publish(state, "RUN_COMPLETED", state.status == Status.SUCCEEDED ? "排查完成。" : "证据不足，无法支持完整判断。");
             }
@@ -180,7 +214,7 @@ public class RunService {
             events.add(new Event(events.size() + 1, Instant.now(), "RUN_FAILED", null, "服务重启，之前的执行已中断。", List.of()));
             repository.save(new Run(run.id(), run.question(), run.service(), run.windowMinutes(), run.scenario(), run.mode(), run.synthetic(),
                 Status.FAILED, run.createdAt(), Instant.now(), run.toolCalls(), List.copyOf(events), run.evidence(), null,
-                new Failure("SERVER_RESTARTED", "服务重启；保留已收集证据，请重新执行。"), run.modelExecution(), run.serviceInfo()));
+                new Failure("SERVER_RESTARTED", "服务重启；保留已收集证据，请重新执行。"), run.modelExecution(), run.serviceInfo(), run.sourceAnalysis()));
         }
     }
 

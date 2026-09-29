@@ -13,6 +13,8 @@
     <link rel="stylesheet" href="/typography.css" />
     <link rel="stylesheet" href="/theme.css" />
     <link rel="stylesheet" href="/workspace.css" />
+    <link rel="stylesheet" href="/sources.css" />
+    <script src="/source-view.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -54,6 +56,7 @@
         <p class="sidebar-empty">正在加载…</p>
       </div>
       <a class="all-history-link" href="/workspace.html">全部记录与筛选 <svg class="icon"><use href="/icons.svg#arrow" /></svg></a>
+      <a class="settings-nav" href="/sources.html"><svg class="icon"><use href="/icons.svg#file" /></svg>项目源码</a>
       <a class="settings-nav" href="/settings.html"
         ><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a
       >
@@ -103,7 +106,7 @@
         <div class="page-heading">
           <div>
             <h1>服务排查</h1>
-            <p>查询所选服务的日志、指标和排障文档。</p>
+            <p>查询服务观测，结合本机项目源码定位需要检查的代码。</p>
           </div>
         </div>
         <section
@@ -175,6 +178,11 @@
           >
 服务请求为什么变慢了？</textarea
           >
+          <div class="source-opt-in">
+            <label><input id="include-source" type="checkbox" disabled /><span id="source-binding-note">正在读取源码绑定…</span></label>
+            <label id="source-model-option" hidden><input id="allow-source-model" type="checkbox" disabled /><span id="source-model-label"></span></label>
+            <a href="/sources.html">管理项目源码与模型授权</a>
+          </div>
           <div class="composer-footer">
             <span class="composer-note" id="composer-note">正在连接服务…</span>
             <button class="config-retry" id="config-retry" type="button" hidden>
@@ -222,6 +230,7 @@
               >
                 证据<span class="tab-count" id="evidence-count">0</span>
               </button>
+              <button id="tab-source" type="button" role="tab" aria-selected="false" aria-controls="source-panel" tabindex="-1" data-tab="source">代码引用<span class="tab-count" id="code-count">0</span></button>
               <button
                 id="tab-events"
                 type="button"
@@ -263,6 +272,10 @@
                   本次排查的文档、指标和日志会显示在这里。
                 </p>
               </div>
+            </div>
+            <div id="source-panel" role="tabpanel" aria-labelledby="tab-source" tabindex="0" hidden>
+              <p id="code-note" class="source-result-note">勾选本次源码检索后，匹配的代码位置会显示在这里。</p>
+              <div id="code-excerpts"></div>
             </div>
             <div
               id="events-panel"

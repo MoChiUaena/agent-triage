@@ -22,6 +22,7 @@ public final class ExecutionSession {
     private boolean usageComplete = true;
     private int completedCalls;
     private int usageReportedCalls;
+    private volatile boolean sourceModelDispatched;
     private final Map<String, ReadOnlyTool> tools = new LinkedHashMap<>();
     private final Set<String> requests = new HashSet<>();
 
@@ -53,6 +54,29 @@ public final class ExecutionSession {
     public List<Evidence> evidence() { synchronized (state) { return List.copyOf(state.evidence); } }
     public int remainingToolCalls() { synchronized (state) { return Math.max(0, limits.maxToolCalls() - state.toolCalls); } }
     public int remainingModelRounds(int maxRounds) { synchronized (state) { return state.modelExecution == null ? 0 : Math.max(0, maxRounds - state.modelExecution.calls()); } }
+    public Duration optionalModelTimeout(Duration configured) {
+        checkDeadline();
+        long available = deadline - System.nanoTime() - TimeUnit.SECONDS.toNanos(1);
+        return available < TimeUnit.MILLISECONDS.toNanos(250) ? null : Duration.ofNanos(Math.min(available, configured.toNanos()));
+    }
+    public boolean sourceModelDispatched() { return sourceModelDispatched; }
+    public void recordSourceModelDispatch() {
+        synchronized (state) {
+            checkDeadline();
+            var previous = state.sourceAnalysis;
+            if (previous != null) state.sourceAnalysis = new io.github.mochiuaena.triage.source.SourceModels.Analysis(
+                previous.projectId(), previous.projectName(), previous.revision(), previous.indexHash(), "MODEL_PENDING", true,
+                "已按本次授权请求模型读取候选代码，等待模型返回引用。", previous.excerpts());
+            publish("SOURCE_MODEL_DISPATCH", null, "按本次授权向所选模型发送已验证的候选代码。", List.of());
+            sourceModelDispatched = true;
+        }
+    }
+    public void recordSourceAnalysis(io.github.mochiuaena.triage.source.SourceModels.Analysis analysis) {
+        synchronized (state) {
+            checkDeadline(); state.sourceAnalysis = analysis;
+            publish("SOURCE_COMPLETED", null, analysis.message(), analysis.excerpts().stream().map(value -> value.id()).toList());
+        }
+    }
 
     public void recordNoDataGate() {
         publish("EVIDENCE_GATE", null, "窗口没有服务请求，应用返回证据不足，跳过最终模型生成。", List.of());
@@ -165,7 +189,7 @@ public final class ExecutionSession {
             if (previous == null) throw new RunFailure("MODEL_NOT_CONFIGURED", "没有配置模型。");
             if (previous.calls() >= maxRounds) throw new RunFailure("MODEL_ROUND_LIMIT", "模型调用已达到轮次上限。");
             state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls() + 1, null, previous.source(),
-                null, null, null, previous.knownUsage(), completedCalls, usageReportedCalls);
+                previous.assessment(), previous.nextChecks(), previous.requestedNextChecks(), previous.knownUsage(), completedCalls, usageReportedCalls);
             publish("MODEL_STARTED", null, "请求模型，第 " + state.modelExecution.calls() + " 轮。", List.of());
             try { future = modelWorkers.submit(() -> { control.checkCancelled(); return action.call(); }); control.attach(future, modelWorkers); }
             catch (RejectedExecutionException e) { throw new RunFailure("MODEL_CAPACITY", "模型工作队列已满。"); }
@@ -179,7 +203,7 @@ public final class ExecutionSession {
                 completedCalls++;
                 ModelExecution previous = state.modelExecution;
                 state.modelExecution = new ModelExecution(previous.configuredModel(), previous.responseModel(), previous.calls(), null, previous.source(),
-                    null, null, null, previous.knownUsage(), completedCalls, usageReportedCalls);
+                    previous.assessment(), previous.nextChecks(), previous.requestedNextChecks(), previous.knownUsage(), completedCalls, usageReportedCalls);
                 onReply.accept(result);
                 publish("MODEL_COMPLETED", null, "模型已返回。", List.of());
                 return result;
