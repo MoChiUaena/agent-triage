@@ -56,5 +56,25 @@
       <div class="dialog-footer"><button class="secondary" id="cancel-sharing" type="button">取消</button><button class="primary" type="submit" id="confirm-sharing">允许读取</button></div>
     </form>
   </dialog>
+  <dialog id="edit-source-dialog" aria-labelledby="edit-source-title">
+    <form id="edit-source-form">
+      <div class="dialog-heading"><h2 id="edit-source-title">修改项目</h2><button id="close-source-edit" class="icon-button" type="button" aria-label="关闭修改窗口">×</button></div>
+      <div class="dialog-content">
+        <div class="form-field"><label for="edit-source-name">项目名称</label><input id="edit-source-name" required maxlength="80" /></div>
+        <div class="form-field"><label for="edit-source-service">绑定服务</label><select id="edit-source-service"></select></div>
+        <div class="form-field"><label for="edit-source-directory">本机项目目录</label><input id="edit-source-directory" required maxlength="2048" autocomplete="off" /></div>
+        <p>修改目录会重新索引；修改项目后，旧模型授权会关闭。选择“暂不绑定服务”仍可保留本机检索。</p>
+        <p id="edit-source-error" class="error-banner" role="alert" hidden></p>
+      </div>
+      <div class="dialog-footer"><button id="cancel-source-edit" class="secondary" type="button">取消</button><button id="save-source-edit" class="primary" type="submit">保存修改</button></div>
+    </form>
+  </dialog>
+  <dialog id="delete-source-dialog" aria-labelledby="delete-source-title">
+    <form id="delete-source-form">
+      <div class="dialog-heading"><h2 id="delete-source-title">删除本地索引</h2></div>
+      <div class="dialog-content"><p id="delete-source-name"></p><p>删除该项目的登记与索引，源码文件和已保存的历史排查仍保留。之后可以重新登记项目。</p><p id="delete-source-error" class="error-banner" role="alert" hidden></p></div>
+      <div class="dialog-footer"><button id="cancel-source-delete" class="secondary" type="button">取消</button><button id="confirm-delete-source" class="danger-button" type="submit">删除索引</button></div>
+    </form>
+  </dialog>
 </body>
 </html>

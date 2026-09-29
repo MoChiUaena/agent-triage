@@ -2,6 +2,8 @@
 
 默认地址为 `http://127.0.0.1:18080`，接口暂未实现身份认证。
 
+源码管理与包含源码的执行结果仅允许本机同源访问，不面向远程调用。
+
 ## 提交执行
 
 `POST /api/runs`，`Content-Type: application/json`：
@@ -20,6 +22,26 @@
 问题须为 1–200 字符且不能全为空白；服务必须已在启动配置中登记，窗口范围为 1–60 分钟且不能超过该服务的限制。默认合成演示的场景为 `NORMAL` 或 `DOWNSTREAM_TIMEOUT`；LIVE 接入时可省略场景。参数错误返回 400，队列满返回 429。
 
 每次运行以提交时刻为窗口终点，起点为终点减去 windowMinutes。
+
+源码检索可额外传入 `includeSource: true` 和 `expectedSourceRevision`，并带 `X-Triage-Source: 1`。`allowSourceModel: true` 还要求项目已授权给当前已保存的模型配置；两项默认关闭。结果中的 `sourceAnalysis` 保存当时的项目版本与代码片段，旧记录该字段为空。源码配置变化返回 409，未带标记返回 403。
+
+## 源码项目
+
+所有写请求带 `X-Triage-Source: 1`，请求体为 JSON。
+
+| 请求 | 参数与结果 |
+|---|---|
+| `GET /api/source-projects` | 本地登记列表，包含目录、绑定服务、版本和授权是否适用于当前模型 |
+| `POST /api/source-projects` | `name`、`service`、`directory`；解析本机目录并绑定服务 |
+| `PUT /api/source-projects/{id}` | `revision`、`name`、`directory`、可空的 `service`；修改目录、名称或绑定，返回新版本 |
+| `DELETE /api/source-projects/{id}` | 匹配的 `confirmId` 和 `revision`；删除登记与索引，成功返回 204 |
+| `POST /api/source-projects/{id}/reindex` | 重建索引，更新版本并关闭模型授权 |
+| `GET /api/source-projects/{id}/search?q=...` | 按类名、方法名或路径检索最多 5 个已验证片段 |
+| `GET /api/source-projects/{id}/excerpts/{symbol}` | 当前索引中的指定代码引用；文件变化返回 409 |
+| `GET /api/source-projects/disclosure` | 当前可授权的模型服务、模型名、版本和选择标识 |
+| `POST /api/source-projects/{id}/sharing` | `revision`、`enabled`，开启时还需匹配的 `providerId`、`providerVersion`、`selection` |
+
+服务绑定冲突、项目版本变化返回 409。解绑只将 `service` 设为 null，保留项目用于本机检索；修改或删除项目不会改写已有历史片段。完整范围见[源码接入说明](SOURCE_INTEGRATION.md)。
 
 ## 查询与订阅
 

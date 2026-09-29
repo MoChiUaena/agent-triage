@@ -10,6 +10,7 @@
 .source-project h3 { font-size: 16px; }
 .source-project p, .source-result-note { margin: 10px 0; color: var(--muted); line-height: 1.8; font-size: 13px; overflow-wrap: anywhere; }
 .source-project .source-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.source-actions .source-remove { color: var(--danger); margin-left: auto; }
 .source-search-box select, .source-search-box input { border: 1px solid var(--line); border-radius: 6px; padding: 9px 12px; min-width: 0; background: #fff; }
 .source-search-box input { flex: 1; min-width: 170px; }
 .source-excerpt { margin: 16px 0; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }

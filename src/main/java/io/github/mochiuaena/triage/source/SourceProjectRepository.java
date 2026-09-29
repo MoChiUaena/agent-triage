@@ -32,6 +32,20 @@ public class SourceProjectRepository {
             throw new ResponseStatusException(CONFLICT, "项目在索引期间已更改，请刷新后重试。");
         return require(previous.id());
     }
+    public Stored update(Stored previous, String name, String service, String root, Index index) {
+        try {
+            if (jdbc.update("UPDATE source_projects SET name=?,service_id=?,root_path=?,revision=revision+1,snapshot=?,updated_at=?,share_provider_id=NULL,share_provider_version=NULL,share_model=NULL,share_selection=NULL WHERE id=? AND revision=?",
+                name, service, root, encode(index), OffsetDateTime.now(ZoneOffset.UTC), previous.id().toString(), previous.revision()) != 1)
+                throw new ResponseStatusException(CONFLICT, "项目已更改，请刷新后重试。");
+        } catch (org.springframework.dao.DuplicateKeyException e) { throw new ResponseStatusException(CONFLICT, "这个服务已经绑定其他源码项目。"); }
+        return require(previous.id());
+    }
+    public void delete(UUID id, long revision) {
+        if (jdbc.update("DELETE FROM source_projects WHERE id=? AND revision=?", id.toString(), revision) != 1) {
+            require(id);
+            throw new ResponseStatusException(CONFLICT, "项目已更改，请刷新后重新确认删除。");
+        }
+    }
     public Stored share(UUID id, long revision, UUID provider, Long version, String model, String selection) {
         if (jdbc.update("UPDATE source_projects SET share_provider_id=?,share_provider_version=?,share_model=?,share_selection=? WHERE id=? AND revision=?",
             provider == null ? null : provider.toString(), version, model, selection, id.toString(), revision) != 1)

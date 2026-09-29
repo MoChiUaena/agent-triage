@@ -25,10 +25,26 @@ public class SourceProjectService {
     public List<View> list() { return projects.list().stream().map(this::view).toList(); }
     public View create(String name, String service, String directory) {
         registry.require(service);
-        if (name == null || name.isBlank() || name.length() > 80 || name.codePoints().anyMatch(Character::isISOControl)) throw new IllegalArgumentException("Invalid source project name");
+        validateName(name);
         if (projects.list().size() >= 20) throw new ResponseStatusException(CONFLICT, "源码项目最多登记 20 个。");
         Path root = SourceFiles.root(directory);
         return view(projects.create(name.strip(), service, root.toString(), scan(root)));
+    }
+    public View update(UUID id, long revision, String name, String service, String directory) {
+        var previous = projects.require(id);
+        if (previous.revision() != revision) throw new ResponseStatusException(CONFLICT, "项目已更改，请刷新后重试。");
+        validateName(name);
+        String binding = service == null || service.isBlank() ? null : service.strip();
+        if (binding != null) registry.require(binding);
+        String normalized = directory == null ? "" : Path.of(directory).toAbsolutePath().normalize().toString();
+        boolean moved = !previous.root().equals(normalized);
+        String root = moved ? SourceFiles.root(directory).toString() : previous.root();
+        if (previous.name().equals(name.strip()) && Objects.equals(previous.service(), binding) && !moved) return view(previous);
+        return view(projects.update(previous, name.strip(), binding, root, moved ? scan(Path.of(root)) : previous.index()));
+    }
+    public void delete(UUID id, long revision) { projects.delete(id, revision); }
+    private void validateName(String name) {
+        if (name == null || name.isBlank() || name.length() > 80 || name.codePoints().anyMatch(Character::isISOControl)) throw new IllegalArgumentException("Invalid source project name");
     }
     public View reindex(UUID id) {
         var project = projects.require(id);
@@ -89,12 +105,14 @@ public class SourceProjectService {
     }
     public View sharing(UUID id, long revision, boolean enabled, UUID provider, Long providerVersion, String selection) {
         if (!enabled) return view(projects.share(id, revision, null, null, null, null));
+        if (projects.require(id).service() == null) throw new ResponseStatusException(CONFLICT, "请先绑定服务，再确认模型读取授权。");
         var current = engines.snapshot(); var source = current.source();
         if (source == null || !"MODEL".equals(current.mode()) || !source.providerId().equals(provider) || !Objects.equals(source.version(), providerVersion)
                 || !current.selectionToken().equals(selection)) throw new ResponseStatusException(CONFLICT, "当前模型服务或版本与确认内容不一致，请刷新后重试。");
         return view(projects.share(id, revision, source.providerId(), source.version(), current.modelName(), current.selectionToken()));
     }
     public boolean authorized(Stored project, TriageEngine selected) {
+        if (project.service() == null || project.selection() == null || selected.source() == null) return false;
         Stored current = projects.require(project.id());
         return current.revision() == project.revision() && project.selection() != null && selected.source() != null
             && project.selection().equals(current.selection()) && current.selection().equals(selected.selectionToken())

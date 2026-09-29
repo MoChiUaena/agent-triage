@@ -124,7 +124,7 @@ class SourceIntegrationTest {
         assertThat(result.sourceAnalysis().excerpts()).noneMatch(value -> value.id().equals("SRC-invented"));
         assertThat(result.failure()).isNull();
     }
-    @ParameterizedTest @ValueSource(strings = {"revoke", "reindex", "provider-change", "provider-update", "file-change"})
+    @ParameterizedTest @ValueSource(strings = {"revoke", "reindex", "provider-change", "provider-update", "file-change", "unbind", "delete"})
     void changesBeforeSourceDispatchPreventPrivateCodeTransmission(String change) {
         share();
         MODEL.beforeFinal = () -> {
@@ -133,6 +133,8 @@ class SourceIntegrationTest {
                 case "reindex" -> sources.reindex(project.id());
                 case "provider-change" -> providers.select("DEMO", null);
                 case "provider-update" -> providers.update(provider.id(), input(4, provider.version()));
+                case "unbind" -> sources.update(project.id(), project.revision(), project.name(), null, project.root());
+                case "delete" -> sources.delete(project.id(), project.revision());
                 case "file-change" -> { try { Files.writeString(file, "class Changed {}"); } catch (Exception e) { throw new AssertionError(e); } }
             }
         };

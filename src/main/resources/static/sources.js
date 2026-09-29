@@ -5,15 +5,17 @@ let services = [];
 let busy = false;
 let sharing = null;
 let searchVersion = 0;
+let editing = null;
+let removal = null;
 
 async function api(path, options = {}) {
   const response = await fetch(path, { cache: "no-store", ...options });
-  const value = await response.json();
+  const value = response.status === 204 ? null : await response.json();
   if (!response.ok) throw new Error(value.detail || "请求失败，请重试。");
   return value;
 }
-function write(path, body) {
-  return api(path, { method: "POST", headers: { "Content-Type": "application/json", "X-Triage-Source": "1" }, body: JSON.stringify(body) });
+function write(path, body, method = "POST") {
+  return api(path, { method, headers: { "Content-Type": "application/json", "X-Triage-Source": "1" }, body: JSON.stringify(body) });
 }
 function node(tag, className, text) {
   const value = document.createElement(tag);
@@ -28,7 +30,7 @@ function notice(text, failure = false) {
 }
 function lock(value) {
   busy = value;
-  document.querySelectorAll("main button").forEach(button => button.disabled = value);
+  document.querySelectorAll("main button").forEach(button => button.disabled = value || button.dataset.unbound === "true");
   $("#register-source").disabled = value || !$("#source-service").value;
   $("#search-source").disabled = value || !projects.length;
 }
@@ -39,9 +41,9 @@ function render() {
   for (const project of projects) {
     const card = node("article", "source-project");
     const header = node("header");
-    header.append(node("h3", "", project.name), node("span", "active-tag", project.sharingActive ? "模型授权有效" : "本机检索"));
+    header.append(node("h3", "", project.name), node("span", "active-tag", !project.service ? "未绑定服务" : project.sharingActive ? "模型授权有效" : "本机检索"));
     const target = services.find(service => service.id === project.service);
-    card.append(header, node("p", "", (target?.name || project.service) + " · " + project.files + " 个文件 · " + project.symbols + " 个符号 · 索引 v" + project.revision), node("p", "", project.root));
+    card.append(header, node("p", "", (target?.name || project.service || "未绑定服务") + " · " + project.files + " 个文件 · " + project.symbols + " 个符号 · 索引 v" + project.revision), node("p", "", project.root));
     card.append(node("p", "", "更新时间：" + new Date(project.indexedAt).toLocaleString("zh-CN") + " · 跳过 " + project.skippedFiles + " 个文件 · 语法错误 " + project.parseFailures + " 个"));
     if (project.modelSharing && !project.sharingActive) card.append(node("p", "", "之前的授权已不适用于当前模型，请重新确认。"));
     const actions = node("div", "source-actions");
@@ -54,8 +56,31 @@ function render() {
     }));
     const enable = node("button", "secondary", project.sharingActive ? "重新确认模型授权" : "允许模型读取");
     enable.type = "button";
+    enable.dataset.unbound = String(!project.service);
     enable.addEventListener("click", () => openSharing(project));
     actions.append(reindex, enable);
+    const edit = node("button", "secondary", "修改项目");
+    edit.type = "button";
+    edit.addEventListener("click", () => openEdit(project));
+    actions.append(edit);
+    if (project.service) {
+      const unbind = node("button", "secondary", "解除绑定");
+      unbind.type = "button";
+      unbind.addEventListener("click", () => operate(async () => {
+        await write("/api/source-projects/" + project.id, { revision: project.revision, name: project.name, directory: project.root, service: null }, "PUT");
+        clearSearch(); notice("服务绑定已解除，项目仍可在本机检索，模型授权已关闭。");
+      }));
+      actions.append(unbind);
+    }
+    const remove = node("button", "secondary source-remove", "删除索引");
+    remove.type = "button";
+    remove.addEventListener("click", () => {
+      removal = project;
+      $("#delete-source-name").textContent = project.name + " · 索引 v" + project.revision;
+      $("#delete-source-error").hidden = true;
+      $("#delete-source-dialog").showModal();
+    });
+    actions.append(remove);
     if (project.modelSharing) {
       const revoke = node("button", "secondary", "关闭模型读取");
       revoke.type = "button";
@@ -76,8 +101,23 @@ function render() {
   $("#source-service").replaceChildren(...services.filter(service => !projects.some(project => project.service === service.id)).map(service => {
     const option = node("option", "", service.name); option.value = service.id; return option;
   }));
-  if (!$("#source-service").options.length) $("#source-service").append(node("option", "", "所有服务均已绑定源码"));
-  if (!$("#source-service").options[0]?.value || projects.length === services.length) $("#source-service").value = "";
+  if (!$("#source-service").options.length) {
+    const unavailable = node("option", "", "所有服务均已绑定源码"); unavailable.value = "";
+    $("#source-service").append(unavailable);
+  }
+}
+function openEdit(project) {
+  if (busy) return;
+  editing = project;
+  $("#edit-source-name").value = project.name;
+  $("#edit-source-directory").value = project.root;
+  const unbound = node("option", "", "暂不绑定服务"); unbound.value = "";
+  $("#edit-source-service").replaceChildren(unbound, ...services.filter(service => !projects.some(other => other.id !== project.id && other.service === service.id)).map(service => {
+    const option = node("option", "", service.name); option.value = service.id; return option;
+  }));
+  $("#edit-source-service").value = project.service || "";
+  $("#edit-source-error").hidden = true;
+  $("#edit-source-dialog").showModal();
 }
 function clearSearch() { searchVersion++; $("#source-matches").replaceChildren(); $("#source-search-note").textContent = "检索和预览在本机完成。"; }
 async function reload() {
@@ -140,6 +180,32 @@ $("#source-sharing-form").addEventListener("submit", async event => {
 });
 for (const id of ["#close-sharing", "#cancel-sharing"]) $(id).addEventListener("click", () => $("#source-sharing-dialog").close());
 $("#source-sharing-dialog").addEventListener("close", () => { sharing = null; });
+$("#edit-source-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!editing || busy) return;
+  lock(true); $("#save-source-edit").disabled = true;
+  try {
+    await write("/api/source-projects/" + editing.id, { revision: editing.revision, name: $("#edit-source-name").value.trim(), directory: $("#edit-source-directory").value.trim(), service: $("#edit-source-service").value || null }, "PUT");
+    $("#edit-source-dialog").close(); clearSearch(); await reload();
+    notice("项目已保存。发生修改时，旧模型授权会关闭。");
+  } catch (error) { $("#edit-source-error").textContent = error.message; $("#edit-source-error").hidden = false; }
+  finally { lock(false); $("#save-source-edit").disabled = false; }
+});
+$("#delete-source-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!removal || busy) return;
+  lock(true); $("#confirm-delete-source").disabled = true;
+  try {
+    await write("/api/source-projects/" + removal.id, { confirmId: removal.id, revision: removal.revision }, "DELETE");
+    $("#delete-source-dialog").close(); clearSearch(); await reload();
+    notice("登记与索引已删除，源码文件和历史排查仍保留。");
+  } catch (error) { $("#delete-source-error").textContent = error.message; $("#delete-source-error").hidden = false; }
+  finally { lock(false); $("#confirm-delete-source").disabled = false; }
+});
+for (const [id, dialog] of [["#close-source-edit", "#edit-source-dialog"], ["#cancel-source-edit", "#edit-source-dialog"], ["#cancel-source-delete", "#delete-source-dialog"]])
+  $(id).addEventListener("click", () => $(dialog).close());
+$("#edit-source-dialog").addEventListener("close", () => { editing = null; });
+$("#delete-source-dialog").addEventListener("close", () => { removal = null; });
 $("#refresh-sources").addEventListener("click", () => operate(async () => { clearSearch(); notice(""); }));
 $("#search-project").addEventListener("change", clearSearch);
 lock(true);
