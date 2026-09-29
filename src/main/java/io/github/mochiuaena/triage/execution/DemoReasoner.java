@@ -27,8 +27,8 @@ public class DemoReasoner {
         boolean timeout = ((Number) metrics.data().get("downstreamTimeoutRate")).doubleValue() > 0;
         var observations = List.of(new Finding(metrics.summary(), List.of(metrics.id())), new Finding(logs.summary(), List.of(logs.id())));
         if (!timeout && ((Number) logs.data().get("returnedCount")).intValue() > 0)
-            return new Diagnosis(observations, List.of(), List.of("先确认下游请求错误的类型与影响范围，再补充对应排障规则。"),
-                "已看到下游请求错误，但当前证据不能把它判定为读取超时或健康状态。");
+            return new Diagnosis(observations, List.of(), List.of("先确认请求错误的类型与影响范围，再补充对应排障规则。"),
+                "已看到请求错误，但当前证据不能确认下游归因，也不能判定为读取超时或健康状态。");
         String requiredDoc = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
         Evidence rule = evidence.stream().filter(e -> e.id().startsWith(requiredDoc)).findFirst().orElse(null);
         boolean hasRule = rule != null;

@@ -41,7 +41,7 @@ class EndpointRunApiTest {
     }
     @BeforeEach void setup() throws Exception {
         jdbc.update("DELETE FROM source_projects"); jdbc.update("DELETE FROM model_selection"); jdbc.update("DELETE FROM model_providers");
-        STUB.requests.clear(); STUB.locations = false; STUB.sourceHash = null; STUB.handlerHash = null;
+        STUB.requests.clear(); STUB.locations = false; STUB.requestError = false; STUB.sourceHash = null; STUB.handlerHash = null;
         Files.writeString(root.resolve("PrivateRoutingController.java"), """
             package fixture;
             class PrivateRoutingController {
@@ -65,6 +65,9 @@ class EndpointRunApiTest {
         return run(endpoint, source, false);
     }
     private Run run(String endpoint, boolean source, boolean allowSourceModel) {
+        return run(endpoint, source, allowSourceModel, Status.SUCCEEDED);
+    }
+    private Run run(String endpoint, boolean source, boolean allowSourceModel, Status expectedStatus) {
         var headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); headers.set("X-Triage-Source", "1");
         var body = new HashMap<String,Object>(Map.of("question", "服务请求为什么变慢？", "service", "ticket-service", "windowMinutes", 5, "includeSource", source));
         if (allowSourceModel) {
@@ -77,7 +80,17 @@ class EndpointRunApiTest {
         UUID id = created.getBody().id();
         await().atMost(Duration.ofSeconds(8)).until(() -> http.getForObject("/api/runs/" + id, Run.class).status().terminal());
         Run result = http.getForObject("/api/runs/" + id, Run.class);
-        assertThat(result.status()).as("saved failure: %s", result.failure()).isEqualTo(Status.SUCCEEDED); return result;
+        assertThat(result.status()).as("saved failure: %s", result.failure()).isEqualTo(expectedStatus); return result;
+    }
+    @Test void ordinaryRequestExceptionsRemainUnattributedAndInsufficient() {
+        STUB.requestError = true; STUB.locations = true;
+        Run result = run(STUB.failed.id(), true, false, Status.INSUFFICIENT_EVIDENCE);
+        var logs = result.evidence().stream().filter(value -> value.source().equals("query_error_logs")).findFirst().orElseThrow();
+        assertThat(logs.summary()).contains("请求错误").doesNotContain("下游请求错误");
+        assertThat(result.diagnosis().possibleCauses()).isEmpty();
+        assertThat(result.diagnosis().nextSteps()).allSatisfy(value -> assertThat(value).doesNotContain("下游请求错误"));
+        assertThat(result.diagnosis().uncertainty()).contains("不能确认下游归因");
+        assertThat(result.sourceAnalysis().graph().failureMatches().getFirst().kind()).isEqualTo("REQUEST_EXCEPTION");
     }
     @Test void separatesHealthyAndTimeoutEndpointsAndUsesObservedHandlerToFindAnEntry() {
         Run healthy = run(STUB.healthy.id(), true);
@@ -204,6 +217,7 @@ class EndpointRunApiTest {
         final ExecutorService workers = Executors.newCachedThreadPool();
         final List<JsonNode> requests = new CopyOnWriteArrayList<>();
         volatile boolean locations;
+        volatile boolean requestError;
         volatile String sourceHash;
         volatile String handlerHash;
         final RequestEndpoint healthy = endpoint("/api/tickets/summary", List.of());
@@ -217,19 +231,19 @@ class EndpointRunApiTest {
                         String selected=query.get("endpointId"); boolean bad=failed.id().equals(selected); boolean all=selected==null;
                         if (selected!=null && !selected.equals(healthy.id()) && !bad) { exchange.sendResponseHeaders(409,-1); return; }
                         Instant end=Instant.parse(query.get("endTime")); int minutes=Integer.parseInt(query.get("windowMinutes"));
-                        int count=all?5:bad?2:3, timeouts=all||bad?2:0;
+                        int count=all?5:bad?2:3, timeouts=requestError?0:all||bad?2:0;
                         var value=JSON.createObjectNode(); value.put("schemaVersion",3).put("kind","HTTP_ENDPOINTS").put("service","ticket-service").put("downstreamService","assignment-service")
                             .put("windowStart",end.minusSeconds(minutes*60L).toString()).put("windowEnd",end.toString()).put("requestCount",count).put("timeoutCount",timeouts).put("recordedRequestCount",5)
                             .put("requestP95Ms",timeouts>0?300:20).put("downstreamP95Ms",timeouts>0?280:10).put("downstreamTimeoutRate",(double)timeouts/count).putNull("baselineRequestP95Ms")
                             .put("synthetic",false).put("unattributedRequestCount",0).put("otherEndpointRequestCount",0);
                         RequestEndpoint currentHealthy = hashed(healthy), currentFailed = hashed(failed);
                         value.set("endpoint",JSON.valueToTree(all?null:bad?currentFailed:currentHealthy)); var endpoints=value.putArray("endpoints");
-                        if (all||bad) add(endpoints,currentFailed,2,2); if (all||!bad) add(endpoints,currentHealthy,3,0);
+                        if (all||bad) add(endpoints,currentFailed,2,requestError?0:2); if (all||!bad) add(endpoints,currentHealthy,3,0);
                         var errors=value.putArray("errors");
-                        if (timeouts>0) {
-                            var error = errors.addObject().put("timestamp",end.minusSeconds(1).toString()).put("traceId","fixture-trace").put("level","ERROR").put("message",timeouts>0 ? "assignment-service request timeout" : "HTTP request failed");
+                        if (timeouts>0 || requestError && (bad || all)) {
+                            var error = errors.addObject().put("timestamp",end.minusSeconds(1).toString()).put("traceId","fixture-trace").put("level","ERROR").put("message",requestError ? "HTTP request failed" : "assignment-service request timeout");
                             if (locations) {
-                                var detail = error.putObject("failureLocation").put("kind","HTTP_CLIENT_FAILURE").put("truncated",false);
+                                var detail = error.putObject("failureLocation").put("kind",requestError ? "REQUEST_EXCEPTION" : "HTTP_CLIENT_FAILURE").put("truncated",false);
                                 detail.putArray("exceptionTypes").add("fixture.LocalFailureMarker");
                                 var frame = detail.putArray("frames").addObject().put("className","fixture.StackOnlyProbe").put("methodName","locate").put("fileName","StackOnlyProbe.java").put("lineNumber",5);
                                 if (sourceHash != null) frame.put("sourceHash", sourceHash);
