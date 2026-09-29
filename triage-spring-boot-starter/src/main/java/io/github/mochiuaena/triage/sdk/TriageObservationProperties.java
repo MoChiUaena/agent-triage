@@ -16,12 +16,14 @@ public class TriageObservationProperties {
     private int capacity = 10_000;
     private boolean endpointObservations;
     private boolean exceptionLocations;
+    private boolean sourceVersionChecks;
     private java.util.List<String> applicationPackages = java.util.List.of();
 
     void validate() {
         if (kind == null || !identity(serviceId) || !identity(downstreamId))
             throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
         if (endpointObservations && kind != Kind.HTTP) throw new IllegalArgumentException("triage.sdk endpoint-observations requires HTTP kind");
+        if (sourceVersionChecks && !endpointObservations) throw new IllegalArgumentException("triage.sdk source-version-checks requires endpoint-observations");
         if (applicationPackages == null || applicationPackages.size() > 8 || applicationPackages.stream().anyMatch(value -> !FailureLocations.javaName(value, 160, true))
             || exceptionLocations && (!endpointObservations || applicationPackages.isEmpty()))
             throw new IllegalArgumentException("triage.sdk exception-locations requires endpoint-observations and 1..8 application-packages");
@@ -62,6 +64,8 @@ public class TriageObservationProperties {
     public boolean isEndpointObservations() { return endpointObservations; }
     public void setEndpointObservations(boolean value) { endpointObservations = value; }
     public boolean isExceptionLocations() { return exceptionLocations; }
+    public boolean isSourceVersionChecks() { return sourceVersionChecks; }
+    public void setSourceVersionChecks(boolean value) { sourceVersionChecks = value; }
     public void setExceptionLocations(boolean value) { exceptionLocations = value; }
     public java.util.List<String> getApplicationPackages() { return applicationPackages; }
     public void setApplicationPackages(java.util.List<String> value) { applicationPackages = value == null ? null : java.util.List.copyOf(value); }

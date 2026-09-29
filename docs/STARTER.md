@@ -129,6 +129,42 @@ triage:
 
 Agent 勾选本机源码检索后，可以在“代码引用”查看匹配和行号。新增位置和展开片段仅在本机展示；运行模型请求与可选源码模型请求都会移除位置摘要，不扩大已授权的候选代码范围。
 
+## 核对构建源码摘要
+
+HTTP V3 可设置 `triage.sdk.source-version-checks: true`，默认关闭。该设置还需要 `endpoint-observations: true`，并与新版 Agent 一起使用。没有构建清单、清单不能读取或类文件摘要不符时，不返回源码摘要，页面显示未核对。
+
+构建项目时，Starter 中的 `SourceBuildManifest` 读取 Java 源文件和已经编译的类文件，生成 `META-INF/triage/source-digests-v1.properties`。清单只含类名及 SHA-256 摘要，不包含源码、绝对路径或构建凭据；嵌套类关联到同一源文件。语法解析不执行注解处理器。
+
+Maven 项目可以在 `process-classes` 阶段生成清单，随后由打包步骤带入 JAR。建议使用 `clean verify` 生成干净的构建；Agent 的源码索引不会编译业务项目。
+
+```xml
+<plugin>
+  <groupId>org.codehaus.mojo</groupId>
+  <artifactId>exec-maven-plugin</artifactId>
+  <version>3.6.3</version>
+  <executions>
+    <execution>
+      <id>record-build-sources</id>
+      <phase>process-classes</phase>
+      <goals><goal>java</goal></goals>
+      <configuration>
+        <mainClass>io.github.mochiuaena.triage.sdk.SourceBuildManifest</mainClass>
+        <arguments>
+          <argument>${project.basedir}/src/main/java</argument>
+          <argument>${project.build.outputDirectory}</argument>
+        </arguments>
+      </configuration>
+    </execution>
+  </executions>
+</plugin>
+```
+
+也可运行 `java -cp triage-spring-boot-starter-0.3.0.jar io.github.mochiuaena.triage.sdk.SourceBuildManifest 源码目录 类文件目录`，在打包前将清单放入类输出目录。当前工具接受一个源码根目录，最多 2000 个 Java 文件、20 MB 源码、10000 个类文件与 1 MB 清单；重名源文件无法唯一关联时不生成对应条目。
+
+运行端只读取处理类所属代码来源的清单，并核验对应类资源的摘要。MVC 描述和 HTTP 失败时仍在当前线程中的业务位置可提供可选 `sourceHash`；普通异常栈只有名称，不能据此确定实际类加载器，因此不补猜测的摘要。V1/V2 输出保持原样。
+
+页面比较的是构建清单中的源码摘要与本机索引。摘要不同会阻止采用该入口、展开调用关系和源码模型检查，运行指标诊断仍保留。摘要一致也不等于验证了 JVM 中被热替换或转换后的字节码；该清单由本地构建生成，不是签名证明。摘要仍只在本机使用，不扩展模型输入。
+
 ## 数据与边界
 
 组件默认关闭。开启后只提供本机可访问的 GET 接口；不新增任何写入或故障控制接口。请勿通过反向代理向外公开观测地址。本机其他进程仍可读取观测，因此这不是用户鉴权机制。

@@ -8,5 +8,14 @@
   <dependencies>
     <dependency><groupId>io.github.mochiuaena</groupId><artifactId>triage-spring-boot-starter</artifactId><version>0.3.0</version></dependency>
   </dependencies>
-  <build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>
+  <build><plugins>
+    <plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.6.3</version>
+      <executions><execution><id>record-build-sources</id><phase>process-classes</phase><goals><goal>java</goal></goals>
+        <configuration><mainClass>io.github.mochiuaena.triage.sdk.SourceBuildManifest</mainClass>
+          <arguments><argument>${project.basedir}/src/main/java</argument><argument>${project.build.outputDirectory}</argument></arguments>
+        </configuration>
+      </execution></executions>
+    </plugin>
+    <plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
+  </plugins></build>
 </project>

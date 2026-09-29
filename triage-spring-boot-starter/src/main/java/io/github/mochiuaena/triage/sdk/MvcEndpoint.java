@@ -11,8 +11,15 @@ import jakarta.servlet.http.HttpServletRequest;
 
 /** Describes Spring's selected handler, never request arguments or proof that its body ran. */
 record MvcEndpoint(String id, String httpMethod, String routeTemplate, String handlerClass, String handlerMethod,
-                   List<String> parameterTypes, String stage) {
+                   List<String> parameterTypes, String stage,
+                   @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String sourceHash) {
+    MvcEndpoint(String id, String httpMethod, String routeTemplate, String handlerClass, String handlerMethod, List<String> parameterTypes, String stage) {
+        this(id, httpMethod, routeTemplate, handlerClass, handlerMethod, parameterTypes, stage, null);
+    }
     static MvcEndpoint selected(HttpServletRequest request, Object handler, String prefix) {
+        return selected(request, handler, prefix, false);
+    }
+    static MvcEndpoint selected(HttpServletRequest request, Object handler, String prefix, boolean versions) {
         if (!(handler instanceof HandlerMethod selected)) return null;
         Object matched = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
         String route = matched instanceof String text ? text : matched instanceof PathPattern path ? path.getPatternString() : null;
@@ -27,7 +34,8 @@ record MvcEndpoint(String id, String httpMethod, String routeTemplate, String ha
         String identity = String.join("\0", verb, route, owner, method.getName(), String.join(",", parameters));
         try {
             String id = "EP-" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(identity.getBytes(StandardCharsets.UTF_8))).substring(0, 32);
-            return new MvcEndpoint(id, verb, route, owner, method.getName(), List.copyOf(parameters), "MVC_SELECTED");
+            return new MvcEndpoint(id, verb, route, owner, method.getName(), List.copyOf(parameters), "MVC_SELECTED",
+                versions ? SourceBuildVersions.sourceHash(method.getDeclaringClass()) : null);
         } catch (Exception e) { throw new IllegalStateException("Cannot identify an MVC handler"); }
     }
 }
