@@ -546,7 +546,7 @@ function renderMetrics(run) {
 
 function evidenceTitle(evidence) {
   return evidence.source === "read_service_metrics"
-    ? "服务窗口指标"
+    ? evidence.data?.endpointScoped ? "接口窗口指标" : "服务窗口指标"
     : evidence.source === "query_error_logs"
       ? "近期错误日志"
       : evidence.title;
@@ -746,7 +746,7 @@ function renderEvidence(run) {
         ["SQL 查询失败", data.databasePool.queryErrorCount], ["窗口内请求数", data.requestCount],
         ["查询窗口", timeText(data.windowStart) + " – " + timeText(data.windowEnd)],
       ] : [
-        ["服务请求 p95", (data.requestP95Ms ?? data.orderP95Ms) + " ms"],
+        [data.endpointScoped ? "接口请求 p95" : "服务请求 p95", (data.requestP95Ms ?? data.orderP95Ms) + " ms"],
         ["下游调用 p95", data.downstreamP95Ms + " ms"],
         [
           "下游超时率",
