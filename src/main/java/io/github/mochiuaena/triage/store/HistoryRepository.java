@@ -20,6 +20,10 @@ public class HistoryRepository {
                         Status status, Instant createdAt, Instant finishedAt, int toolCalls, Long durationMillis, int modelCalls) {}
     public record Page(List<Entry> items, String nextCursor, long total, int pageSize) {}
     public record Service(String id, String name) {}
+    public record Durations(long samples, Double averageMillis, Long p95Millis, Long maximumMillis) {}
+    public record Usage(long calledRuns, long completeRuns, long partialRuns, long missingRuns, TokenUsage knownUsage) {}
+    public record Statistics(Instant from, Instant until, String service, long total, Map<Status, Long> statuses,
+                             long toolCalls, long modelCalls, Durations durations, Usage usage) {}
     private record Cursor(Instant time, UUID id, String filters) {}
     private record Row(Run run, Instant indexedTime) {}
     private final JdbcTemplate jdbc;
@@ -65,6 +69,33 @@ public class HistoryRepository {
     public boolean deleteTerminal(UUID id) {
         return jdbc.update("DELETE FROM triage_runs WHERE id = ? AND status IN ('SUCCEEDED','INSUFFICIENT_EVIDENCE','FAILED','CANCELLED')", id.toString()) == 1;
     }
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public Statistics statistics(HistoryFilter filter) {
+        var where = filter.sql(); var arguments = where.arguments().toArray();
+        Map<String, Object> values = jdbc.queryForMap("SELECT COUNT(*) AS total, COALESCE(SUM(tool_calls),0) AS tools, "
+            + "COALESCE(SUM(model_calls),0) AS models, SUM(CASE WHEN model_calls > 0 THEN 1 ELSE 0 END) AS called, "
+            + "SUM(CASE WHEN model_calls > 0 AND usage_complete = TRUE THEN 1 ELSE 0 END) AS complete, "
+            + "SUM(CASE WHEN model_calls > 0 AND known_total_tokens IS NOT NULL AND usage_complete = FALSE THEN 1 ELSE 0 END) AS partial, "
+            + "SUM(CASE WHEN model_calls > 0 AND known_total_tokens IS NULL THEN 1 ELSE 0 END) AS missing, "
+            + "COUNT(known_total_tokens) AS known, SUM(known_input_tokens) AS input_tokens, SUM(known_output_tokens) AS output_tokens, "
+            + "SUM(known_total_tokens) AS total_tokens FROM triage_runs" + where.clause(), arguments);
+        Map<Status, Long> statuses = new LinkedHashMap<>(); for (Status status : Status.values()) statuses.put(status, 0L);
+        jdbc.query("SELECT status, COUNT(*) FROM triage_runs" + where.clause() + " GROUP BY status", row -> {
+            statuses.put(Status.valueOf(row.getString(1)), row.getLong(2));
+        }, arguments);
+        String durationsWhere = where.clause() + (where.clause().isEmpty() ? " WHERE " : " AND ") + "duration_ms IS NOT NULL";
+        var durations = jdbc.queryForObject("SELECT COUNT(*) AS samples, AVG(duration_ms) AS average, "
+            + "PERCENTILE_DISC(0.95) WITHIN GROUP (ORDER BY duration_ms) AS p95, MAX(duration_ms) AS maximum "
+            + "FROM triage_runs" + durationsWhere, (row, n) -> new Durations(row.getLong("samples"),
+                row.getObject("average") == null ? null : ((Number) row.getObject("average")).doubleValue(),
+                row.getObject("p95") == null ? null : ((Number) row.getObject("p95")).longValue(),
+                row.getObject("maximum") == null ? null : ((Number) row.getObject("maximum")).longValue()), arguments);
+        TokenUsage known = number(values, "known") == 0 ? null : new TokenUsage(number(values, "input_tokens"), number(values, "output_tokens"), number(values, "total_tokens"));
+        return new Statistics(filter.from(), filter.until(), filter.service(), number(values, "total"), Collections.unmodifiableMap(statuses),
+            number(values, "tools"), number(values, "models"), durations,
+            new Usage(number(values, "called"), number(values, "complete"), number(values, "partial"), number(values, "missing"), known));
+    }
+    private long number(Map<String, Object> values, String name) { return values.get(name) == null ? 0 : ((Number) values.get(name)).longValue(); }
     private String fingerprint(HistoryFilter filter) {
         try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.writeValueAsBytes(filter))); }
         catch (Exception e) { throw new IllegalStateException("Cannot fingerprint history filters"); }

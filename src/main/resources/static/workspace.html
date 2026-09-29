@@ -12,7 +12,9 @@
     <a class="brand" href="/"><span class="brand-mark"><svg class="icon"><use href="/icons.svg#activity" /></svg></span><span>Agent Triage</span><span class="version">v0.3</span></a>
     <nav class="settings-links">
       <a href="/"><svg class="icon"><use href="/icons.svg#search" /></svg>服务排查</a>
-      <a href="/workspace.html" aria-current="page"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史记录</a>
+      <a href="/workspace.html" aria-current="page" data-workspace-nav="history"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史记录</a>
+      <a href="/workspace.html#statistics" data-workspace-nav="statistics"><svg class="icon"><use href="/icons.svg#chart" /></svg>运行统计</a>
+      <a href="/workspace.html#services" data-workspace-nav="services"><svg class="icon"><use href="/icons.svg#server" /></svg>服务状态</a>
       <a href="/settings.html"><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a>
     </nav>
     <div class="sidebar-footer"><svg class="icon"><use href="/icons.svg#server" /></svg><div><strong>本地工作区</strong><span>浏览保存的排查记录</span></div></div>
@@ -22,7 +24,8 @@
     <main class="workspace management-workspace">
       <div class="settings-heading"><div><h1 id="page-title">历史记录</h1><p id="page-description">按服务、执行状态和日期查找已保存的排查。</p></div><button class="secondary" id="refresh-workspace" type="button"><svg class="icon"><use href="/icons.svg#refresh" /></svg>刷新</button></div>
       <p id="workspace-notice" class="settings-notice" role="status" hidden></p>
-      <section id="history-panel" aria-label="历史记录管理">
+      <div class="workspace-tabs" role="tablist" aria-label="工作区功能"><button id="tab-history" type="button" role="tab" aria-controls="history-panel" aria-selected="true" data-workspace-tab="history">历史记录</button><button id="tab-statistics" type="button" role="tab" aria-controls="statistics-panel" aria-selected="false" data-workspace-tab="statistics">运行统计</button><button id="tab-services" type="button" role="tab" aria-controls="services-panel" aria-selected="false" data-workspace-tab="services">服务状态</button></div>
+      <section id="history-panel" role="tabpanel" aria-labelledby="tab-history">
         <form id="history-filter" class="management-card history-filters">
           <label class="filter-wide">搜索<input id="filter-query" type="search" maxlength="200" placeholder="问题、服务名称或服务标识" autocomplete="off" /></label>
           <label>服务<select id="filter-service"><option value="">全部服务</option></select></label>
@@ -37,6 +40,23 @@
           <div class="table-scroll"><table class="history-table"><thead><tr><th scope="col">问题与时间</th><th scope="col">服务</th><th scope="col">状态</th><th scope="col">模式</th><th scope="col">耗时</th><th scope="col">操作</th></tr></thead><tbody id="history-rows"><tr><td colspan="6" class="table-empty">正在加载…</td></tr></tbody></table></div>
           <div class="history-pagination"><span id="history-count">每页 20 条</span><div><button type="button" class="secondary" id="history-previous" disabled>上一页</button><button type="button" class="secondary" id="history-next" disabled>下一页</button></div></div>
         </section>
+      </section>
+      <section id="statistics-panel" role="tabpanel" aria-labelledby="tab-statistics" hidden>
+        <form id="statistics-filter" class="management-card statistics-filter">
+          <label>时段<select id="statistics-days" aria-label="统计时段"><option value="7">近 7 天</option><option value="30">近 30 天</option><option value="90">近 90 天</option></select></label>
+          <label>服务<select id="statistics-service" aria-label="统计服务"><option value="">全部服务</option></select></label>
+          <button type="submit" class="primary">查看统计</button><span id="statistics-range" class="management-caption"></span>
+        </form>
+        <div id="statistics-summary" class="summary-grid"></div>
+        <div class="statistics-grid">
+          <section class="management-card"><div class="management-heading"><h2>执行结果分布</h2></div><div id="statistics-statuses"></div></section>
+          <section class="management-card"><div class="management-heading"><h2>已知模型用量</h2></div><div id="statistics-tokens" class="token-grid"></div><p id="statistics-coverage" class="management-caption"></p></section>
+        </div>
+        <section class="management-card"><div class="management-heading"><h2>执行耗时</h2><span id="statistics-duration-count" class="management-caption"></span></div><div id="statistics-durations" class="summary-grid"></div><p class="management-caption">耗时从提交到终态，包含排队。统计采用保存的终态时间。</p></section>
+      </section>
+      <section id="services-panel" role="tabpanel" aria-labelledby="tab-services" hidden>
+        <div class="management-card"><p>检查登记服务的只读观测接口。实际观测、空窗口和合成演示会分别显示。</p><p class="management-caption">检查结果缓存 5 秒，卡片保留检查时间。服务登记来自启动配置。</p></div>
+        <div id="service-checks" class="service-check-grid"><p class="management-caption">正在读取服务状态…</p></div>
       </section>
     </main>
   </div>

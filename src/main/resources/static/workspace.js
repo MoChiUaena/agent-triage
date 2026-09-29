@@ -7,6 +7,9 @@ let filters = new URLSearchParams();
 let historyRequest = 0;
 let deleting = false;
 let deleteSelection = null;
+let activeTab = "history";
+let statisticsRequest = 0;
+let serviceRequest = 0;
 
 function node(tag, text, className) {
   const value = document.createElement(tag);
@@ -28,22 +31,19 @@ function notice(message, error = false) {
   $("#workspace-notice").classList.toggle("error", error);
 }
 function time(value) { return new Date(value).toLocaleString("zh-CN", { hour12: false }); }
-function duration(value) { return value == null ? "—" : value < 1000 ? value + " ms" : (value / 1000).toFixed(2) + " s"; }
+function duration(value) { return value == null ? "—" : value < 1000 ? Math.round(value) + " ms" : (value / 1000).toFixed(2) + " s"; }
 function statusClass(status) { return status === "FAILED" ? "failed" : status === "SUCCEEDED" ? "success" : ["RUNNING", "QUEUED"].includes(status) ? "running" : "neutral"; }
 
 async function loadServices() {
   const entries = await request("/api/history/services");
-  const value = $("#filter-service").value;
-  $("#filter-service").replaceChildren(node("option", "全部服务"));
-  $("#filter-service").firstChild.value = "";
-  for (const entry of entries) {
-    const option = node("option", entry.name + " · " + entry.id); option.value = entry.id;
-    $("#filter-service").append(option);
+  for (const selector of ["#filter-service", "#statistics-service"]) {
+    const field = $(selector); if (!field) continue;
+    const value = field.value;
+    field.replaceChildren(node("option", "全部服务")); field.firstChild.value = "";
+    for (const entry of entries) { const option = node("option", entry.name + " · " + entry.id); option.value = entry.id; field.append(option); }
+    if (value && !entries.some((entry) => entry.id === value)) { const option = node("option", value); option.value = value; field.append(option); }
+    field.value = value;
   }
-  if (value && !entries.some((entry) => entry.id === value)) {
-    const option = node("option", value); option.value = value; $("#filter-service").append(option);
-  }
-  $("#filter-service").value = value;
 }
 function selectedFilters() {
   const result = new URLSearchParams();
@@ -135,7 +135,75 @@ $("#history-filter").addEventListener("submit", (event) => {
 $("#clear-filters").addEventListener("click", () => { $("#history-filter").reset(); $("#history-filter").requestSubmit(); });
 $("#history-next").addEventListener("click", () => { if (historyPage?.nextCursor) loadHistory(historyPage.nextCursor, "next"); });
 $("#history-previous").addEventListener("click", () => { if (previousCursors.length) loadHistory(previousCursors.at(-1), "previous"); });
-$("#refresh-workspace").addEventListener("click", () => { previousCursors = []; historyCursor = null; loadHistory(null); loadServices().catch((error) => notice(error.message, true)); });
+function renderStatistics(data) {
+  $("#statistics-range").textContent = time(data.from) + " — " + time(data.until);
+  $("#statistics-summary").replaceChildren(...[["排查记录", data.total], ["工具调用", data.toolCalls], ["模型调用轮次", data.modelCalls]].map(([label, value]) => {
+    const card = node("div", null, "summary-card"); card.append(node("h3", label), node("strong", Number(value).toLocaleString("zh-CN"))); return card;
+  }));
+  $("#statistics-statuses").replaceChildren(...["SUCCEEDED", "INSUFFICIENT_EVIDENCE", "FAILED", "CANCELLED", "RUNNING", "QUEUED"].map((status) => {
+    const row = node("div", null, "status-bar-row"); const track = node("div", null, "status-bar-track");
+    const fill = node("div", null, "status-bar-fill " + status); const count = Number(data.statuses[status] || 0);
+    fill.style.width = (data.total ? count / data.total * 100 : 0) + "%"; track.append(fill);
+    row.append(node("span", statuses[status]), track, node("span", String(count))); return row;
+  }));
+  const usage = data.usage.knownUsage;
+  $("#statistics-tokens").replaceChildren(...[["输入 Token", usage?.inputTokens], ["输出 Token", usage?.outputTokens], ["合计 Token", usage?.totalTokens]].map(([label, value]) => {
+    const column = node("div"); column.append(node("div", label, "token-label"), node("div", value == null ? "—" : Number(value).toLocaleString("zh-CN"), "token-value")); return column;
+  }));
+  $("#statistics-coverage").textContent = data.usage.calledRuns === 0 ? "本时段没有模型调用。" :
+    "有模型调用的 " + data.usage.calledRuns + " 条记录中：完整 " + data.usage.completeRuns + " 条，部分已知 " + data.usage.partialRuns + " 条，未返回用量 " + data.usage.missingRuns + " 条。以上仅汇总已知用量。";
+  $("#statistics-duration-count").textContent = "有终态时间的 " + data.durations.samples + " 条记录";
+  $("#statistics-durations").replaceChildren(...[["平均耗时", data.durations.averageMillis], ["p95 耗时", data.durations.p95Millis], ["最长耗时", data.durations.maximumMillis]].map(([label, value]) => {
+    const card = node("div", null, "summary-card"); card.append(node("h3", label), node("strong", duration(value))); return card;
+  }));
+}
+async function loadStatistics() {
+  const version = ++statisticsRequest;
+  const params = new URLSearchParams({ days: $("#statistics-days").value });
+  if ($("#statistics-service").value) params.set("service", $("#statistics-service").value);
+  try { const data = await request("/api/statistics?" + params); if (version === statisticsRequest) renderStatistics(data); }
+  catch (error) { if (version === statisticsRequest) notice(error.message, true); }
+}
+function selectTab(value) {
+  activeTab = ["history", "statistics", "services"].includes(value) ? value : "history";
+  const title = { history: "历史记录", statistics: "运行统计", services: "服务状态" }[activeTab];
+  $("#workspace-title").textContent = title; $("#page-title").textContent = title; document.title = title + " · Agent Triage";
+  $("#page-description").textContent = { history: "按服务、执行状态和日期查找已保存的排查。", statistics: "查看保存记录的执行结果、耗时和已知用量。", services: "核对服务连通性、观测协议和当前窗口请求。" }[activeTab];
+  document.querySelectorAll("[data-workspace-tab]").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.workspaceTab === activeTab)));
+  document.querySelectorAll("[data-workspace-nav]").forEach((link) => { if (link.dataset.workspaceNav === activeTab) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current"); });
+  $("#history-panel").hidden = activeTab !== "history"; $("#statistics-panel").hidden = activeTab !== "statistics";
+  $("#services-panel").hidden = activeTab !== "services";
+  notice(""); if (activeTab === "statistics") loadStatistics(); if (activeTab === "services") loadServiceChecks();
+}
+async function loadServiceChecks() {
+  const version = ++serviceRequest;
+  try {
+    const data = await request("/api/services/status"); if (version !== serviceRequest) return;
+    const stateLabels = { AVAILABLE: "可读取", EMPTY: "暂无请求", UNAVAILABLE: "不可用", SYNTHETIC: "合成演示" };
+    const protocols = { LAB: "订单样例", OBSERVATIONS_V1: "HTTP V1", DATABASE_V2: "数据库 V2" };
+    $("#service-checks").replaceChildren(...data.map((check) => {
+      const card = node("article", null, "management-card service-check"); const heading = node("div", null, "management-heading");
+      const identity = node("div"); identity.append(node("h2", check.service.name), node("p", check.service.id, "service-check-id"));
+      heading.append(identity, node("span", stateLabels[check.state] || check.state, "status " + (check.state === "UNAVAILABLE" ? "failed" : check.state === "AVAILABLE" ? "success" : "neutral")));
+      const values = node("dl");
+      for (const [label, value] of [["数据来源", check.source === "LIVE" ? "实际观测" : "合成演示"], ["协议", protocols[check.service.protocol]],
+        ["允许窗口", "1—" + check.service.maxWindowMinutes + " 分钟"], ["检查窗口", check.windowMinutes == null ? "—" : "最近 " + check.windowMinutes + " 分钟"],
+        ["窗口请求", check.requestCount == null ? "—" : check.requestCount + " 次"], ["检查耗时", duration(check.responseMillis)]]) {
+        const pair = node("div"); pair.append(node("dt", label), node("dd", value)); values.append(pair);
+      }
+      card.append(heading, values, node("p", check.message, "service-check-message"), node("p", "检查于 " + time(check.checkedAt), "service-check-time"));
+      return card;
+    }));
+  } catch (error) { if (version === serviceRequest) notice(error.message, true); }
+}
+document.querySelectorAll("[data-workspace-tab]").forEach((button) => button.addEventListener("click", () => { window.location.hash = button.dataset.workspaceTab; }));
+window.addEventListener("hashchange", () => selectTab(window.location.hash.slice(1)));
+$("#statistics-filter").addEventListener("submit", (event) => { event.preventDefault(); notice(""); loadStatistics(); });
+$("#refresh-workspace").addEventListener("click", () => {
+  if (activeTab === "statistics") loadStatistics(); else if (activeTab === "services") loadServiceChecks(); else { previousCursors = []; historyCursor = null; loadHistory(null); }
+  loadServices().catch((error) => notice(error.message, true));
+});
 loadServices().catch((error) => notice(error.message, true));
 loadHistory(null);
-window.addEventListener("pageshow", (event) => { if (!event.persisted) $("#history-filter").reset(); });
+selectTab(window.location.hash.slice(1));
+window.addEventListener("pageshow", (event) => { if (!event.persisted) { $("#history-filter").reset(); $("#statistics-filter").reset(); } });
