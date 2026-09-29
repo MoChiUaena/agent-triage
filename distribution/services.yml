@@ -34,3 +34,11 @@ triage:
       protocol: DATABASE_V2
       max-window-minutes: 15
       lab-enabled: false
+    - id: ticket-service
+      name: 工单源码样例
+      downstream-id: assignment-service
+      downstream-name: 分配服务
+      base-url: http://127.0.0.1:${demo.ticket-port:18090}
+      protocol: OBSERVATIONS_V3
+      max-window-minutes: 15
+      lab-enabled: false

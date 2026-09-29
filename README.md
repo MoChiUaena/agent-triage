@@ -40,17 +40,15 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 ## 快速启动
 
-免构建的演示包在 [v0.2.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.2.0) 中提供，包含订单、库存、数据库和 Starter 示例。需要 JDK 21，完整解压后运行：
+免构建的演示包在 [v0.3.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.3.0) 中提供，包含订单、库存、数据库、Starter 和工单源码示例。需要 JDK 21，完整解压后运行：
 
-包内提供四种服务接入和六个进程的统一启动方式，端口与使用范围见 [v0.2.0 说明](docs/releases/v0.2.0.md)。[v0.1.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0) 保留首版订单／库存流程，附件不随 main 更新。
-
-main 为 v0.3 开发版本，新增完整历史、运行统计、服务状态和本机源码接入。体验这些功能可从源码启动，或构建 [v0.3 候选包](docs/releases/v0.3.0.md)；v0.2.0 的发布附件保持原版本。
+包内登记五个服务，统一启动八个进程。端口、源码演示与升级方法见 [v0.3.0 说明](docs/releases/v0.3.0.md)；包内 `SOURCE_DEMO.md` 可以逐步操作。[v0.1.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0) 与 [v0.2.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.2.0) 的附件保留原版本。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
 ```
 
-macOS/Linux 使用 `bash start-demo.sh`，另需 curl。脚本启动六个进程，首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面是从源码启动的方式。
+macOS/Linux 使用 `bash start-demo.sh`，另需 curl。首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面是从源码启动的方式。
 
 需要 JDK 21+。仓库自带 Maven Wrapper，首次构建会下载 Maven 和依赖。
 

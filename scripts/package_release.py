@@ -40,8 +40,20 @@ def main():
         if not jar.is_file():
             parser.error(f"Missing built JAR for {artifact}.")
         files.append((jar, f"sdk/{alias}-{version}.jar" if alias == "triage-spring-boot-starter" else f"lib/{alias}.jar"))
-    for name in ["start-demo.ps1", "start-demo.sh", "README.txt"]:
+    for alias in ("ticket-service", "assignment-service"):
+        directory = ROOT / "verification" / alias
+        artifact, child_version = project(directory)
+        if child_version != version:
+            parser.error("Verification applications must match the release version.")
+        jar = directory / "target" / f"{artifact}-{version}.jar"
+        if not jar.is_file():
+            parser.error(f"Missing built JAR for {artifact}.")
+        files.append((jar, f"lib/{alias}.jar"))
+    for name in ["start-demo.ps1", "start-demo.sh", "README.txt", "SOURCE_DEMO.md"]:
         files.append((ROOT / "distribution" / name, name))
+    for relative in ["pom.xml", "src/main/resources/application.yml"] + [f"src/main/java/example/helpdesk/{name}.java" for name in
+        ("AssignmentGateway", "DefaultTicketService", "TicketApplication", "TicketController", "TicketFormatter", "TicketService")]:
+        files.append((ROOT / "verification/ticket-service" / relative, "projects/ticket-service/" + relative))
     files.append((ROOT / "LICENSE", "LICENSE"))
     files.append((ROOT / "distribution/services.yml", "config/services.yml"))
     files.append((ROOT / "triage-spring-boot-starter/pom.xml", "sdk/pom.xml"))
@@ -53,8 +65,8 @@ def main():
         "javaMinimum": 21,
         "initialMode": "DEMO",
         "observationSource": "LIVE",
-        "registeredServices": ["order-service", "account-service", "catalog-service", "catalog-db-service"],
-        "portOffsets": {"agent": 0, "order": 2, "inventory": 4, "database": 6, "catalog": 8, "catalogDatabase": 9},
+        "registeredServices": ["order-service", "account-service", "catalog-service", "catalog-db-service", "ticket-service"],
+        "portOffsets": {"agent": 0, "order": 2, "inventory": 4, "database": 6, "catalog": 8, "catalogDatabase": 9, "ticket": 10, "assignment": 12},
     }
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)

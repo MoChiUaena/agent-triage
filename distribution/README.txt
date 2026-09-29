@@ -11,17 +11,22 @@ macOS / Linux:
 
 Open http://127.0.0.1:18080. Generate normal or inventory-timeout requests, then start an investigation.
 Order and inventory services run on 18082 and 18084. The database sample runs on 18086.
-The page service selector also includes the independent Starter product and price services.
+The page service selector includes independent Starter product, price and ticket services.
 Create product requests at http://127.0.0.1:18088/api/products/demo and price requests at
 http://127.0.0.1:18089/api/prices/demo. These two applications have no fault controls.
 The product service shares the inventory fixture, so delayed inventory responses affect it too.
-Ctrl+C stops all six processes started by the launcher.
+The ticket service runs on 18090; /api/tickets/summary is healthy and /api/tickets/T-1 returns 504.
+Its separate assignment dependency delays actual HTTP responses on 18092. Register the bundled
+projects/ticket-service directory in the source page, then use the integration check and code references.
+Follow SOURCE_DEMO.md to compare endpoints, inspect error positions and test build source differences.
+Ctrl+C stops all eight processes started by the launcher.
 
 If the ports are occupied, use an alternative base port:
   Windows: powershell -ExecutionPolicy Bypass -File .\start-demo.ps1 -BasePort 18180
   macOS/Linux: bash start-demo.sh 18180
 Ports are base (Agent), base+2 (order), base+4 (inventory), base+6 (database),
-base+8 (catalog HTTP) and base+9 (catalog JDBC). The launcher never stops an existing instance to free ports.
+base+8 (catalog HTTP), base+9 (catalog JDBC), base+10 (ticket) and base+12 (assignment).
+The launcher never stops an existing instance to free ports.
 On Windows, add -CheckOnly to verify startup and immediately stop this launch.
 
 The first run uses fixed rules with actual local HTTP request observations. Model configuration is optional,
@@ -29,9 +34,9 @@ available in the settings page, and persists under data/. An enabled real model 
 The page supports cancellation, known token usage and specific connection/protocol failure guidance.
 Open workspace management from the sidebar to page and filter the full history, inspect execution statistics,
 or check registered observation services. Deletion requires confirmation and is restricted to terminal records.
-Database V3 indexes existing history without rewriting saved execution JSON. No automatic cleanup is enabled.
+Database V3/V6 index existing history without rewriting saved execution JSON. No automatic cleanup is enabled.
 Cancelling a local run cannot guarantee that a provider stops executing or billing an accepted request.
-config/services.yml registers the four local services; the plain Starter JAR and POM are under sdk/.
+config/services.yml registers five local services; the plain Starter JAR and POM are under sdk/.
 The Starter is not published on Maven Central. Dependency setup is documented in the source repository.
 This bundle is for local single-instance use and has no multi-user login or production authentication.
 

@@ -152,12 +152,12 @@ jobs:
             sleep 1
           done
           python3 scripts/db_pool_smoke.py --agent-url http://127.0.0.1:18180 --database-url http://127.0.0.1:18186
-          python3 scripts/bundle_services_smoke.py
+          python3 scripts/bundle_services_smoke.py --bundle-directory target/bundle-smoke/agent-triage-0.3.0
           python3 scripts/workspace_smoke.py --agent-url http://127.0.0.1:18180
           kill "$bundle_pid"
           wait "$bundle_pid" || true
           bundle_end=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          for endpoint in 18180/api/config 18182/lab/scenario 18184/lab/scenario 18186/actuator/health "18188/triage/observations?windowMinutes=1&endTime=$bundle_end" "18189/triage/observations?windowMinutes=1&endTime=$bundle_end"; do
+          for endpoint in 18180/api/config 18182/lab/scenario 18184/lab/scenario 18186/actuator/health "18188/triage/observations?windowMinutes=1&endTime=$bundle_end" "18189/triage/observations?windowMinutes=1&endTime=$bundle_end" "18190/triage/endpoint-observations?windowMinutes=1&endTime=$bundle_end" 18192/health; do
             if curl -fsS --max-time 2 "http://127.0.0.1:$endpoint" > /dev/null; then
               echo "Bundle service at $endpoint did not stop" >&2
               exit 1

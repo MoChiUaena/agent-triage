@@ -2,6 +2,7 @@
 """Verify a downloaded demo, standalone starter and their checksums without running any JAR."""
 import argparse
 import hashlib
+import io
 import json
 import re
 import xml.etree.ElementTree as ET
@@ -40,9 +41,13 @@ def verify(directory, version, commit=None):
     allowed = {"lib/agent-triage.jar", "lib/order-service.jar", "lib/inventory-service.jar", "lib/database-service.jar",
                "lib/catalog-service.jar", f"sdk/{starter_name}.jar", "sdk/pom.xml", "config/services.yml",
                "start-demo.ps1", "start-demo.sh", "README.txt", "LICENSE"}
+    if version == "0.3.0":
+        allowed |= {"lib/ticket-service.jar", "lib/assignment-service.jar", "SOURCE_DEMO.md", "projects/ticket-service/pom.xml", "projects/ticket-service/src/main/resources/application.yml"}
+        allowed |= {f"projects/ticket-service/src/main/java/example/helpdesk/{name}.java" for name in
+                    ("AssignmentGateway", "DefaultTicketService", "TicketApplication", "TicketController", "TicketFormatter", "TicketService")}
     with zipfile.ZipFile(directory / f"agent-triage-{version}-demo.zip") as archive:
         names = archive.namelist()
-        if len(names) != 13 or set(names) != {prefix + name for name in allowed | {"manifest.json"}}:
+        if len(names) != len(allowed) + 1 or set(names) != {prefix + name for name in allowed | {"manifest.json"}}:
             raise ValueError("Archive contains missing, duplicate or unexpected paths")
         manifest = json.loads(archive.read(prefix + "manifest.json"))
         if manifest.get("version") != version or manifest.get("sourceTreeDirty") is not False:
@@ -56,6 +61,23 @@ def verify(directory, version, commit=None):
             with archive.open(prefix + name) as source:
                 if stream_digest(source) != expected:
                     raise ValueError(f"Embedded checksum mismatch: {name}")
+        if version == "0.3.0":
+            if manifest.get("registeredServices") != ["order-service", "account-service", "catalog-service", "catalog-db-service", "ticket-service"] \
+                    or manifest.get("portOffsets") != {"agent":0,"order":2,"inventory":4,"database":6,"catalog":8,"catalogDatabase":9,"ticket":10,"assignment":12}:
+                raise ValueError("Bundle service and port manifest does not match")
+            with zipfile.ZipFile(io.BytesIO(archive.read(prefix + "lib/ticket-service.jar"))) as ticket:
+                properties = ticket.read("META-INF/triage/source-digests-v1.properties").decode("utf-8")
+                rows = dict(line.split("=", 1) for line in properties.splitlines() if line and not line.startswith("#"))
+                if rows.get("format") != "1":
+                    raise ValueError("Missing ticket build source manifest")
+                for name in ("AssignmentGateway", "DefaultTicketService", "TicketApplication", "TicketController", "TicketFormatter", "TicketService"):
+                    value = rows.get("example.helpdesk." + name, "")
+                    if not re.fullmatch(r"[a-f0-9]{64},[a-f0-9]{64}", value):
+                        raise ValueError("Invalid bundled build source digest")
+                    source = archive.read(prefix + f"projects/ticket-service/src/main/java/example/helpdesk/{name}.java")
+                    compiled = ticket.read(f"BOOT-INF/classes/example/helpdesk/{name}.class")
+                    if value != hashlib.sha256(source).hexdigest() + "," + hashlib.sha256(compiled).hexdigest():
+                        raise ValueError("Bundled ticket source and runtime class manifest differ")
         if manifest["files"][f"sdk/{starter_name}.jar"] != entries[f"{starter_name}.jar"] \
                 or manifest["files"]["sdk/pom.xml"] != entries[f"{starter_name}.pom"]:
             raise ValueError("Standalone starter differs from the bundled starter")
@@ -67,7 +89,7 @@ def verify(directory, version, commit=None):
         if "io/github/mochiuaena/triage/sdk/TriageObservationAutoConfiguration.class" not in starter.namelist() \
                 or any(name.startswith("BOOT-INF/") for name in starter.namelist()):
             raise ValueError("Starter must be a plain library JAR with its auto-configuration")
-    print(f"Release verified: 3 checksummed assets, 13 ZIP entries, matching starter; source={source_commit}")
+    print(f"Release verified: 3 checksummed assets, {len(allowed) + 1} ZIP entries, matching starter; source={source_commit}")
 
 
 def main():
