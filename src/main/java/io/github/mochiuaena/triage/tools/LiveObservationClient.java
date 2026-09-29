@@ -8,6 +8,7 @@ import io.github.mochiuaena.triage.domain.TriageModel.Scenario;
 import io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint;
 import io.github.mochiuaena.triage.domain.TriageModel.RequestDetails;
 import io.github.mochiuaena.triage.domain.TriageModel.EndpointSummary;
+import io.github.mochiuaena.triage.domain.TriageModel.FailureLocation;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 import java.io.ByteArrayOutputStream;
@@ -29,7 +30,8 @@ import java.util.concurrent.Flow;
 /** Reads only startup-registered loopback origins. Redirects and oversized bodies are rejected. */
 @Component
 public class LiveObservationClient {
-    public record ErrorEntry(Instant timestamp, String traceId, String level, String message, String code) {
+    public record ErrorEntry(Instant timestamp, String traceId, String level, String message, String code, FailureLocation failureLocation) {
+        public ErrorEntry(Instant timestamp, String traceId, String level, String message, String code) { this(timestamp, traceId, level, message, code, null); }
         public ErrorEntry(Instant timestamp, String traceId, String level, String message) { this(timestamp, traceId, level, message, null); }
     }
     public record Snapshot(String service, Scenario scenario, Instant windowStart, Instant windowEnd,
@@ -195,6 +197,18 @@ public class LiveObservationClient {
         for (String part : parts) if (part.isEmpty() || !Character.isJavaIdentifierStart(part.codePointAt(0)) || !part.codePoints().allMatch(Character::isJavaIdentifierPart)) return false;
         return true;
     }
+    private void validateFailure(FailureLocation value) {
+        if (value.kind() == null || !List.of("HTTP_CLIENT_FAILURE", "REQUEST_EXCEPTION").contains(value.kind())
+            || value.exceptionTypes() == null || value.exceptionTypes().isEmpty() || value.exceptionTypes().size() > 4
+            || value.exceptionTypes().stream().anyMatch(type -> !javaName(type, 240, true))
+            || value.frames() == null || value.frames().size() > 8 || value.truncated() == null) throw unexpected();
+        for (var frame : value.frames()) {
+            if (frame == null || !javaName(frame.className(), 240, true)
+                || !("<init>".equals(frame.methodName()) || "<clinit>".equals(frame.methodName()) || javaName(frame.methodName(), 80, false))
+                || frame.fileName() != null && !frame.fileName().matches("[\\p{L}\\p{N}_$-]{1,150}\\.java")
+                || frame.lineNumber() != null && (frame.lineNumber() < 1 || frame.lineNumber() > 1_000_000)) throw unexpected();
+        }
+    }
 
     private void validateDatabase(DatabasePool pool, int requests, List<ErrorEntry> errors) {
         if (pool == null || java.util.Arrays.stream(new Object[]{pool.maximumConnections(), pool.peakActiveConnections(), pool.peakPendingThreads(),
@@ -235,7 +249,12 @@ public class LiveObservationClient {
             if (error == null || error.timestamp() == null || error.timestamp().isBefore(context.startTime()) || error.timestamp().isAfter(context.endTime())
                 || error.traceId() == null || error.traceId().length() > 128 || error.level() == null || !List.of("ERROR", "WARN").contains(error.level())
                 || error.message() == null || error.message().isBlank() || error.message().length() > 2000) throw unexpected();
+            if (error.failureLocation() != null) {
+                if (context.target().protocol() != ServiceRegistry.Protocol.OBSERVATIONS_V3) throw unexpected();
+                validateFailure(error.failureLocation());
+            }
         }
+        if (value.requestDetails() != null && value.errors().size() > value.requestCount()) throw unexpected();
     }
     private boolean metric(double value) { return Double.isFinite(value) && value >= 0; }
     private ObservationFailure unexpected() {

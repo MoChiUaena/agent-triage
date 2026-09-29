@@ -117,6 +117,46 @@ class LiveObservationClientTest {
         registry = new ServiceRegistry(new ObservationSource("LIVE", origin), List.of(new ServiceRegistry.Config("checkout-service", "结算服务", "stock-service", "商品服务", origin, ServiceRegistry.Protocol.OBSERVATIONS_V3, 15, false)));
         client = new LiveObservationClient(registry, json); context = new ToolContext("checkout-service", 5, Scenario.OBSERVED, end, registry.defaultTarget());
     }
+    private ObjectNode located() throws Exception {
+        var value = v3();
+        var location = ((ObjectNode) value.at("/errors/0")).putObject("failureLocation").put("kind", "HTTP_CLIENT_FAILURE").put("truncated", false);
+        location.putArray("exceptionTypes").add("java.net.SocketTimeoutException");
+        location.putArray("frames").addObject().put("className", "privatefixture.Gateway").put("methodName", "lookup").put("fileName", "Gateway.java").put("lineNumber", 42);
+        return value;
+    }
+    @Test void v3FailureLocationsRemainLocalAndLegacyProtocolsCannotAcceptThem() throws Exception {
+        endpointClient(); response.set(json.writeValueAsBytes(located()));
+        var evidence = new LiveErrorLogsTool(client).execute(context, "").getFirst();
+        assertThat(evidence.data()).containsKey("failureLocations");
+        var projected = io.github.mochiuaena.triage.model.ModelEvidence.project(evidence);
+        assertThat(projected.data()).doesNotContainKey("failureLocations");
+        assertThat(json.writeValueAsString(projected)).doesNotContain("privatefixture.Gateway", "SocketTimeoutException", "Gateway.java");
+        var value = valid(); value.set("errors", located().get("errors")); response.set(json.writeValueAsBytes(value));
+        String origin = "http://127.0.0.1:" + server.getAddress().getPort();
+        var legacy = new ServiceRegistry(new ObservationSource("LIVE", origin), List.of(new ServiceRegistry.Config("checkout-service", "结算服务", "stock-service", "商品服务", origin, ServiceRegistry.Protocol.OBSERVATIONS_V1, 15, false)));
+        var legacyContext = new ToolContext("checkout-service", 5, Scenario.OBSERVED, end, legacy.defaultTarget());
+        assertThatThrownBy(() -> new LiveObservationClient(legacy, json).snapshot(legacyContext)).isInstanceOf(ObservationFailure.class);
+    }
+    @Test void failureLocationValidationRejectsMessagesPathsWrongTypesAndUnboundedFrames() throws Exception {
+        endpointClient();
+        List<Consumer<ObjectNode>> mutations = List.of(
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation")).put("kind", "METHOD_EXECUTED"),
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation")).put("message", "private-exception-message"),
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation")).remove("truncated"),
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation/frames/0")).put("fileName", "../Gateway.java"),
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation/frames/0")).put("className", "private\nmalformed"),
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation/frames/0")).put("lineNumber", "42"),
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation/frames/0")).put("lineNumber", -1),
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation/frames/0")).put("lineNumber", 1.5),
+            node -> { var frames = (com.fasterxml.jackson.databind.node.ArrayNode) node.at("/errors/0/failureLocation/frames"); for (int i = 0; i < 8; i++) frames.add(frames.get(0).deepCopy()); },
+            node -> ((ObjectNode) node.at("/errors/0/failureLocation")).putArray("exceptionTypes").add("private/body"));
+        for (var mutation : mutations) {
+            var value = located(); mutation.accept(value); response.set(json.writeValueAsBytes(value));
+            assertThatThrownBy(() -> client.snapshot(context)).isInstanceOfSatisfying(ObservationFailure.class, error -> assertThat(error.code()).isEqualTo("OBSERVATION_CONTRACT"));
+        }
+        var unknown = located(); ((ObjectNode) unknown.at("/errors/0/failureLocation/frames/0")).putNull("fileName").putNull("lineNumber"); response.set(json.writeValueAsBytes(unknown));
+        assertThat(client.snapshot(context).errors().getFirst().failureLocation().frames().getFirst().lineNumber()).isNull();
+    }
     @Test void endpointMetadataIsValidatedAndSelectionCannotChangeItsHandlerIdentity() throws Exception {
         endpointClient(); var value = v3(); response.set(json.writeValueAsBytes(value));
         var all = client.snapshot(context);

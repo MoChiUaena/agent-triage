@@ -41,7 +41,7 @@ class EndpointRunApiTest {
     }
     @BeforeEach void setup() throws Exception {
         jdbc.update("DELETE FROM source_projects"); jdbc.update("DELETE FROM model_selection"); jdbc.update("DELETE FROM model_providers");
-        STUB.requests.clear();
+        STUB.requests.clear(); STUB.locations = false;
         Files.writeString(root.resolve("PrivateRoutingController.java"), """
             package fixture;
             class PrivateRoutingController {
@@ -49,19 +49,35 @@ class EndpointRunApiTest {
                 @GetMapping("/api/tickets/summary") Object ticket() { return null; }
             }
             """);
+        Files.writeString(root.resolve("StackOnlyProbe.java"), """
+            package fixture;
+            class StackOnlyProbe {
+                Object locate() {
+                    // local-frame-private-marker
+                    return null;
+                }
+            }
+            """);
         sources.create("接口验证", "ticket-service", root.toString());
     }
     @AfterAll static void close() { STUB.close(); }
     private Run run(String endpoint, boolean source) {
+        return run(endpoint, source, false);
+    }
+    private Run run(String endpoint, boolean source, boolean allowSourceModel) {
         var headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); headers.set("X-Triage-Source", "1");
         var body = new HashMap<String,Object>(Map.of("question", "服务请求为什么变慢？", "service", "ticket-service", "windowMinutes", 5, "includeSource", source));
+        if (allowSourceModel) {
+            body.put("allowSourceModel", true); body.put("expectedSelection", providers.current().selectionToken());
+            var project = sources.bound("ticket-service"); body.put("expectedSourceRevision", project.revision()); body.put("expectedSourceProjectId", project.id());
+        }
         if (endpoint != null) body.put("endpointId", endpoint);
         var created = http.postForEntity("/api/runs", new HttpEntity<>(body, headers), Run.class);
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         UUID id = created.getBody().id();
         await().atMost(Duration.ofSeconds(8)).until(() -> http.getForObject("/api/runs/" + id, Run.class).status().terminal());
         Run result = http.getForObject("/api/runs/" + id, Run.class);
-        assertThat(result.status()).isEqualTo(Status.SUCCEEDED); return result;
+        assertThat(result.status()).as("saved failure: %s", result.failure()).isEqualTo(Status.SUCCEEDED); return result;
     }
     @Test void separatesHealthyAndTimeoutEndpointsAndUsesObservedHandlerToFindAnEntry() {
         Run healthy = run(STUB.healthy.id(), true);
@@ -90,6 +106,25 @@ class EndpointRunApiTest {
         assertThat(STUB.requests.toString()).doesNotContain("PrivateRoutingController", "/api/tickets/summary", "MVC_SELECTED", "requestDetails", STUB.healthy.id());
         assertThat(result.modelExecution().assessment()).isEqualTo("NO_DOWNSTREAM_TIMEOUT_OBSERVED");
     }
+    @Test void failureLocationsAndFocusedCodeRemainLocalEvenWithCandidateSourceConsent() {
+        STUB.locations = true;
+        var provider = providers.create(new ProviderConfig.Input("错误位置协议验证", ProviderConfig.Protocol.OPENAI_COMPATIBLE, STUB.url(), "endpoint-stub", "test-only-local", .2, 2, 4, 1600, 0));
+        providers.select("MODEL", provider.id());
+        var project = sources.bound("ticket-service");
+        sources.sharing(project.id(), project.revision(), true, provider.id(), provider.version(), providers.current().selectionToken());
+        Run result = run(STUB.failed.id(), true, true);
+        var location = result.sourceAnalysis().graph().failureMatches().getFirst();
+        assertThat(location.traceId()).isEqualTo("fixture-trace");
+        assertThat(location.frames().getFirst().state()).isEqualTo("LINE_MATCH");
+        assertThat(location.frames().getFirst().excerpts().getFirst().content()).contains("local-frame-private-marker");
+        assertThat(location.frames().getFirst().excerpts().getFirst().startLine()).isLessThanOrEqualTo(5);
+        assertThat(result.sourceAnalysis().state()).isEqualTo("MODEL_SELECTED");
+        assertThat(STUB.requests).hasSize(3);
+        assertThat(STUB.requests.toString()).doesNotContain("StackOnlyProbe", "LocalFailureMarker", "failureLocations", "local-frame-private-marker");
+        assertThat(STUB.requests.getLast().toString()).contains("PrivateRoutingController");
+        sources.reindex(project.id());
+        assertThat(http.getForObject("/api/runs/" + result.id(), Run.class).sourceAnalysis().graph().failureMatches()).isEqualTo(result.sourceAnalysis().graph().failureMatches());
+    }
     static RequestEndpoint endpoint(String route, List<String> parameters) {
         try {
             String identity = String.join("\0", "GET", route, "fixture.PrivateRoutingController", "ticket", String.join(",", parameters));
@@ -101,6 +136,7 @@ class EndpointRunApiTest {
         final HttpServer server;
         final ExecutorService workers = Executors.newCachedThreadPool();
         final List<JsonNode> requests = new CopyOnWriteArrayList<>();
+        volatile boolean locations;
         final RequestEndpoint healthy = endpoint("/api/tickets/summary", List.of());
         final RequestEndpoint failed = endpoint("/api/tickets/{id}", List.of("java.lang.String"));
         Stub() {
@@ -119,7 +155,15 @@ class EndpointRunApiTest {
                             .put("synthetic",false).put("unattributedRequestCount",0).put("otherEndpointRequestCount",0);
                         value.set("endpoint",JSON.valueToTree(all?null:bad?failed:healthy)); var endpoints=value.putArray("endpoints");
                         if (all||bad) add(endpoints,failed,2,2); if (all||!bad) add(endpoints,healthy,3,0);
-                        var errors=value.putArray("errors"); if (timeouts>0) errors.addObject().put("timestamp",end.minusSeconds(1).toString()).put("traceId","fixture-trace").put("level","ERROR").put("message","assignment-service request timeout");
+                        var errors=value.putArray("errors");
+                        if (timeouts>0) {
+                            var error = errors.addObject().put("timestamp",end.minusSeconds(1).toString()).put("traceId","fixture-trace").put("level","ERROR").put("message",timeouts>0 ? "assignment-service request timeout" : "HTTP request failed");
+                            if (locations) {
+                                var detail = error.putObject("failureLocation").put("kind","HTTP_CLIENT_FAILURE").put("truncated",false);
+                                detail.putArray("exceptionTypes").add("fixture.LocalFailureMarker");
+                                detail.putArray("frames").addObject().put("className","fixture.StackOnlyProbe").put("methodName","locate").put("fileName","StackOnlyProbe.java").put("lineNumber",5);
+                            }
+                        }
                         respond(exchange,JSON.writeValueAsBytes(value));
                     } catch (Exception ignored) { }
                 });
@@ -127,14 +171,18 @@ class EndpointRunApiTest {
                     try (exchange) {
                         JsonNode request=JSON.readTree(exchange.getRequestBody()); requests.add(request); Map<String,Object> message; String finish;
                         var evidence=new ArrayList<JsonNode>(); for (var input:request.path("messages")) if (input.path("role").asText().equals("tool")) JSON.readTree(input.path("content").asText()).forEach(evidence::add);
-                        if (evidence.isEmpty()) {
+                        if (request.path("messages").get(0).path("content").asText().contains("SOURCE_SELECTION")) {
+                            var payload = JSON.readTree(request.path("messages").get(request.path("messages").size()-1).path("content").asText());
+                            message=Map.of("role","assistant","content",JSON.writeValueAsString(Map.of("sourceIds",List.of(payload.path("candidates").get(0).path("id").asText())))); finish="stop";
+                        } else if (evidence.isEmpty()) {
                             var calls=new ArrayList<Map<String,Object>>(); for (String tool:List.of("read_service_metrics","query_error_logs","search_runbooks")) {
                                 var args=new HashMap<String,Object>(Map.of("service","ticket-service","windowMinutes",5)); if (tool.equals("search_runbooks")) args.put("query","正常 超时");
                                 calls.add(Map.of("id",tool,"type","function","function",Map.of("name",tool,"arguments",JSON.writeValueAsString(args)))); }
                             message=Map.of("role","assistant","tool_calls",calls); finish="tool_calls";
                         } else {
-                            var ids=evidence.stream().filter(value -> value.path("source").asText().equals("read_service_metrics") || value.path("source").asText().equals("query_error_logs") || value.path("id").asText().startsWith("DOC-HEALTHY-BASELINE#")).map(value -> value.path("id").asText()).toList();
-                            message=Map.of("role","assistant","content",JSON.writeValueAsString(Map.of("assessment","NO_DOWNSTREAM_TIMEOUT_OBSERVED","evidenceIds",ids,"nextChecks",List.of("FIND_SLOW_REQUEST")))); finish="stop";
+                            boolean timeout = evidence.stream().anyMatch(value -> value.path("source").asText().equals("read_service_metrics") && value.path("data").path("timeoutCount").asInt() > 0);
+                            var ids=evidence.stream().filter(value -> value.path("source").asText().equals("read_service_metrics") || value.path("source").asText().equals("query_error_logs") || value.path("id").asText().startsWith(timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#")).map(value -> value.path("id").asText()).toList();
+                            message=Map.of("role","assistant","content",JSON.writeValueAsString(Map.of("assessment",timeout ? "DOWNSTREAM_TIMEOUT_OBSERVED" : "NO_DOWNSTREAM_TIMEOUT_OBSERVED","evidenceIds",ids,"nextChecks",List.of("FIND_SLOW_REQUEST")))); finish="stop";
                         }
                         respond(exchange,JSON.writeValueAsBytes(Map.of("id","endpoint-stub","created",1,"model","endpoint-stub","choices",List.of(Map.of("index",0,"finish_reason",finish,"message",message)),"usage",Map.of("prompt_tokens",10,"completion_tokens",5,"total_tokens",15))));
                     } catch (Exception ignored) { }

@@ -49,8 +49,15 @@ public final class SourceModels {
     public record EvidenceLink(List<String> edgeIds, List<String> evidenceIds, String kind, String message) {}
     public record EndpointMatch(io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint, int requestCount, int timeoutCount,
                                 String state, String message, List<String> sourceIds) {}
+    public record FrameMatch(io.github.mochiuaena.triage.domain.TriageModel.FailureFrame frame, String state, String message, List<Excerpt> excerpts) {}
+    public record FailureMatch(String evidenceId, Instant timestamp, String traceId, String kind, List<String> exceptionTypes,
+                               boolean truncated, List<FrameMatch> frames) {}
     public record CallGraph(String state, String message, boolean truncated, List<String> rootIds, List<CallNode> nodes,
-                            List<CallEdge> edges, List<EvidenceLink> evidenceLinks, List<EndpointMatch> endpointMatches) {
+                            List<CallEdge> edges, List<EvidenceLink> evidenceLinks, List<EndpointMatch> endpointMatches, List<FailureMatch> failureMatches) {
+        public CallGraph(String state, String message, boolean truncated, List<String> rootIds, List<CallNode> nodes,
+                         List<CallEdge> edges, List<EvidenceLink> evidenceLinks, List<EndpointMatch> endpointMatches) {
+            this(state, message, truncated, rootIds, nodes, edges, evidenceLinks, endpointMatches, List.of());
+        }
         public CallGraph(String state, String message, boolean truncated, List<String> rootIds, List<CallNode> nodes,
                          List<CallEdge> edges, List<EvidenceLink> evidenceLinks) {
             this(state, message, truncated, rootIds, nodes, edges, evidenceLinks, List.of());

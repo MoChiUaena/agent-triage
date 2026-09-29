@@ -23,7 +23,7 @@ final class SourceEvidenceLinks {
             add(links, graph, ids, "HTTP", "HTTP_TIMEOUT", prefix + "窗口记录到下游 HTTP 超时，可优先核查这些 HTTP 调用位置；没有调用级轨迹证明该方法在本次请求中执行。");
         }
         if (links.isEmpty()) links.add(new EvidenceLink(List.of(), List.of(metrics.id()), "WINDOW_ONLY", prefix + "指标描述" + (Boolean.TRUE.equals(metrics.data().get("endpointScoped")) ? "所选接口" : "服务") + "窗口，尚未提供方法级执行轨迹；以下调用关系来自静态源码。"));
-        return new CallGraph(graph.state(), graph.message(), graph.truncated(), graph.rootIds(), graph.nodes(), graph.edges(), List.copyOf(links), graph.endpointMatches());
+        return new CallGraph(graph.state(), graph.message(), graph.truncated(), graph.rootIds(), graph.nodes(), graph.edges(), List.copyOf(links), graph.endpointMatches(), graph.failureMatches());
     }
     private static void add(List<EvidenceLink> links, CallGraph graph, List<String> ids, String boundary, String kind, String message) {
         List<String> edges = graph.edges().stream().filter(value -> value.kind().equals(boundary)).map(CallEdge::id).toList();

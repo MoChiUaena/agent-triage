@@ -18,6 +18,9 @@ public final class TriageModel {
                                   List<String> parameterTypes, String stage) {}
     public record EndpointSummary(RequestEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms) {}
     public record RequestDetails(RequestEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount) {}
+    public record FailureFrame(String className, String methodName, String fileName, Integer lineNumber) {}
+    public record FailureLocation(String kind, List<String> exceptionTypes, List<FailureFrame> frames, Boolean truncated) {}
+    public record RequestFailure(Instant timestamp, String traceId, FailureLocation location) {}
 
     public enum Status {
         QUEUED, RUNNING, SUCCEEDED, INSUFFICIENT_EVIDENCE, FAILED, CANCELLED;

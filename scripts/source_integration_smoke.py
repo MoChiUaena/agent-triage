@@ -115,7 +115,9 @@ def main():
         return value
 
     try:
-        start(ROOT / "verification/ticket-service", "ticket", [f"--server.port={ports[1]}", f"--triage.sdk.downstream-base-url={dependency}", f"--triage.sdk.endpoint-observations={str(args.protocol_v3).lower()}"])
+        start(ROOT / "verification/ticket-service", "ticket", [f"--server.port={ports[1]}", f"--triage.sdk.downstream-base-url={dependency}",
+            f"--triage.sdk.endpoint-observations={str(args.protocol_v3).lower()}", f"--triage.sdk.exception-locations={str(args.protocol_v3).lower()}",
+            "--triage.sdk.application-packages=example.helpdesk"])
         start(ROOT, "agent", [f"--server.port={ports[0]}", "--triage.mode=DEMO", "--spring.datasource.url=jdbc:h2:mem:source-smoke;DB_CLOSE_DELAY=-1",
             f"--spring.config.additional-location={configuration.as_uri()}", f"--triage.settings.key-file={output / 'local.key'}"])
         deadline = time.monotonic() + 60
@@ -140,7 +142,8 @@ def main():
         assert evidence(failed, "read_service_metrics")["data"]["timeoutCount"] == 2
         excerpts = failed["sourceAnalysis"]["excerpts"]
         graph = failed["sourceAnalysis"]["graph"]
-        references = excerpts + [node["excerpt"] for node in graph["nodes"]]
+        references = excerpts + [node["excerpt"] for node in graph["nodes"]] + [excerpt for match in graph.get("failureMatches", [])
+            for frame in match["frames"] for excerpt in frame["excerpts"]]
         assert any(value["method"] == "lookup" and "retrieve" in value["content"] for value in references)
         assert graph["state"] == "READY" and not graph["truncated"]
         assert {node["excerpt"]["className"] for node in graph["nodes"]} >= {"example.helpdesk.TicketController", "example.helpdesk.DefaultTicketService", "example.helpdesk.AssignmentGateway", "example.helpdesk.TicketFormatter"}
@@ -152,6 +155,15 @@ def main():
         if args.protocol_v3:
             assert graph["endpointMatches"][0]["state"] == "MATCHED"
             assert graph["endpointMatches"][0]["endpoint"]["handlerMethod"] == "ticket"
+            failures = graph["failureMatches"]
+            assert len(failures) == 2 and all(match["kind"] == "HTTP_CLIENT_FAILURE" for match in failures)
+            expected_line = next(i + 1 for i, text in enumerate((external / "src/main/java/example/helpdesk/AssignmentGateway.java").read_text(encoding="utf-8").splitlines())
+                if "return assignments.get()" in text)
+            for failure in failures:
+                gateway_frame = next(frame for frame in failure["frames"] if frame["frame"]["className"] == "example.helpdesk.AssignmentGateway")
+                assert gateway_frame["state"] == "LINE_MATCH" and gateway_frame["frame"]["lineNumber"] == expected_line
+                assert gateway_frame["excerpts"][0]["startLine"] <= expected_line <= gateway_frame["excerpts"][0]["endLine"]
+            assert {match["traceId"] for match in failures} == {entry["traceId"] for entry in evidence(failed, "query_error_logs")["data"]["entries"]}
             for _ in range(2):
                 assert request(ticket, "/api/tickets/summary")[0] == 200
             choices = request(agent, "/api/services/ticket-service/endpoints?windowMinutes=5")[1]["endpoints"]
@@ -161,6 +173,7 @@ def main():
             healthy_metrics = evidence(healthy, "read_service_metrics")["data"]
             assert healthy_metrics["requestCount"] == 2 and healthy_metrics["timeoutCount"] == 0
             assert healthy["endpoint"] == healthy_endpoint and healthy["sourceAnalysis"]["graph"]["nodes"][0]["signature"] == "ticket()"
+            assert healthy["sourceAnalysis"]["graph"]["failureMatches"] == []
             endpoint_failed = investigate(failed_endpoint["id"])
             failed_metrics = evidence(endpoint_failed, "read_service_metrics")["data"]
             assert failed_metrics["requestCount"] == 3 and failed_metrics["timeoutCount"] == 2
@@ -220,7 +233,7 @@ def main():
         (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         print("Source smoke passed: independent helpdesk JVM, actual timeouts, Controller/interface/Gateway/HTTP chain, verified call lines, ambiguity, evidence links, index management and history")
         if args.protocol_v3:
-            print("Endpoint smoke passed: actual MVC handlers, healthy/timeout isolation, source entry, saved scope, history filters and statistics")
+            print("Endpoint smoke passed: actual MVC handlers, healthy/timeout isolation, observed failure lines, source entry, saved scope, history filters and statistics")
     finally:
         for process in reversed(processes):
             if process.poll() is None:

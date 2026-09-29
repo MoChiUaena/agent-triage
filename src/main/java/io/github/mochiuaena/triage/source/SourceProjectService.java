@@ -110,7 +110,9 @@ public class SourceProjectService {
             : matches.stream().flatMap(value -> value.sourceIds().stream()).distinct().toList();
         if (roots.isEmpty() && matches.isEmpty()) roots = candidates.stream().filter(value -> !value.method().isBlank() && !value.method().equals("<init>") && !value.method().equals("main")).limit(2).map(Excerpt::id).toList();
         CallGraph graph = new SourceCallGraph(project.index()).build(roots, (identity, focus) -> excerptAt(project, identity, focus), session::checkDeadline);
-        if (!matches.isEmpty()) graph = new CallGraph(graph.state(), graph.message(), graph.truncated(), graph.rootIds(), graph.nodes(), graph.edges(), graph.evidenceLinks(), List.copyOf(matches));
+        var failures = session.synthetic() ? List.<FailureMatch>of() : new SourceFailureLocations(project.index())
+            .match(session.evidence(), (identity, focus) -> excerptAt(project, identity, focus), session::checkDeadline);
+        graph = new CallGraph(graph.state(), graph.message(), graph.truncated(), graph.rootIds(), graph.nodes(), graph.edges(), graph.evidenceLinks(), List.copyOf(matches), failures);
         return SourceEvidenceLinks.attach(graph, session.evidence(), session.synthetic());
     }
     private List<EndpointMatch> endpointMatches(Stored project, ExecutionSession session) {
@@ -165,10 +167,15 @@ public class SourceProjectService {
             List<EndpointMatch> matches = endpointMatches(project, session);
             candidates = matches.isEmpty() ? search(project, query.substring(0, Math.min(200, query.length())))
                 : matches.stream().flatMap(value -> value.sourceIds().stream()).distinct().limit(5).map(id -> excerpt(project, id)).toList();
-            if (candidates.isEmpty() && matches.isEmpty()) return analysis(project, "NO_MATCH", false, "未找到匹配的类、方法或接口。可以在源码页面用方法名或接口路径检索。", List.of());
+            boolean hasFailureLocations = !session.synthetic() && session.evidence().stream().anyMatch(value -> value.data().get("failureLocations") instanceof List<?> locations && !locations.isEmpty());
+            if (candidates.isEmpty() && matches.isEmpty() && !hasFailureLocations) return analysis(project, "NO_MATCH", false, "未找到匹配的类、方法或接口。可以在源码页面用方法名或接口路径检索。", List.of());
             graph = graph(project, candidates, matches, session);
             session.recordSourceGraph(graph);
-            if (candidates.isEmpty()) return analysis(project, "NO_MATCH", false, "已读取接口匹配信息，但当前源码索引没有对应入口。请检查目录或重新索引。", List.of(), graph);
+            if (candidates.isEmpty()) {
+                boolean located = graph.failureMatches().stream().flatMap(value -> value.frames().stream()).anyMatch(value -> !value.excerpts().isEmpty());
+                return analysis(project, located ? "LOCAL" : "NO_MATCH", false,
+                    located ? "已按错误位置匹配本机源码。新增位置与片段仅在本机展示。" : "已读取观测位置，但当前源码没有对应入口或有效位置。请检查目录或重新索引。", List.of(), graph);
+            }
             if (!allowModel || !authorized(project, selected)) return analysis(project, "LOCAL", false, "已检索本机代码，未向模型发送源码。引用仅供核查，不能证明本次请求的执行路径。", candidates, graph);
             if (session.evidence().stream().noneMatch(value -> value.source().equals("read_service_metrics") && value.data().get("requestCount") instanceof Number count && count.longValue() > 0))
                 return analysis(project, "LOCAL", false, "缺少可用运行观测，保留本机源码检索结果，未请求源码模型检查。", candidates, graph);

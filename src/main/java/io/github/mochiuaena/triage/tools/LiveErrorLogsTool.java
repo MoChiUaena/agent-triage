@@ -1,6 +1,7 @@
 package io.github.mochiuaena.triage.tools;
 
 import io.github.mochiuaena.triage.domain.TriageModel.Evidence;
+import io.github.mochiuaena.triage.domain.TriageModel.RequestFailure;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -33,6 +34,9 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
         data.put("timeoutCount", observation.timeoutCount());
         data.put("sampleLimit", 3);
         data.put("synthetic", false);
+        var locations = observation.errors().stream().filter(error -> error.failureLocation() != null)
+            .map(error -> new RequestFailure(error.timestamp(), error.traceId(), error.failureLocation())).toList();
+        if (!locations.isEmpty()) data.put("failureLocations", locations);
         if (observation.requestDetails() != null) data.put("endpointScoped", context.endpoint() != null);
         if (observation.databasePool() != null) {
             data.put("observationType", "DATABASE_POOL");

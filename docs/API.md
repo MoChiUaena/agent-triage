@@ -50,6 +50,10 @@
 
 V3 的指标证据含本机使用的 `requestDetails`，`graph.endpointMatches` 记录观测处理方法与源码的匹配结果。已确定的不兼容参数不会被当作匹配；类型解析不完整时标为候选。默认模型工具结果及源码候选选择的观测输入会移除 `requestDetails`，不会附带整个接口列表或处理方法描述。
 
+开启错误位置采集的 V3 可在错误事件中返回 `failureLocation`：`kind` 为 `HTTP_CLIENT_FAILURE` 或 `REQUEST_EXCEPTION`，`exceptionTypes` 最多 4 个，`frames` 最多 8 个，每帧含 `className`、`methodName`、可为空的 `fileName` 与 `lineNumber`；`truncated` 表示达到采集边界。只允许 Java 名称、Java 文件基本名和 1–1000000 的行号，不接收异常消息或路径。
+
+日志证据中的 `failureLocations` 供本机匹配使用，`sourceAnalysis.graph.failureMatches` 保存观测、日志引用与片段。它包含位置对应、候选、歧义、文件或行号不符、索引外和文件失效状态。两类模型请求均移除 `failureLocations`，位置匹配的额外片段不扩展候选选择请求。V1/V2 不接收位置字段，旧记录仍可读取。
+
 ## 查询与订阅
 
 | 请求 | 结果 |
