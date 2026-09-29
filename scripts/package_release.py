@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+import shutil
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -63,13 +64,16 @@ def main():
         for source, name in files:
             bundle.write(source, f"{prefix}/{name}")
         bundle.writestr(f"{prefix}/manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    checksums = f"{digest}  {archive.name}\n"
-    demo = ROOT / "docs/assets/agent-triage-demo.mp4"
-    if demo.is_file():
-        checksums += f"{hashlib.sha256(demo.read_bytes()).hexdigest()}  {demo.name}\n"
+    starter_name = f"triage-spring-boot-starter-{version}"
+    starter = output / f"{starter_name}.jar"
+    starter_pom = output / f"{starter_name}.pom"
+    shutil.copyfile(ROOT / "triage-spring-boot-starter/target" / starter.name, starter)
+    shutil.copyfile(ROOT / "triage-spring-boot-starter/pom.xml", starter_pom)
+    checksums = "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
+                        for path in (archive, starter, starter_pom))
     (output / "SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
     print(f"Created {archive.name}: {archive.stat().st_size} bytes; {len(files) + 1} allowlisted entries")
+    print(f"Exported {starter.name}, {starter_pom.name} and SHA256SUMS.txt")
 
 
 if __name__ == "__main__":
