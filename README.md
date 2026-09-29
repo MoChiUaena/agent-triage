@@ -4,7 +4,9 @@
 
 Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口指标、错误日志和排障文档，排查下游 HTTP 超时和数据库连接池耗尽，并给出验证建议。仓库提供真实请求样例，也支持通过配置和只读接口接入其他本地 Spring Boot 服务。
 
-仓库带有两个独立运行的 Java 样例服务：订单服务通过 HTTP 调用库存服务。切换故障场景后，库存响应变慢，订单侧请求实际超时。排障助手读取窗口指标、Micrometer 计数和 JSON 错误日志，再给出带证据的判断。默认启动使用合成数据；模型模式中，模型选择工具、判断类型和证据，应用核对观测后生成关键结论措辞，避免自由归因超出证据范围。
+仓库提供两条真实请求链路：订单服务通过 HTTP 调用独立库存服务，数据库样例通过 HikariCP 查询 H2。实验操作可以实际触发下游超时、获取连接超时与 SQL 锁等待，Agent 读取对应窗口的指标和错误事件后给出判断。默认启动使用合成订单数据；模型模式由模型选择工具、判断和证据，应用核对观测后生成关键结论。
+
+首次了解项目可阅读[项目导览](docs/PROJECT_GUIDE.md)，其中说明页面结果、运行模式、进程职责和当前边界。
 
 ![本地订单请求发生库存调用超时后的排查页面](docs/assets/live-triage.png)
 
@@ -31,6 +33,8 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 ## 快速启动
 
 免构建的演示包在 [v0.1.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0) 中提供。需要 JDK 21，完整解压后运行：
+
+该发布包固定在首版订单／库存流程。main 中的多服务、数据库和取消功能请按下面的源码方式构建；发布附件不会随 main 更新。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
@@ -149,6 +153,7 @@ CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具
 
 ## 文档
 
+- [项目导览](docs/PROJECT_GUIDE.md)
 - [API](docs/API.md)
 - [模型配置](docs/MODELS.md)
 - [架构](docs/ARCHITECTURE.md)

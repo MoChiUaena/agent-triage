@@ -1,105 +1,124 @@
 # 架构
 
-排障助手是 Spring Boot 单体，前端为原生 HTML / JavaScript，数据库通过 JDBC 访问。样例订单服务与库存服务作为两个独立 JVM 运行。
+Agent Triage 是 Spring Boot 应用，前端使用原生 HTML／JavaScript，通过 JDBC 保存执行和模型设置。订单、库存和数据库样例分别在独立 JVM 中运行，Agent 通过固定的只读 HTTP 契约读取观测。
 
-## 请求流程
+## 模块关系
 
-`RunController` 校验请求后，由 `RunService` 保存 QUEUED 记录并提交异步任务。`TriageEngine` 负责决定查询什么、何时结束；`ExecutionSession` 负责执行限额、工具调用和事件保存。
+```mermaid
+flowchart LR
+    UI[浏览器] --> API[RunController]
+    API --> Services[ServiceRegistry 服务白名单]
+    API --> Engine[EngineRouter 模型快照]
+    API --> Runs[RunService 调度与取消]
+    Runs --> Session[ExecutionSession 执行入口]
+    Session --> Tools[三个只读工具]
+    Tools --> Observations[登记服务的观测接口]
+    Tools --> Books[Markdown 排障规则]
+    Session --> Model[ModelEngine 与模型接口]
+    Model --> Check[ModelOutput 判断校验]
+    Runs --> Store[RunRepository 执行快照]
+    Session --> Store
+    Store --> SSE[RunEventController]
+    SSE --> UI
+```
 
-DEMO 模式依次调用三个工具，再由 `DemoReasoner` 生成结论。MODEL 模式通过 Spring AI ChatClient 请求模型，把工具结果回传给下一轮模型请求，直到模型选择判断类型、证据 ID 和检查项，或达到执行限制。`ModelOutput` 核对所选类型与窗口指标、日志、对应规则一致，再生成限定范围的诊断措辞。
+`ServiceRegistry` 决定可以访问哪些服务；`EngineRouter` 决定本次使用固定规则还是当前模型。二者的配置在提交时冻结。模型选择只读工具，工具和模型的实际执行都经过 `ExecutionSession`，不能绕过次数、时限或取消检查。
 
-观测数据源与推理模式分开配置。默认 SYNTHETIC 使用固定指标和日志；LIVE 模式通过只读 HTTP 接口查询已登记服务。订单样例通过 HTTP 调用独立库存服务，窗口 p95 来自实际请求记录，累计计数来自 Micrometer，错误事件来自本地 JSON Lines 文件。故障切换和流量生成属于实验控制，不是 Agent 工具。LIVE 运行记录标记为 `synthetic=false`。
+## 提交到完成
 
-`ServiceRegistry` 在启动时校验服务白名单、观测地址、协议、窗口上限和演示权限。提交时先检查服务及窗口，再冻结目标配置和显示名称；模型参数不能改写目标地址。`LiveObservationClient` 兼容旧 `LAB` 协议，也支持 `/triage/observations` V1 只读契约，核对服务与下游身份、严格时间范围和数值。新接入不依赖场景或流量控制接口；具体配置见[服务接入](SERVICE_INTEGRATION.md)。
+1. `RunController` 校验问题、服务和窗口。未知服务、超出该服务上限的窗口，在访问观测和模型之前拒绝。
+2. `RunService` 冻结 `ToolContext` 与推理引擎快照。窗口结束时间为提交时刻，工具共享同一个起止时间；`expectedSelection` 防止旧页面悄悄提交给已切换的模型。
+3. 创建 `QUEUED` 记录并进入协调队列。整体时限从提交时开始，包含排队时间。
+4. 固定规则模式按顺序调用三个工具；模型模式用 Spring AI `ChatClient` 请求模型，校验整批工具参数后执行，再把结果传回下一轮。
+5. 判断通过观测、规则和引用校验后保存结论；不足、失败或取消分别保留相应终态。浏览器通过 SSE 读取事件及完整记录。
 
-浏览器通过 SSE 获取进度。`RunEventController` 每 200ms 读取一次执行记录，发送尚未推送的事件。前端按事件序号去重，点击引用可以展开本次执行的证据。
+模型的内部自动工具执行被关闭。`ModelTools` 只注册 `search_runbooks`、`read_service_metrics`、`query_error_logs`，参数中的服务与窗口必须逐字匹配本次上下文，不能附加 URL、SQL 或命令。
 
-模型的内部自动工具执行被关闭，工具请求由应用逐个处理。这样可以在每次调用前校验服务、时间窗口和参数，并记录实际调用顺序。
+## 观测与判断
 
-MODEL 模式下，模型调用工具后若指标显示窗口内没有服务请求，应用记录 `EVIDENCE_GATE` 并直接返回证据不足，不再请求模型生成最终结论。
+判断模式和观测来源分开配置。`DEMO` 使用固定规则，`MODEL` 使用模型选择；`SYNTHETIC` 提供固定的订单演示数据，`LIVE` 读取实际请求观测。固定规则模式也能使用 LIVE 数据。
 
-指标有请求、文档也已检索但缺少与当前状态相符的排障规则时，同一证据门槛会返回证据不足。成功结论中的每个可能原因还必须引用对应场景的规则：超时窗口用下游超时规则，正常窗口用正常状态对照。引用 ID 存在但引用了错误场景的规则仍会被拒绝。
+| 协议 | 接口 | 用途 |
+|---|---|---|
+| `LAB` | `/lab/scenario`、`/lab/observations` | 兼容首版订单样例，冻结提交时的实验场景 |
+| `OBSERVATIONS_V1` | `/triage/observations` | HTTP 下游请求窗口，不要求实验控制接口 |
+| `DATABASE_V2` | `/triage/observations` | 单独记录获取连接与 SQL 阶段，以及连接池采样 |
 
-明显无关的问题由共享的范围检查先行拒绝，记录 `SCOPE_GATE`，不会调用模型。这个关键词门槛只能筛掉清楚无关的输入；边界模糊的问题仍交给模型和证据检查处理。
+观测地址来自启动时的白名单，只接受带端口的本机 HTTP origin。`LiveObservationClient` 拒绝重定向和过大的响应，核对身份、版本、严格时间范围、计数和有限数值。HTTP 与数据库指标分别展示，数据库错误不会转换成 HTTP 下游超时率。
 
-仅文档对照接口复用当前模型服务，只把按问题检索到的排障文档交给模型，不访问实时观测，也不向模型注册工具。接口限本机同源调用，一次请求只进行一轮模型调用；它的结果由评测脚本保存，与正式排查记录分开。
+HTTP 成功判断需要有请求、匹配的超时或无超时指标、错误日志以及对应规则。数据库耗尽判断还需要同次采样的池满与等待重叠，及明确的获取连接超时事件；SQL 查询失败不能替代。指标与日志的数据库窗口计数须一致。
 
-设置页通过 `ProviderRegistry` 管理模型服务。每次新任务提交时，`EngineRouter` 取得当前配置的不可变快照；切换服务或修改参数不会改变已经提交的任务。未保存页面选择时，运行模式来自环境变量。
+`ModelOutput` 接收固定判断类型、证据 ID 和候选检查项，不接收自由诊断正文。应用生成关键措辞、按证据排列有效检查项并展示前两项，同时保存原始选择。`EvidenceValidator` 检查观察和原因是否引用本次实际返回的证据。没有超时的窗口不等于整个服务健康，池满也不能直接证明连接泄漏。
 
-## 代码结构
+## 规则和证据门槛
 
-| 包 / 文件 | 职责 |
-|---|---|
-| `domain/TriageModel` | 执行记录、事件、证据和结论的数据结构 |
-| `tools/ServiceRegistry` | 启动配置白名单与按服务的观测权限 |
-| `tools/ToolContext` | 冻结本次执行的服务配置、场景和时间窗口 |
-| `tools/*Tool` | 文档、指标和日志查询 |
-| `execution/RunService` | 异步调度、超时、失败处理与重启恢复 |
-| `execution/ExecutionSession` | 统一执行工具和模型请求，维护预算与事件 |
-| `model/ModelEngine` | Spring AI 多轮调用和消息回传 |
-| `model/ModelTools` | 生成工具描述，校验模型传入的参数 |
-| `model/ModelOutput` | 解析结构化结论，检查引用和证据来源 |
-| `settings/ProviderRegistry` | 保存服务配置，切换当前模型，生成新任务使用的快照 |
-| `settings/CredentialCipher` | 用本地文件中的密钥加密数据库内的 API Key |
-| `execution/EvidenceValidator` | 校验引用是否来自本次执行 |
-| `store/RunRepository` | 保存和查询执行快照 |
-| `api/RunEventController` | SSE 推送与事件重放 |
-| `static/app.js` | 提问、进度、结论和历史记录页面 |
+`RunbookSearchTool` 按协议选择规则版本：合成订单、订单 LIVE、通用 HTTP V1 和数据库 V2。每组共享证据边界说明。检索使用关键词，LIVE 额外返回本服务的基础参考规则，并标明关键词命中或服务参考召回；文档不能证明当前状态。
+
+明显无关的问题由 `QuestionScope` 先行拒绝，记录 `SCOPE_GATE`。模型请求后，若窗口没有请求，应用记录 `EVIDENCE_GATE` 并跳过最终模型生成；已有观测但查询到的文档缺少对应规则时，也返回证据不足。
+
+整批工具参数首次无效时允许一次有界更正；必需证据或引用不完整时，只有预算足够才反馈一次。两个反馈都不提高原有轮次、工具数或时限。证据齐全后使用 `tool_choice=none`，要求模型从已有证据选择最终结果。[模型判断契约](MODEL_OUTPUT.md)列出解析与校验规则。
 
 ## 执行与超时
 
-正常状态流为 `QUEUED → RUNNING → SUCCEEDED / INSUFFICIENT_EVIDENCE / FAILED`。队列满或排队超时也会从 QUEUED 进入 FAILED。
+```mermaid
+stateDiagram-v2
+    [*] --> QUEUED
+    QUEUED --> RUNNING
+    QUEUED --> FAILED: 队列满或预算耗尽
+    QUEUED --> CANCELLED: 用户取消
+    RUNNING --> SUCCEEDED: 判断通过校验
+    RUNNING --> INSUFFICIENT_EVIDENCE: 证据不足
+    RUNNING --> FAILED: 异常或超时
+    RUNNING --> CANCELLED: 用户取消
+    SUCCEEDED --> [*]
+    INSUFFICIENT_EVIDENCE --> [*]
+    FAILED --> [*]
+    CANCELLED --> [*]
+```
 
-每个执行只有一个协调任务负责写状态。工具任务只返回数据，不写数据库。工具超时后，协调任务通过 `Future.cancel(true)` 请求中断并保存失败状态，因此迟到的工具返回值不会覆盖结果。
+协调、工具和模型各使用有界线程池，分别为 4 个线程、16 个等待位。协调队列满返回 HTTP 429；工具和模型工作队列满会保存对应失败，不会无限创建线程。
 
-协调任务、工具任务和模型请求各使用一个有界线程池，分别配置 4 个线程和 16 个等待位。提交队列已满时返回 HTTP 429。不响应中断的任务仍可能占用线程，但不会无限创建新线程。
+默认上限为 3 次工具调用、4 轮模型、单工具 2s、单模型 20s、整体 60s。每步使用单次时限与剩余总时限的较小值，通过单调时钟检查预算。页面模型配置可以改变模型的轮次和响应时限，整体执行上限仍然生效。
 
-默认每次执行最多调用 3 次工具、4 次模型。工具等待时限为 2s，模型为 20s，整体为 60s。整体计时包含排队时间，使用单调时钟，在出队、调用和生成结论时检查。实际等待时间取单次时限与剩余总时限的较小值。数据库 I/O 和 JVM 调度不受这一取消机制控制。
+协调线程负责常规推进，取消请求也会修改执行状态。`RunControl` 让步骤注册、结果写入、取消和终态提交共用 `MutableExecution` 的监视器，避免完成与取消同时覆盖记录。取消先保存 `CANCELLED`，再中断当前 Future 并移除队列任务；后续步骤和迟到结果检查取消标记，不能继续写入。
 
-SSE 最多同时接受 64 个连接，连接时限为整体执行时限加 5s。浏览器断开不会取消执行；重新连接时通过 Last-Event-ID 接收后续事件，不会再次提交模型请求。
+取消保留证据、事件和已知用量，清空最终结论，不记录为执行失败。重复取消不增加事件，已经结束的记录返回原结果。`Future.cancel(true)` 是中断请求，不响应中断的代码仍可占用工作线程；数据库 I/O 和 JVM 调度也不受等待时限硬性约束。远端模型可能继续计算并计费。[取消与用量](RUN_CONTROLS.md)说明这些边界。
 
-`RunControl` 跟踪协调任务和当前工具／模型 Future。取消、步骤注册、状态写入及终态提交使用同一个执行锁；取消先持久化 `CANCELLED`，再请求中断并移除排队任务。每次步骤启动和结果保存都检查取消标记，迟到结果不能覆盖终态。用量在模型响应返回的同一临界区记录，保留取消前已知轮次。[取消与用量](RUN_CONTROLS.md)列出远端请求及不响应中断的限制。
+## 存储、推送与重启
 
-## 文档检索
+`RunRepository` 为每次执行保存一行 JSON 快照，包含状态、事件、证据、模型来源、用量与结果。状态列和 JSON 在同一条 SQL 中更新。H2 和 PostgreSQL 使用相同的 JDBC 代码与 Flyway 迁移；默认 H2 文件库便于本地启动，PostgreSQL 由独立 CI 作业验证。
 
-数据库服务通过 `DATABASE_V2` 提供单独的池采样、获取连接与查询阶段指标。`EvidenceRules` 核对阶段、满载等待重叠及窗口计数，`DatabaseDiagnosis` 为固定规则与经过校验的模型选择生成受限措辞。数据库数据不转换成 HTTP 下游超时率；查询 p95 仅统计执行过的 SQL，旧 HTTP 和历史契约保持兼容。
+`RunEventController` 每 200ms 读取快照，按事件序号推送尚未发送的事件，终态发送完整记录后关闭 SSE。支持 `Last-Event-ID` 重放，最多 64 个连接；浏览器断开不会取消任务，也不会触发新模型调用。前端按序号去重，模型响应后刷新已持久化的用量和证据。
 
-检索器按观测协议选择参考文档：合成演示、订单 LIVE 样例与通用 V1 接入分别有自己的规则版本，每组共享证据边界说明。文档 ID 固定，仍使用关键词匹配；LIVE 会同时提供该组基础参考规则，并标记关键词命中或服务参考召回。
+启动时把未结束的 `QUEUED` 和 `RUNNING` 记录保存为 `FAILED / SERVER_RESTARTED`，保留证据，不自动重跑。已取消和其他终态保持原样。该恢复只适用于单实例；多个实例共用历史库时，需要任务归属或租约，才能区分仍在别处执行的任务。
 
-关键词匹配可能漏掉同义表述。例如演示模式下，在超时场景询问“查看健康状态”，只会命中正常状态文档。此时指标和日志仍会返回，但缺少超时规则，结果为证据不足。模型模式可以选择检索关键词，但仍受同一个检索器和调用上限约束。
+每次事件更新会重写 JSON，历史列表先读取快照再提取摘要，记录也尚无自动清理。当前调用量有上限，可以接受这部分开销；规模增大后应拆分事件存储和列表查询。
 
-## 执行记录
+## 模型配置与用量
 
-H2 和 PostgreSQL 共用 `RunRepository` 与 Flyway 迁移。默认使用 H2 文件库，方便本地启动；PostgreSQL 兼容性由独立 CI 作业验证。
+`ProviderRegistry` 保存模型服务和当前选择。`EngineRouter` 为新任务获取不可变引擎快照，因此切换模型不会改变已提交任务。未保存页面选择时，回退到环境配置。
 
-V2 迁移增加服务配置与当前模型选择表。数据库中仅存储 API Key 的 AES-GCM 密文；加密密钥文件保存在本机，默认位于 `data/model-config.key`。读取和编辑接口只返回 Key 是否存在。丢失密钥文件后不会自动生成新密钥覆盖旧配置。
+模型使用 OpenAI 兼容的 Chat Completions，通过 `ModelConfiguration` 创建 Spring AI 客户端。页面提供百炼、GLM、Kimi、DeepSeek 等预设；供应商路径和非思考参数按设置处理。当前客户端不自动重试，HTTP 错误仅保存状态码说明，不回显原始响应。
 
-一次执行保存为一行 JSON 快照，包含状态、事件和证据。每次更新通过同一条 SQL 写入，避免状态与事件分开保存时出现不一致。SSE 直接读取快照，因此即使浏览器在执行完成后才订阅，也能收到完整事件。
+输入包含问题、工具描述、本次证据和应用提供的约束反馈，不读取其他执行的历史。模型原始消息只保存在本次内存中，数据库不保存完整模型对话；结构化选择和应用生成的结论会保存。
 
-这个实现会重复写入 JSON，历史列表也需要先读取快照再提取摘要。当前每次执行的工具调用数和返回量都有上限，暂时接受这部分开销。记录量增大后可拆分事件表，并改为只查询列表所需字段。
+响应与用量在同一个执行锁内记录。`knownUsage` 累加返回完整计数的轮次，`completedCalls` 和 `usageReportedCalls` 表明覆盖程度；缺失、超时和取消等待不会当作零。只有全部已启动轮次返回完整用量，`usage` 才有总计。Token 数值不等于服务方最终费用。
 
-## 重启处理
+模型 API Key 在数据库中以 AES-GCM 密文保存，本地密钥默认位于 `data/model-config.key`。读取接口只返回 Key 是否存在；密钥丢失时不会自动重建并覆盖旧配置。输入问题和观测可能发送给所选模型服务，接入方需先去除凭据和业务敏感字段。
 
-启动时，将未完成记录标记为 `FAILED / SERVER_RESTARTED`，保留已有事件和证据，不自动重跑。
+## 代码入口
 
-这套恢复逻辑只适用于单实例。多实例需要记录任务归属或引入租约，否则一个实例启动时可能误判另一个实例正在执行的任务。
+| 文件 | 职责 |
+|---|---|
+| [RunController](../src/main/java/io/github/mochiuaena/triage/api/RunController.java) | 创建、查询和取消执行 |
+| [ServiceRegistry](../src/main/java/io/github/mochiuaena/triage/tools/ServiceRegistry.java) | 启动白名单、协议、窗口与实验权限 |
+| [RunService](../src/main/java/io/github/mochiuaena/triage/execution/RunService.java) | 调度、终态提交和重启恢复 |
+| [RunControl](../src/main/java/io/github/mochiuaena/triage/execution/RunControl.java) | 跟踪可取消任务及当前步骤 |
+| [ExecutionSession](../src/main/java/io/github/mochiuaena/triage/execution/ExecutionSession.java) | 执行预算、证据合并、事件与用量 |
+| [ModelTools](../src/main/java/io/github/mochiuaena/triage/model/ModelTools.java) | 工具 schema 与整批参数校验 |
+| [ModelOutput](../src/main/java/io/github/mochiuaena/triage/model/ModelOutput.java) | 判断、引用和检查项校验 |
+| [EvidenceRules](../src/main/java/io/github/mochiuaena/triage/execution/EvidenceRules.java) | 协议对应规则与数据库事实条件 |
+| [RunRepository](../src/main/java/io/github/mochiuaena/triage/store/RunRepository.java) | JSON 执行快照的持久化 |
+| [RunEventController](../src/main/java/io/github/mochiuaena/triage/api/RunEventController.java) | SSE 推送与重放 |
 
-## 引用校验
-
-每条观察和原因都必须引用本次工具返回的证据，引用不能为空，证据 ID 不能重复。
-
-模型模式还要求：观察至少引用指标或日志；每条原因同时引用文档与观测；成功结果整体覆盖文档、指标、日志。缺少对应证据或输出被截断时返回失败。
-
-旧版自由文本只能确认引用存在、来源合适，无法证明句子被证据支持。新版不接收诊断句子；观察采用工具摘要，可能原因和检查步骤由已验证的判断枚举生成。超时必须同时有正超时率和超时错误事件；无超时必须有请求、零超时率和空错误日志。正常判断不推广为服务整体健康。
-
-留出集曾发现模型把日志 traceId 抄错，随后加入了文字匹配检查。新版进一步取消模型正文的数值和 traceId 字段；具体值只从证据原文展示。模型仍负责工具和判断选择，应用不据此确认库存内部根因。新旧版本的评测不能直接当作模型能力提升比较，详见[模型判断契约](MODEL_OUTPUT.md)。
-
-## 模型请求与用量
-
-接入 DeepSeek Chat Completions 非思考模式，不自动重试。输入只包含当前问题、工具描述和本次返回的证据；不会把其他执行记录加入上下文。
-
-模型返回后记录其模型名称和原始 usage。只有每一轮都提供完整用量时才显示总计；缺失时保留 null。原始消息仅存在本次执行的内存中，数据库不保存模型对话。
-
-## 依赖版本
-
-使用 Java 21、Spring Boot 3.5.16、Spring AI 1.1.8 和 Maven 3.9.11。[Spring AI 官方文档](https://github.com/spring-projects/spring-ai/blob/v1.1.8/spring-ai-docs/src/main/antora/modules/ROOT/pages/getting-started.adoc)说明该版本支持 Spring Boot 3.4.x 和 3.5.x。
+项目使用 Java 21、Spring Boot 3.5.16、Spring AI 1.1.8、Maven 3.9.11。接口细节见 [API](API.md)，实际覆盖范围见[测试说明](VALIDATION.md)。
