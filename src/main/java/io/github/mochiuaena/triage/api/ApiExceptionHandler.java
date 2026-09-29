@@ -13,6 +13,8 @@ public class ApiExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
         MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})
     public ResponseEntity<ProblemDetail> badRequest(Exception e, jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getServletPath().startsWith("/api/history") || request.getServletPath().startsWith("/api/statistics"))
+            return problem(HttpStatus.BAD_REQUEST, "历史筛选参数无效，请检查服务、状态、模式、日期范围、分页或删除确认。");
         if (request.getServletPath().startsWith("/api/settings"))
             return problem(HttpStatus.BAD_REQUEST, "模型配置参数无效，请检查必填项、参数类型和范围。");
         if (request.getServletPath().startsWith("/api/evaluation"))

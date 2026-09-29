@@ -33,6 +33,7 @@ jobs:
         run: |
           node --check src/main/resources/static/app.js
           node --check src/main/resources/static/settings.js
+          node --check src/main/resources/static/workspace.js
       - name: Verify Spring Boot starter and independent application
         shell: bash
         run: ./mvnw -B -ntp -f integrations/pom.xml verify
@@ -57,7 +58,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest test
+      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest,HistoryApiTest test
         env:
           TRIAGE_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage
           TRIAGE_TEST_DB_USER: triage

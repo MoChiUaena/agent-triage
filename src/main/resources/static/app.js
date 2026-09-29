@@ -334,6 +334,7 @@ function resetResult() {
 }
 
 function newRun() {
+  window.history.replaceState(null, "", window.location.pathname);
   selectionVersion++;
   closeStream();
   $("#form-error").hidden = true;
@@ -1132,5 +1133,8 @@ document.addEventListener("keydown", (event) => {
 const mobileLayout = window.matchMedia("(max-width: 720px)");
 mobileLayout.addEventListener("change", () => setSidebar(false));
 setSidebar(false);
-loadConfiguration();
+loadConfiguration().then(() => {
+  const requestedRun = new URLSearchParams(window.location.search).get("run");
+  if (requestedRun && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedRun)) selectRun(requestedRun);
+});
 refreshHistory();

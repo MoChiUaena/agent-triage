@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/typography.css" />
     <link rel="stylesheet" href="/theme.css" />
+    <link rel="stylesheet" href="/workspace.css" />
     <script src="/app.js" defer></script>
   </head>
   <body>
@@ -44,7 +45,7 @@
         <input
           id="history-search"
           type="search"
-          placeholder="搜索记录…"
+          placeholder="搜索最近记录…"
           aria-label="搜索执行记录"
           autocomplete="off"
         />
@@ -52,6 +53,7 @@
       <div id="history" class="history" aria-label="执行记录">
         <p class="sidebar-empty">正在加载…</p>
       </div>
+      <a class="all-history-link" href="/workspace.html">全部记录与筛选 <svg class="icon"><use href="/icons.svg#arrow" /></svg></a>
       <a class="settings-nav" href="/settings.html"
         ><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a
       >

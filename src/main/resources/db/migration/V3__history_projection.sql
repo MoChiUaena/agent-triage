@@ -1,0 +1,14 @@
+ALTER TABLE triage_runs ADD COLUMN service_id VARCHAR(64);
+ALTER TABLE triage_runs ADD COLUMN service_name VARCHAR(80);
+ALTER TABLE triage_runs ADD COLUMN execution_mode VARCHAR(16);
+ALTER TABLE triage_runs ADD COLUMN question_text TEXT;
+ALTER TABLE triage_runs ADD COLUMN duration_ms BIGINT;
+ALTER TABLE triage_runs ADD COLUMN tool_calls INTEGER;
+ALTER TABLE triage_runs ADD COLUMN model_calls INTEGER;
+ALTER TABLE triage_runs ADD COLUMN known_input_tokens BIGINT;
+ALTER TABLE triage_runs ADD COLUMN known_output_tokens BIGINT;
+ALTER TABLE triage_runs ADD COLUMN known_total_tokens BIGINT;
+ALTER TABLE triage_runs ADD COLUMN usage_complete BOOLEAN;
+CREATE INDEX idx_triage_history_order ON triage_runs (created_at DESC, id DESC);
+CREATE INDEX idx_triage_history_service ON triage_runs (service_id, created_at DESC, id DESC);
+CREATE INDEX idx_triage_history_mode ON triage_runs (execution_mode, created_at DESC);

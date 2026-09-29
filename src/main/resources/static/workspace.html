@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>历史记录 · Agent Triage</title><link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/styles.css" /><link rel="stylesheet" href="/settings.css" />
+  <link rel="stylesheet" href="/typography.css" /><link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/workspace.css" /><script src="/workspace.js" defer></script>
+</head>
+<body class="settings-page">
+  <aside class="sidebar settings-sidebar" aria-label="工作区导航">
+    <a class="brand" href="/"><span class="brand-mark"><svg class="icon"><use href="/icons.svg#activity" /></svg></span><span>Agent Triage</span><span class="version">v0.3</span></a>
+    <nav class="settings-links">
+      <a href="/"><svg class="icon"><use href="/icons.svg#search" /></svg>服务排查</a>
+      <a href="/workspace.html" aria-current="page"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史记录</a>
+      <a href="/settings.html"><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a>
+    </nav>
+    <div class="sidebar-footer"><svg class="icon"><use href="/icons.svg#server" /></svg><div><strong>本地工作区</strong><span>浏览保存的排查记录</span></div></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><nav class="breadcrumb" aria-label="当前位置"><a href="/">工作区</a><span class="divider">/</span><strong id="workspace-title">历史记录</strong></nav><a class="back-link" href="/">返回排查 <svg class="icon"><use href="/icons.svg#arrow" /></svg></a></header>
+    <main class="workspace management-workspace">
+      <div class="settings-heading"><div><h1 id="page-title">历史记录</h1><p id="page-description">按服务、执行状态和日期查找已保存的排查。</p></div><button class="secondary" id="refresh-workspace" type="button"><svg class="icon"><use href="/icons.svg#refresh" /></svg>刷新</button></div>
+      <p id="workspace-notice" class="settings-notice" role="status" hidden></p>
+      <section id="history-panel" aria-label="历史记录管理">
+        <form id="history-filter" class="management-card history-filters">
+          <label class="filter-wide">搜索<input id="filter-query" type="search" maxlength="200" placeholder="问题、服务名称或服务标识" autocomplete="off" /></label>
+          <label>服务<select id="filter-service"><option value="">全部服务</option></select></label>
+          <label>状态<select id="filter-status"><option value="">全部状态</option><option value="SUCCEEDED">已完成</option><option value="INSUFFICIENT_EVIDENCE">证据不足</option><option value="FAILED">失败</option><option value="CANCELLED">已取消</option><option value="RUNNING">执行中</option><option value="QUEUED">排队中</option></select></label>
+          <label>模式<select id="filter-mode"><option value="">全部模式</option><option value="DEMO">固定规则</option><option value="MODEL">模型</option></select></label>
+          <label>开始日期<input id="filter-from" type="date" /></label><label>结束日期<input id="filter-until" type="date" /></label>
+          <div class="filter-actions"><button type="submit" class="primary">查询</button><button type="button" class="secondary" id="clear-filters">重置</button></div>
+          <p class="management-caption filter-wide">日期按浏览器时区，包含所选开始日和结束日。</p>
+        </form>
+        <section class="management-card history-results" aria-label="筛选结果">
+          <div class="management-heading"><h2>排查记录 <span id="history-total">—</span></h2><span id="history-page-label">第 1 页</span></div>
+          <div class="table-scroll"><table class="history-table"><thead><tr><th scope="col">问题与时间</th><th scope="col">服务</th><th scope="col">状态</th><th scope="col">模式</th><th scope="col">耗时</th><th scope="col">操作</th></tr></thead><tbody id="history-rows"><tr><td colspan="6" class="table-empty">正在加载…</td></tr></tbody></table></div>
+          <div class="history-pagination"><span id="history-count">每页 20 条</span><div><button type="button" class="secondary" id="history-previous" disabled>上一页</button><button type="button" class="secondary" id="history-next" disabled>下一页</button></div></div>
+        </section>
+      </section>
+    </main>
+  </div>
+  <dialog id="delete-history-dialog" aria-labelledby="delete-history-title">
+    <form id="delete-history-form">
+      <div class="dialog-heading"><h2 id="delete-history-title">删除排查记录</h2><button type="button" class="icon-button" id="close-delete" aria-label="关闭删除确认"><svg class="icon"><use href="/icons.svg#close" /></svg></button></div>
+      <div class="dialog-content"><p id="delete-question"></p><p id="delete-detail" class="management-caption"></p><p class="delete-warning">本条记录的结果、证据和执行事件将永久删除，无法恢复。模型设置继续保留。</p><p id="delete-error" class="form-error" role="alert" hidden></p></div>
+      <div class="dialog-actions"><button type="button" class="secondary" id="cancel-delete">保留记录</button><button type="submit" class="danger-button" id="confirm-delete">确认删除</button></div>
+    </form>
+  </dialog>
+</body>
+</html>
