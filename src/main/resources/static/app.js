@@ -76,12 +76,14 @@ function configureSource(config) {
 
 function renderSource(run) {
   const analysis = run.sourceAnalysis;
-  $("#code-count").textContent = String(analysis?.excerpts?.length || 0);
+  const localLocations = (analysis?.graph?.failureMatches || []).flatMap(value => value.frames).flatMap(value => value.excerpts);
+  $("#code-count").textContent = String(new Set([...(analysis?.excerpts || []), ...localLocations].map(value => value.id)).size);
   let message = analysis?.message;
   if (analysis && terminal(run) && ["QUEUED", "LOCAL_PENDING", "MODEL_PENDING"].includes(analysis.state))
     message = "本次源码检查未完成。" + (analysis.modelUsed ? "已按本次授权请求模型读取候选代码。" : "尚未向模型发送源码。");
   $("#code-note").textContent = analysis ? analysis.projectName + " · 索引 v" + analysis.revision + "。" + message : "本次没有开启源码检索。";
   sourceView.render($("#code-excerpts"), analysis?.excerpts || []);
+  sourceView.failures($("#code-failures"), analysis?.graph?.failureMatches, { evidenceLink: id => citation(run, id) });
   sourceView.graph($("#code-graph"), analysis?.graph, { evidenceLink: id => citation(run, id) });
 }
 

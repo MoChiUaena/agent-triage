@@ -51,6 +51,12 @@
 .call-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .call-actions button { white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .call-preview { min-width: 0; }
+.failure-locations { margin: 22px 0; min-width: 0; }
+.failure-event { border: 1px solid var(--line); border-radius: 8px; padding: 16px; margin: 14px 0; background: #f8fbff; min-width: 0; }
+.failure-event > summary { font-size: 14px; font-weight: 600; cursor: pointer; }
+.failure-event .citations { margin-bottom: 12px; }
+.source-code-line.source-code-focus { background: #fff1c8; border-left: 3px solid #cc931b; }
+@media (max-width: 600px) { .failure-event .call-step-heading { flex-direction: column; align-items: flex-start; } }
 .call-other { margin-top: 16px; }
 .call-other > summary { padding: 12px 0; cursor: pointer; font-size: 13px; color: var(--muted); }
 .call-limit { padding: 12px 15px; background: #fff8e9; border-radius: 6px; }

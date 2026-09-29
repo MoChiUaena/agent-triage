@@ -18,6 +18,7 @@ window.sourceView = {
       excerpt.content.split("\n").forEach((text, index) => {
         const line = document.createElement("span");
         line.className = "source-code-line";
+        if (options.focusLine === excerpt.startLine + index) line.classList.add("source-code-focus");
         const number = document.createElement("span");
         number.className = "source-line-number";
         number.textContent = String(excerpt.startLine + index);
@@ -35,6 +36,45 @@ window.sourceView = {
       }
       container.append(details);
     }
+  },
+  failures(container, matches, options = {}) {
+    container.replaceChildren();
+    if (!matches?.length) return;
+    const element = (tag, className, text) => {
+      const value = document.createElement(tag); value.className = className || ""; if (text != null) value.textContent = text; return value;
+    };
+    const wrapper = element("section", "failure-locations");
+    wrapper.append(element("h3", "call-graph-heading", "错误观测中的代码位置"),
+      element("p", "source-result-note", "按错误时的业务调用位置匹配源码，请核对当前文件与运行版本。这些位置仅在本机展示。"));
+    const labels = { LINE_MATCH: "位置对应", CANDIDATE: "方法候选", AMBIGUOUS: "多个候选", LINE_MISMATCH: "行号不符", FILE_MISMATCH: "文件名不符", UNMATCHED: "索引外位置", STALE: "需要重新索引" };
+    for (const [index, match] of matches.entries()) {
+      const details = element("details", "failure-event"); details.open = index === 0;
+      const heading = element("summary", "", match.kind === "HTTP_CLIENT_FAILURE" ? "HTTP 调用失败时的线程位置" : "请求异常栈中的位置");
+      details.append(heading, element("p", "call-location", new Date(match.timestamp).toLocaleString("zh-CN", {hour12:false}) + " · 请求标识 " + match.traceId),
+        element("p", "call-message", "异常类型：" + match.exceptionTypes.join(" → ")));
+      if (options.evidenceLink) { const references = element("div", "citations"); references.append(options.evidenceLink(match.evidenceId)); details.append(references); }
+      if (!match.frames.length) details.append(element("p", "call-message", "没有采集到所配置业务包中的位置，请检查包范围与调试行号。"));
+      const list = element("ol", "call-steps");
+      for (const location of match.frames) {
+        const row = element("li", "call-step"); const header = element("div", "call-step-heading");
+        const method = element("strong", "", location.frame.className.split(".").at(-1) + "." + location.frame.methodName);
+        method.title = location.frame.className + "." + location.frame.methodName;
+        header.append(method,
+          element("span", "call-state" + (location.state === "LINE_MATCH" ? "" : " uncertain"), labels[location.state] || "未匹配"));
+        row.append(header, element("p", "call-location", (location.frame.fileName || "文件名未知") + ":" + (location.frame.lineNumber || "行号未知")),
+          element("p", "call-message", location.state === "LINE_MATCH" ? "在当前源码中找到对应位置。" : location.message));
+        const actions = element("div", "call-actions"); const preview = element("div", "call-preview"); preview.hidden = true;
+        for (const excerpt of location.excerpts) {
+          const button = element("button", "secondary", "查看 " + excerpt.path + (location.frame.lineNumber ? ":" + location.frame.lineNumber : "")); button.type = "button";
+          button.addEventListener("click", () => { sourceView.render(preview, [excerpt], {focusLine:location.frame.lineNumber}); preview.hidden = false; }); actions.append(button);
+        }
+        row.append(actions, preview); list.append(row);
+      }
+      details.append(list);
+      if (match.truncated) details.append(element("p", "call-limit", "仅保留有界的位置摘要：最多 4 个异常类型、8 个业务位置。其他位置可能未展示。"));
+      wrapper.append(details);
+    }
+    container.append(wrapper);
   },
   graph(container, graph, options = {}) {
     container.replaceChildren();
