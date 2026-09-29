@@ -96,13 +96,18 @@ class RunServiceTest {
     }
 
     @Test void timedOutToolIsInterruptedAndCannotPublishLateSuccess() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
         CountDownLatch interrupted = new CountDownLatch(1);
-        configure(3, 80, 5000, List.of(tool(() -> {
+        configure(3, 1500, 10000, List.of(tool(() -> {
+            started.countDown();
             try { new CountDownLatch(1).await(); }
             catch (InterruptedException e) { interrupted.countDown(); Thread.currentThread().interrupt(); }
             return List.of();
         })));
-        Run run = execute("订单查询", Scenario.NORMAL);
+        var queued = service.submit("订单查询", new ToolContext("order-service", 15, Scenario.NORMAL, Instant.now()));
+        assertThat(started.await(2, TimeUnit.SECONDS)).isTrue();
+        await().atMost(Duration.ofSeconds(4)).until(() -> repository.find(queued.id()).orElseThrow().status().terminal());
+        Run run = repository.find(queued.id()).orElseThrow();
         assertThat(run.failure().code()).isEqualTo("TOOL_TIMEOUT");
         assertThat(interrupted.await(1, TimeUnit.SECONDS)).isTrue();
         assertThat(run.events()).extracting(Event::type).doesNotContain("TOOL_COMPLETED", "RUN_COMPLETED");

@@ -37,6 +37,8 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 该发布包固定在首版订单／库存流程。main 中的多服务、数据库和取消功能请按下面的源码方式构建；发布附件不会随 main 更新。
 
+包含后续功能的 [v0.2.0 候选包](docs/releases/v0.2.0.md)可从源码构建，提供四种服务接入和六个进程的统一启动方式。
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
 ```
@@ -58,7 +60,7 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 打开 <http://127.0.0.1:18080>。默认使用 H2 文件数据库，记录保存在 `data/` 目录。按 `Ctrl+C` 停止服务。
 
-也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.1.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
+也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.2.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
 
 ## 跑通本地真实请求
 
@@ -66,12 +68,12 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 ```powershell
 .\mvnw.cmd -f inventory-service/pom.xml verify
-java -jar inventory-service/target/triage-inventory-service-0.1.0.jar
+java -jar inventory-service/target/triage-inventory-service-0.2.0.jar
 ```
 
 ```powershell
 .\mvnw.cmd -f sample-service/pom.xml verify
-java -jar sample-service/target/triage-sample-service-0.1.0.jar
+java -jar sample-service/target/triage-sample-service-0.2.0.jar
 ```
 
 在第三个终端启动排障助手：

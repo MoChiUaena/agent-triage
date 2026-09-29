@@ -1,4 +1,4 @@
-Agent Triage — local LIVE demo
+Agent Triage 0.2.0 — local LIVE demo
 
 Requirements: JDK 21 or later. macOS/Linux also need Bash and curl.
 Extract the entire archive. No Maven, database server or API Key is needed for the first run.
@@ -10,16 +10,27 @@ macOS / Linux:
   bash start-demo.sh
 
 Open http://127.0.0.1:18080. Generate normal or inventory-timeout requests, then start an investigation.
-Order and inventory services run on 18082 and 18084. Ctrl+C stops the three child processes.
+Order and inventory services run on 18082 and 18084. The database sample runs on 18086.
+The page service selector also includes the independent Starter product and price services.
+Create product requests at http://127.0.0.1:18088/api/products/demo and price requests at
+http://127.0.0.1:18089/api/prices/demo. These two applications have no fault controls.
+The product service shares the inventory fixture, so delayed inventory responses affect it too.
+Ctrl+C stops all six processes started by the launcher.
 
 If the ports are occupied, use an alternative base port:
   Windows: powershell -ExecutionPolicy Bypass -File .\start-demo.ps1 -BasePort 18180
   macOS/Linux: bash start-demo.sh 18180
-The other two ports are base+2 and base+4. The launcher never stops an existing instance to free ports.
+Ports are base (Agent), base+2 (order), base+4 (inventory), base+6 (database),
+base+8 (catalog HTTP) and base+9 (catalog JDBC). The launcher never stops an existing instance to free ports.
+On Windows, add -CheckOnly to verify startup and immediately stop this launch.
 
 The first run uses fixed rules with actual local HTTP request observations. Model configuration is optional,
 available in the settings page, and persists under data/. An enabled real model can incur provider fees.
-This bundle covers only the order/inventory example and has no multi-user login or production integration.
+The page supports cancellation, known token usage and specific connection/protocol failure guidance.
+Cancelling a local run cannot guarantee that a provider stops executing or billing an accepted request.
+config/services.yml registers the four local services; the plain Starter JAR and POM are under sdk/.
+The Starter is not published on Maven Central. Dependency setup is documented in the source repository.
+This bundle is for local single-instance use and has no multi-user login or production authentication.
 
 Keep data/triage.mv.db and data/model-config.key together when backing up saved model settings.
 Never share data/, logs/, .env or model keys. The release archive contains none of these local files.

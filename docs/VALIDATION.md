@@ -129,12 +129,22 @@ LIVE 检索的服务基础规则带有单独召回标记，不会假称关键词
 
 20 个案例已分为调试集和留出集；演示模式调试集 10/10 通过状态与结构检查。真实百炼已完成两组各 10 例的仅文档与 Agent 对照，人工结果见[小规模评测](EVALUATION.md)；这仍是单模型、本地故障样例的小样本，不是生产准确率。
 
+## 2026-09-29 Starter 与候选演示包
+
+本机 JDK 21 下共 191 项测试通过：主项目 173、订单 2、库存 1、数据库 5、Starter 9、独立商品应用 1。Starter 使用真实 HikariCP/H2 验证获取连接超时、释放后恢复和 SQL 行锁等待；后者不会记为获取连接超时。HTTP 测试覆盖响应头前和读取正文时的超时，检查私有正文、查询参数与异常文本没有进入观测。
+
+独立 JVM 检查通过 HTTP V1 和数据库 V2，覆盖空窗口、正常、超时、请求恢复、证据引用与只读权限。观测版本不匹配会在配置页返回具体原因，也会作为 `OBSERVATION_VERSION` 保存到失败记录。
+
+[v0.2.0 候选包](releases/v0.2.0.md)含 13 个白名单条目，内嵌文件 SHA-256 校验通过。解压到带空格和中文的路径后，Windows PowerShell 5.1 启动检查可读取四个服务；Git Bash 检查覆盖订单正常／超时、数据库池耗尽／恢复／SQL 锁等待、Starter 商品与价格查询。两种启动方式退出后，各自六个测试端口均关闭。
+
+Windows PowerShell 5.1 会把 `java -version` 的标准错误输出视为错误记录，启动器现通过独立进程捕获版本。原有 80ms 工具超时测试在并行构建时出现过调度竞争，现先确认工具启动，再检查中断和迟到结果。以上都是本地请求或本地接口模拟器检查，没有调用付费模型或重复使用留出集。
+
 ## 模型响应截断
 
 Spring AI 1.1.8 将服务端 `finish_reason=length` 转为大写 `LENGTH`。只按小写判断时，完整 JSON 片段可能被误当成正常结果。现在按不区分大小写的方式检查，并返回 `MODEL_OUTPUT_TRUNCATED`；集成测试包含这个响应。
 
 ## Windows 打包时提示无法重命名 JAR
 
-用 `java -jar target/agent-triage-0.1.0.jar` 启动后，如果再次执行 package，Spring Boot repackage 可能报错：无法将 JAR 重命名为 `.jar.original`。
+用 `java -jar target/agent-triage-0.2.0.jar` 启动后，如果再次执行 package，Spring Boot repackage 可能报错：无法将 JAR 重命名为 `.jar.original`。
 
 原因是运行中的 Java 进程占用了该文件。停止进程后重新打包即可。开发时建议使用 `mvnw.cmd spring-boot:run`；需要同时运行和重新打包时，可从 JAR 副本启动。

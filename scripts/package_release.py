@@ -27,19 +27,23 @@ def main():
         parser.error("Commit the release sources before packaging, or use --allow-dirty for a local smoke check.")
     _, version = project(ROOT)
     if not version or "SNAPSHOT" in version:
-        parser.error("Set a release version in the three POMs before building the archive.")
+        parser.error("Set a release version in the POMs before building the archive.")
     files = []
-    for directory, alias in [(ROOT, "agent-triage"), (ROOT / "sample-service", "order-service"), (ROOT / "inventory-service", "inventory-service")]:
+    for directory, alias in [(ROOT, "agent-triage"), (ROOT / "sample-service", "order-service"),
+                             (ROOT / "inventory-service", "inventory-service"), (ROOT / "database-service", "database-service"),
+                             (ROOT / "catalog-service", "catalog-service"), (ROOT / "triage-spring-boot-starter", "triage-spring-boot-starter")]:
         artifact, child_version = project(directory)
         if child_version != version:
-            parser.error("All three projects must use the same release version.")
+            parser.error("All packaged projects must use the same release version.")
         jar = directory / "target" / f"{artifact}-{version}.jar"
         if not jar.is_file():
             parser.error(f"Missing built JAR for {artifact}.")
-        files.append((jar, f"lib/{alias}.jar"))
+        files.append((jar, f"sdk/{alias}-{version}.jar" if alias == "triage-spring-boot-starter" else f"lib/{alias}.jar"))
     for name in ["start-demo.ps1", "start-demo.sh", "README.txt"]:
         files.append((ROOT / "distribution" / name, name))
     files.append((ROOT / "LICENSE", "LICENSE"))
+    files.append((ROOT / "distribution/services.yml", "config/services.yml"))
+    files.append((ROOT / "triage-spring-boot-starter/pom.xml", "sdk/pom.xml"))
     manifest = {
         "version": version,
         "sourceCommit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
@@ -48,6 +52,8 @@ def main():
         "javaMinimum": 21,
         "initialMode": "DEMO",
         "observationSource": "LIVE",
+        "registeredServices": ["order-service", "account-service", "catalog-service", "catalog-db-service"],
+        "portOffsets": {"agent": 0, "order": 2, "inventory": 4, "database": 6, "catalog": 8, "catalogDatabase": 9},
     }
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)

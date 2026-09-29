@@ -24,6 +24,8 @@ flowchart LR
 
 `ServiceRegistry` 决定可以访问哪些服务；`EngineRouter` 决定本次使用固定规则还是当前模型。二者的配置在提交时冻结。模型选择只读工具，工具和模型的实际执行都经过 `ExecutionSession`，不能绕过次数、时限或取消检查。
 
+[Spring Boot Starter](STARTER.md)运行在业务应用内，只负责有界内存采样和观测接口；它不依赖 Agent 的模型或执行库。独立商品应用使用 HTTP 过滤器与 RestClient 定制器，价格应用使用 JDBC 回调与 HikariCP 采样，分别提供 HTTP V1 与数据库 V2 数据。
+
 ## 提交到完成
 
 1. `RunController` 校验问题、服务和窗口。未知服务、超出该服务上限的窗口，在访问观测和模型之前拒绝。

@@ -1,4 +1,3 @@
-# Load with --spring.config.additional-location=file:./examples/services.yml
 triage:
   observation:
     source: LIVE
@@ -7,23 +6,15 @@ triage:
       name: 订单服务
       downstream-id: inventory-service
       downstream-name: 库存服务
-      base-url: http://127.0.0.1:18082
+      base-url: http://127.0.0.1:${demo.order-port:18082}
       protocol: LAB
       max-window-minutes: 60
       lab-enabled: true
-    - id: checkout-service
-      name: 结算接入示例
-      downstream-id: inventory-service
-      downstream-name: 库存服务
-      base-url: http://127.0.0.1:18092
-      protocol: OBSERVATIONS_V1
-      max-window-minutes: 15
-      lab-enabled: false
     - id: account-service
       name: 数据库账户样例
       downstream-id: accounts-db
       downstream-name: 本地 H2 数据库
-      base-url: http://127.0.0.1:18096
+      base-url: http://127.0.0.1:${demo.database-port:18086}
       protocol: DATABASE_V2
       max-window-minutes: 15
       lab-enabled: true
@@ -31,7 +22,7 @@ triage:
       name: Starter 商品服务
       downstream-id: inventory-service
       downstream-name: 库存服务
-      base-url: http://127.0.0.1:18098
+      base-url: http://127.0.0.1:${demo.catalog-port:18088}
       protocol: OBSERVATIONS_V1
       max-window-minutes: 15
       lab-enabled: false
@@ -39,7 +30,7 @@ triage:
       name: Starter 价格服务
       downstream-id: catalog-db
       downstream-name: 价格数据库
-      base-url: http://127.0.0.1:18099
+      base-url: http://127.0.0.1:${demo.catalog-database-port:18089}
       protocol: DATABASE_V2
       max-window-minutes: 15
       lab-enabled: false

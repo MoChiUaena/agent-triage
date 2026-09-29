@@ -10,7 +10,7 @@
   </parent>
   <groupId>io.github.mochiuaena</groupId>
   <artifactId>agent-triage</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
   <name>agent-triage</name>
   <description>Evidence-based Java incident triage with live local observations and a synthetic fallback</description>
   <properties>
