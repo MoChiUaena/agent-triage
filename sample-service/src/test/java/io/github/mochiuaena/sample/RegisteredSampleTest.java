@@ -10,7 +10,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import java.net.InetSocketAddress;
 import java.time.Instant;
+import java.time.Duration;
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
     "sample.service-id=checkout-service", "sample.downstream-service=stock-service", "sample.lab-enabled=false",
@@ -19,6 +21,7 @@ import static org.assertj.core.api.Assertions.*;
 class RegisteredSampleTest {
     private static HttpServer downstream;
     @Autowired TestRestTemplate http;
+    @Autowired InventoryClient inventory;
     @DynamicPropertySource static void downstream(DynamicPropertyRegistry properties) throws Exception {
         downstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         downstream.createContext("/api/inventory/sku", exchange -> { exchange.sendResponseHeaders(200, -1); exchange.close(); });
@@ -28,6 +31,8 @@ class RegisteredSampleTest {
     @AfterAll static void stop() { downstream.stop(0); }
 
     @Test void exportsItsConfiguredIdentityAndRealRequestsWithoutLabEndpoints() {
+        // Warm the client's first connection without recording an application request.
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> inventory.availability("test-warmup"));
         assertThat(http.getForEntity("/api/requests/test", String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
         Instant end = Instant.now();
         var value = http.getForObject("/triage/observations?windowMinutes=5&endTime={end}", ObservationsController.Observations.class, end);
