@@ -17,7 +17,8 @@ def main():
     for identity in services:
         status, selected = request(agent, "/api/config?service=" + identity)
         assert status == 200 and selected["observationAvailable"]
-    assert request(f"http://127.0.0.1:{args.base_port + 4}", "/lab/scenario", {"scenario": "NORMAL"})[0] == 200
+    assert request(f"http://127.0.0.1:{args.base_port + 2}", "/lab/scenario", {"scenario": "NORMAL"})[0] == 200
+    assert request(agent, "/api/config?service=order-service")[1]["observationAvailable"]
     status, product = request(f"http://127.0.0.1:{args.base_port + 8}", "/api/products/demo")
     assert status == 200 and product["available"]
     http = investigate(agent, "catalog-service")

@@ -43,7 +43,7 @@ def main():
             time.sleep(.05)
             status, run = request(agent, "/api/runs/" + run["id"])
             assert status == 200
-        assert run["status"] in ("SUCCEEDED", "INSUFFICIENT_EVIDENCE")
+        assert run["status"] in ("SUCCEEDED", "INSUFFICIENT_EVIDENCE"), (run["status"], run.get("failure"))
         identities.add(run["id"])
     seen = set()
     cursor = None
