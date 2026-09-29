@@ -62,13 +62,13 @@ Agent 从启动配置读取服务白名单。页面选择服务后，只读工�
 先按 README 启动库存与订单服务，并完成根项目和样例项目构建。在新终端启动结算示例：
 
 ```powershell
-java -jar sample-service/target/triage-sample-service-0.2.0.jar --server.port=18092 --sample.service-id=checkout-service --sample.lab-enabled=false --sample.error-log-file=./data/checkout-errors.jsonl
+java -jar sample-service/target/triage-sample-service-0.3.0.jar --server.port=18092 --sample.service-id=checkout-service --sample.lab-enabled=false --sample.error-log-file=./data/checkout-errors.jsonl
 ```
 
 停止原 Agent 后，带配置重新启动：
 
 ```powershell
-java -jar target/agent-triage-0.2.0.jar --spring.config.additional-location=file:./examples/services.yml
+java -jar target/agent-triage-0.3.0.jar --spring.config.additional-location=file:./examples/services.yml
 ```
 
 用 PowerShell 产生实际请求：

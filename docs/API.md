@@ -29,6 +29,11 @@
 | `GET /api/config?service=checkout-service` | 所选服务的配置与接口可用状态；`services` 提供全部可选服务，`labEnabled` 表示是否允许演示控制 |
 | `GET /api/demo` | `/api/config` 的兼容入口 |
 | `GET /api/runs?limit=20` | 最近执行摘要，limit 为 1–50 |
+| `GET /api/history` | 完整历史游标分页，支持关键词、服务、状态、模式与日期筛选 |
+| `GET /api/history/services` | 历史中的服务与最新名称，包含已移除的服务 |
+| `DELETE /api/history/{uuid}` | 本机同源请求带 `X-Triage-History: 1` 和匹配的 `confirmId`，删除已结束记录 |
+| `GET /api/statistics?days=7` | 近 1–90 天的状态、耗时、调用和已知用量，可按历史服务筛选 |
+| `GET /api/services/status` | 登记服务的只读观测状态，短期缓存，不依赖模型选择 |
 | `GET /api/runs/{uuid}` | 完整执行记录，包含事件、证据、结论或失败信息 |
 | `POST /api/runs/{uuid}/cancel` | 本机同源请求带 `X-Triage-Run: 1`，取消排队或运行中的任务并返回保存后的记录 |
 | `GET /api/runs/{uuid}/events` | SSE 事件流，支持 `Last-Event-ID` 重放 |

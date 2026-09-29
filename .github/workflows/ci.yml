@@ -81,9 +81,9 @@ jobs:
           ./mvnw -B -ntp -DskipTests package
           ./mvnw -B -ntp -f integrations/pom.xml -DskipTests package
           python3 scripts/starter_smoke.py
-          java -jar inventory-service/target/triage-inventory-service-0.2.0.jar > inventory.log 2>&1 &
-          java -jar sample-service/target/triage-sample-service-0.2.0.jar > sample.log 2>&1 &
-          java -jar target/agent-triage-0.2.0.jar --server.port=18083 '--spring.datasource.url=jdbc:h2:mem:live;DB_CLOSE_DELAY=-1' --triage.observation.source=LIVE --triage.settings.key-file=target/ci-live-key > agent.log 2>&1 &
+          java -jar inventory-service/target/triage-inventory-service-0.3.0.jar > inventory.log 2>&1 &
+          java -jar sample-service/target/triage-sample-service-0.3.0.jar > sample.log 2>&1 &
+          java -jar target/agent-triage-0.3.0.jar --server.port=18083 '--spring.datasource.url=jdbc:h2:mem:live;DB_CLOSE_DELAY=-1' --triage.observation.source=LIVE --triage.settings.key-file=target/ci-live-key > agent.log 2>&1 &
           for i in {1..40}; do
             if curl -fsS http://127.0.0.1:18084/lab/scenario > /dev/null && curl -fsS http://127.0.0.1:18082/lab/scenario > /dev/null && curl -fsS http://127.0.0.1:18083/api/config > /dev/null; then break; fi
             sleep 1
@@ -91,7 +91,7 @@ jobs:
           python3 scripts/live_smoke.py
           python3 scripts/model_protocol_stub.py --port 18100 > model-stub.log 2>&1 &
           stub_pid=$!
-          java -jar target/agent-triage-0.2.0.jar --server.port=18085 '--spring.datasource.url=jdbc:h2:mem:live-model;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/ci-live-model-key --triage.observation.source=LIVE --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18100 --triage.model.api-key=test-only-local --triage.model.name=triage-stub --triage.model.timeout=5s > model-agent.log 2>&1 &
+          java -jar target/agent-triage-0.3.0.jar --server.port=18085 '--spring.datasource.url=jdbc:h2:mem:live-model;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/ci-live-model-key --triage.observation.source=LIVE --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18100 --triage.model.api-key=test-only-local --triage.model.name=triage-stub --triage.model.timeout=5s > model-agent.log 2>&1 &
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:18085/api/config > /dev/null; then break; fi
             sleep 1
@@ -100,21 +100,21 @@ jobs:
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085 --ids D10
           python3 scripts/compare_live_methods.py --allow-model-calls --mock-provider --agent-url http://127.0.0.1:18085 --dataset docs/evaluation/cases-v2.json --all-dev
-          java -jar inventory-service/target/triage-inventory-service-0.2.0.jar --server.port=18094 > checkout-inventory.log 2>&1 &
-          java -jar sample-service/target/triage-sample-service-0.2.0.jar --server.port=18092 --sample.service-id=checkout-service --sample.lab-enabled=false --sample.inventory.base-url=http://127.0.0.1:18094 --sample.error-log-file=target/checkout-errors.jsonl > checkout.log 2>&1 &
-          java -jar target/agent-triage-0.2.0.jar --server.port=18093 '--spring.datasource.url=jdbc:h2:mem:registered-model;DB_CLOSE_DELAY=-1' --spring.config.additional-location=file:./examples/services.yml --triage.settings.key-file=target/ci-registered-key --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18100 --triage.model.api-key=test-only-local --triage.model.name=triage-stub --triage.model.timeout=5s > registered-agent.log 2>&1 &
+          java -jar inventory-service/target/triage-inventory-service-0.3.0.jar --server.port=18094 > checkout-inventory.log 2>&1 &
+          java -jar sample-service/target/triage-sample-service-0.3.0.jar --server.port=18092 --sample.service-id=checkout-service --sample.lab-enabled=false --sample.inventory.base-url=http://127.0.0.1:18094 --sample.error-log-file=target/checkout-errors.jsonl > checkout.log 2>&1 &
+          java -jar target/agent-triage-0.3.0.jar --server.port=18093 '--spring.datasource.url=jdbc:h2:mem:registered-model;DB_CLOSE_DELAY=-1' --spring.config.additional-location=file:./examples/services.yml --triage.settings.key-file=target/ci-registered-key --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18100 --triage.model.api-key=test-only-local --triage.model.name=triage-stub --triage.model.timeout=5s > registered-agent.log 2>&1 &
           for i in {1..40}; do
             if curl -fsS http://127.0.0.1:18094/lab/scenario > /dev/null && curl -fsS http://127.0.0.1:18092/actuator/health > /dev/null && curl -fsS 'http://127.0.0.1:18093/api/config?service=checkout-service' > /dev/null; then break; fi
             sleep 1
           done
           python3 scripts/service_integration_smoke.py --mock-provider
-          java -jar database-service/target/triage-database-service-0.2.0.jar > database.log 2>&1 &
+          java -jar database-service/target/triage-database-service-0.3.0.jar > database.log 2>&1 &
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:18096/actuator/health > /dev/null; then break; fi
             sleep 1
           done
           python3 scripts/db_pool_smoke.py --mock-provider
-          java -jar target/agent-triage-0.2.0.jar --server.port=18087 '--spring.datasource.url=jdbc:h2:mem:run-controls;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/ci-run-controls-key --triage.observation.source=LIVE --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18102 --triage.model.api-key=test-only-local --triage.model.name=controls-stub --triage.model.timeout=10s --triage.run-timeout=30s > controls-agent.log 2>&1 &
+          java -jar target/agent-triage-0.3.0.jar --server.port=18087 '--spring.datasource.url=jdbc:h2:mem:run-controls;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/ci-run-controls-key --triage.observation.source=LIVE --triage.mode=MODEL --triage.model.base-url=http://127.0.0.1:18102 --triage.model.api-key=test-only-local --triage.model.name=controls-stub --triage.model.timeout=10s --triage.run-timeout=30s > controls-agent.log 2>&1 &
           for i in {1..30}; do
             if curl -fsS http://127.0.0.1:18087/api/config > /dev/null; then break; fi
             sleep 1
@@ -133,8 +133,8 @@ jobs:
           python3 scripts/live_model_eval.py --allow-model-calls --mock-provider --expect-evidence-feedback --agent-url http://127.0.0.1:18085
           python3 scripts/package_release.py
           python3 scripts/verify_release.py --source-commit "$(git rev-parse HEAD)"
-          python3 -c "import zipfile; zipfile.ZipFile('target/release/agent-triage-0.2.0-demo.zip').extractall('target/bundle-smoke')"
-          bash target/bundle-smoke/agent-triage-0.2.0/start-demo.sh 18180 > bundle.log 2>&1 &
+          python3 -c "import zipfile; zipfile.ZipFile('target/release/agent-triage-0.3.0-demo.zip').extractall('target/bundle-smoke')"
+          bash target/bundle-smoke/agent-triage-0.3.0/start-demo.sh 18180 > bundle.log 2>&1 &
           bundle_pid=$!
           for i in {1..90}; do
             if curl -fsS http://127.0.0.1:18180/api/config > /dev/null; then break; fi
@@ -147,6 +147,7 @@ jobs:
           done
           python3 scripts/db_pool_smoke.py --agent-url http://127.0.0.1:18180 --database-url http://127.0.0.1:18186
           python3 scripts/bundle_services_smoke.py
+          python3 scripts/workspace_smoke.py --agent-url http://127.0.0.1:18180
           kill "$bundle_pid"
           wait "$bundle_pid" || true
           bundle_end=$(date -u +%Y-%m-%dT%H:%M:%SZ)

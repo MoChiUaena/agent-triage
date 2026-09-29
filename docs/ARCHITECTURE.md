@@ -26,6 +26,14 @@ flowchart LR
 
 [Spring Boot Starter](STARTER.md)运行在业务应用内，只负责有界内存采样和观测接口；它不依赖 Agent 的模型或执行库。独立商品应用使用 HTTP 过滤器与 RestClient 定制器，价格应用使用 JDBC 回调与 HikariCP 采样，分别提供 HTTP V1 与数据库 V2 数据。
 
+## 工作区查询
+
+`RunRepository` 每次保存时在同一行原子更新 JSON 与历史查询列。数据库 V3 为服务、模式、问题、耗时与用量增加投影；`HistoryRepository` 启动时分批回填旧记录，不重写原 JSON。
+
+历史分页使用数据库创建时间与 ID 游标，保留不同数据库的时间精度；过滤参数进入预编译 SQL。删除只匹配已结束状态，正在执行的行不会被删除。统计使用同一数据库快照，分别保留完整、部分已知与缺失用量。
+
+`ObservationStatusService` 在独立、有界的线程池中读取白名单服务接口，缓存五秒；它不依赖模型快照，也不发送业务流量。[工作区接口与使用方法](WORKSPACE.md)另见说明。
+
 ## 提交到完成
 
 1. `RunController` 校验问题、服务和窗口。未知服务、超出该服务上限的窗口，在访问观测和模型之前拒绝。

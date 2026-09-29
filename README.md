@@ -27,6 +27,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 - 保存执行记录，支持历史查询和事件重放。
 - 概览、证据、执行记录分开查看，支持搜索历史记录。
 - 在[完整历史页面](docs/WORKSPACE.md)分页查找更早的记录，按服务、状态、模式和日期筛选，确认后删除已结束记录。
+- 在工作区查看执行结果分布、耗时、模型调用与已知 Token 用量，以及各服务的观测接口状态。
 - 限制工具调用次数和执行时间，分别处理执行失败与证据不足。
 - 支持[主动取消排查](docs/RUN_CONTROLS.md)，保留已有证据；展示输入、输出 Token 和用量完整程度，并提供失败后的检查提示。
 - 模型模式校验工具参数和结果引用，记录调用轮数及服务端返回的 token 用量。
@@ -37,6 +38,8 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 免构建的演示包在 [v0.2.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.2.0) 中提供，包含订单、库存、数据库和 Starter 示例。需要 JDK 21，完整解压后运行：
 
 包内提供四种服务接入和六个进程的统一启动方式，端口与使用范围见 [v0.2.0 说明](docs/releases/v0.2.0.md)。[v0.1.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0) 保留首版订单／库存流程，附件不随 main 更新。
+
+main 为 v0.3 开发版本，新增完整历史、运行统计和服务状态。体验这些功能可从源码启动，或构建 [v0.3 候选包](docs/releases/v0.3.0.md)；v0.2.0 的发布附件保持原版本。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
@@ -59,7 +62,7 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 打开 <http://127.0.0.1:18080>。默认使用 H2 文件数据库，记录保存在 `data/` 目录。按 `Ctrl+C` 停止服务。
 
-也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.2.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
+也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.3.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
 
 ## 跑通本地真实请求
 
@@ -67,12 +70,12 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 ```powershell
 .\mvnw.cmd -f inventory-service/pom.xml verify
-java -jar inventory-service/target/triage-inventory-service-0.2.0.jar
+java -jar inventory-service/target/triage-inventory-service-0.3.0.jar
 ```
 
 ```powershell
 .\mvnw.cmd -f sample-service/pom.xml verify
-java -jar sample-service/target/triage-sample-service-0.2.0.jar
+java -jar sample-service/target/triage-sample-service-0.3.0.jar
 ```
 
 在第三个终端启动排障助手：

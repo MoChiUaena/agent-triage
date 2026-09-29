@@ -1,4 +1,4 @@
-Agent Triage 0.2.0 — local LIVE demo
+Agent Triage 0.3.0 — local LIVE demo
 
 Requirements: JDK 21 or later. macOS/Linux also need Bash and curl.
 Extract the entire archive. No Maven, database server or API Key is needed for the first run.
@@ -27,6 +27,9 @@ On Windows, add -CheckOnly to verify startup and immediately stop this launch.
 The first run uses fixed rules with actual local HTTP request observations. Model configuration is optional,
 available in the settings page, and persists under data/. An enabled real model can incur provider fees.
 The page supports cancellation, known token usage and specific connection/protocol failure guidance.
+Open workspace management from the sidebar to page and filter the full history, inspect execution statistics,
+or check registered observation services. Deletion requires confirmation and is restricted to terminal records.
+Database V3 indexes existing history without rewriting saved execution JSON. No automatic cleanup is enabled.
 Cancelling a local run cannot guarantee that a provider stops executing or billing an accepted request.
 config/services.yml registers the four local services; the plain Starter JAR and POM are under sdk/.
 The Starter is not published on Maven Central. Dependency setup is documented in the source repository.
