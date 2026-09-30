@@ -11,6 +11,9 @@ final class FailureLocations {
     record Location(String kind, List<String> exceptionTypes, List<Frame> frames, boolean truncated) {}
     private FailureLocations() {}
     static Location capture(Throwable error, TriageObservationProperties properties, String kind) {
+        return capture(error, properties, kind, null);
+    }
+    static Location capture(Throwable error, TriageObservationProperties properties, String kind, Class<?> selectedHandlerClass) {
         if (!properties.isExceptionLocations()) return null;
         var causes = new ArrayList<Throwable>();
         var types = new ArrayList<String>();
@@ -23,6 +26,8 @@ final class FailureLocations {
         boolean truncated = cause != null;
         var frames = new LinkedHashSet<Frame>();
         var versions = new HashMap<StackTraceElement, String>();
+        String handlerHash = properties.isSourceVersionChecks() && "REQUEST_EXCEPTION".equals(kind) && selectedHandlerClass != null
+            ? SourceBuildVersions.sourceHash(selectedHandlerClass) : null;
         if (properties.isSourceVersionChecks() && "HTTP_CLIENT_FAILURE".equals(kind)) {
             try {
                 StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).walk(stream -> {
@@ -42,13 +47,21 @@ final class FailureLocations {
                     || !javaName(frame.getClassName(), 240, true) || !method(frame.getMethodName())) continue;
                 String file = frame.getFileName();
                 if (file != null && !file.matches("[\\p{L}\\p{N}_$-]{1,150}\\.java")) file = null;
+                String hash = versions.get(frame);
+                if (hash == null && handlerHash != null && selectedClassFrame(frame, selectedHandlerClass)) hash = handlerHash;
                 var value = new Frame(frame.getClassName(), frame.getMethodName(), file,
-                    frame.getLineNumber() > 0 && frame.getLineNumber() <= 1_000_000 ? frame.getLineNumber() : null, versions.get(frame));
+                    frame.getLineNumber() > 0 && frame.getLineNumber() <= 1_000_000 ? frame.getLineNumber() : null, hash);
                 if (frames.size() == 8 && !frames.contains(value)) { truncated = true; break; }
                 frames.add(value);
             }
         }
         return new Location(kind, List.copyOf(types), List.copyOf(frames), truncated);
+    }
+    private static boolean selectedClassFrame(StackTraceElement frame, Class<?> selected) {
+        if (!frame.getClassName().equals(selected.getName())) return false;
+        var loader = selected.getClassLoader();
+        return Objects.equals(frame.getClassLoaderName(), loader == null ? null : loader.getName())
+            && Objects.equals(frame.getModuleName(), selected.getModule().getName());
     }
     static boolean javaName(String value, int max, boolean qualified) {
         if (value == null || value.isBlank() || value.length() > max) return false;

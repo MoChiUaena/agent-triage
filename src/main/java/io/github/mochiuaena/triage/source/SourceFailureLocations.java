@@ -50,7 +50,7 @@ final class SourceFailureLocations {
         if (candidates.lambda()) return result(frame, "LAMBDA_CANDIDATE", "编译生成的 lambda 名称和行号落在这个源码方法内；这里只提供候选位置。", excerpts);
         if (frame.lineNumber() == null) return result(frame, "CANDIDATE", "观测没有行号，只匹配到方法候选。", excerpts);
         return result(frame, "LINE_MATCH", (frame.fileName() == null ? "类、方法及行号对应，观测未提供文件名；" : "类、方法、文件与行号对应；")
-            + "源码版本是否与运行版本一致仍需核对。", excerpts);
+            + ("MATCHED".equals(version.state()) ? "构建源码摘要一致。" : "源码版本是否与运行版本一致仍需核对。"), excerpts);
     }
     private List<Symbol> named(String className, String method) {
         return symbols.stream().filter(symbol -> symbol.className().equals(className) && symbol.method().equals(method))

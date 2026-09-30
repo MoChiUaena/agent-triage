@@ -12,7 +12,10 @@ final class TriageMvcEndpoints implements WebMvcConfigurer, HandlerInterceptor {
     @Override public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         var context = TriageRequestFilter.CURRENT.get();
         if (context != null && context.endpoint == null) {
-            try { context.endpoint = MvcEndpoint.selected(request, handler, prefix, versions); }
+            try {
+                var selected = MvcEndpoint.selected(request, handler, prefix, versions);
+                if (selected != null) { context.endpoint = selected.endpoint(); context.handlerClass = selected.handlerClass(); }
+            }
             catch (RuntimeException ignored) { /* Missing metadata must not fail a business request. */ }
         }
         return true;

@@ -136,7 +136,9 @@ public final class ObservationRecorder {
                 .map(v -> new EndpointError(v.error().timestamp(), v.error().traceId(), v.error().level(), v.error().message(), v.failureLocation())).toList(),
             false, selected, summaries, unattributed, other);
     }
-    FailureLocations.Location requestFailure(Throwable error) { return FailureLocations.capture(error, properties, "REQUEST_EXCEPTION"); }
+    FailureLocations.Location requestFailure(Throwable error, Class<?> handlerClass) {
+        return FailureLocations.capture(error, properties, "REQUEST_EXCEPTION", handlerClass);
+    }
     private List<Error> errors(List<HttpSample> matching) {
         return matching.stream().filter(v -> v.error() != null).sorted(Comparator.comparing(HttpSample::timestamp).reversed())
             .limit(3).map(HttpSample::error).toList();

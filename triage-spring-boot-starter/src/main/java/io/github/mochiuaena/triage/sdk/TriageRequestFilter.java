@@ -13,6 +13,7 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         double downstreamMs;
         boolean timeout;
         MvcEndpoint endpoint;
+        Class<?> handlerClass;
         FailureLocations.Location failureLocation;
     }
     private final ObservationRecorder recorder;
@@ -27,7 +28,7 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         try { chain.doFilter(request, response); }
         catch (ServletException | IOException | RuntimeException e) {
             failed = true;
-            if (context.failureLocation == null) context.failureLocation = recorder.requestFailure(e);
+            if (context.failureLocation == null) context.failureLocation = recorder.requestFailure(e, context.handlerClass);
             throw e;
         }
         finally {

@@ -12,7 +12,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class MvcEndpointTest {
     @RestController static final class Controller {
-        @GetMapping("/api/items/{id}") String item(@PathVariable String id) { return "private-response-body"; }
+        @GetMapping("/api/items/{id}") String item(@PathVariable String id) {
+            assertThat(TriageRequestFilter.CURRENT.get().handlerClass).isEqualTo(Controller.class);
+            return "private-response-body";
+        }
         @PostMapping("/api/items/{id}") String update(@PathVariable String id) { return "private-response-body"; }
         @GetMapping("/api/failure/{id}") String fail(@PathVariable String id) { throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "private-exception"); }
     }

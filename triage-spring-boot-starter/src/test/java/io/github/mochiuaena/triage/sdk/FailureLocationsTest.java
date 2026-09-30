@@ -3,9 +3,13 @@ package io.github.mochiuaena.triage.sdk;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import example.locations.BusinessFixture;
 import java.net.SocketTimeoutException;
+import java.net.URLClassLoader;
+import java.nio.file.*;
 import java.time.Instant;
 import java.util.*;
+import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.HttpMethod;
 import org.springframework.mock.web.*;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -82,5 +86,36 @@ class FailureLocationsTest {
         assertThat(value.errors().getFirst().failureLocation().kind()).isEqualTo("REQUEST_EXCEPTION");
         assertThat(value.errors().getFirst().failureLocation().frames()).hasSize(1);
         assertThat(TriageRequestFilter.CURRENT.get()).isNull();
+    }
+    @Test void requestExceptionVersionsOnlyFramesOfTheSelectedMvcClass(@TempDir Path root) throws Exception {
+        Path sources = Files.createDirectory(root.resolve("sources")), classes = Files.createDirectory(root.resolve("classes"));
+        Path file = sources.resolve("Handler.java");
+        Files.writeString(file, "package example.locations; public class Handler { public void fail() { Helper.fail(); } } "
+            + "class Helper { static void fail() { throw new IllegalStateException(\"private-message\"); } }");
+        assertThat(ToolProvider.getSystemJavaCompiler().run(null, null, null, "-proc:none", "-d", classes.toString(), file.toString())).isZero();
+        assertThat(SourceBuildManifest.generate(sources, classes)).isEqualTo(2);
+        var configured = properties(); configured.setSourceVersionChecks(true); configured.validate();
+        try (var loader = new URLClassLoader(new java.net.URL[]{classes.toUri().toURL()}, null)) {
+            Class<?> selected = loader.loadClass("example.locations.Handler");
+            var thrown = catchThrowable(() -> selected.getMethod("fail").invoke(selected.getConstructor().newInstance()));
+            assertThat(thrown).isInstanceOf(java.lang.reflect.InvocationTargetException.class);
+            Throwable failure = thrown.getCause();
+            var location = FailureLocations.capture(failure, configured, "REQUEST_EXCEPTION", selected);
+            String expected = SourceBuildManifest.digest(Files.readAllBytes(file));
+            assertThat(location.frames()).filteredOn(frame -> frame.className().equals(selected.getName()))
+                .extracting(FailureLocations.Frame::sourceHash).containsExactly(expected);
+            assertThat(location.frames()).filteredOn(frame -> frame.className().equals("example.locations.Helper"))
+                .extracting(FailureLocations.Frame::sourceHash).containsExactly((String) null);
+            assertThat(FailureLocations.capture(failure, configured, "REQUEST_EXCEPTION").frames())
+                .extracting(FailureLocations.Frame::sourceHash).containsOnlyNulls();
+            configured.setSourceVersionChecks(false);
+            assertThat(FailureLocations.capture(failure, configured, "REQUEST_EXCEPTION", selected).frames())
+                .extracting(FailureLocations.Frame::sourceHash).containsOnlyNulls();
+            configured.setSourceVersionChecks(true);
+            failure.setStackTrace(new StackTraceElement[]{new StackTraceElement("another-loader", null, null,
+                selected.getName(), "fail", "Handler.java", 1)});
+            assertThat(FailureLocations.capture(failure, configured, "REQUEST_EXCEPTION", selected).frames().getFirst().sourceHash()).isNull();
+            assertThat(location.toString()).doesNotContain("private-message", root.toString());
+        }
     }
 }

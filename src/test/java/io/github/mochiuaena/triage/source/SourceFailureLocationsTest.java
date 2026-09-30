@@ -102,6 +102,7 @@ class SourceFailureLocationsTest {
         String expected = index.files().stream().filter(file -> file.path().equals("two/Gateway.java")).findFirst().orElseThrow().hash();
         var result = match(index, new FailureFrame("fixture.Gateway", "lookup", "Gateway.java", 1, expected));
         assertThat(result.state()).isEqualTo("LINE_MATCH"); assertThat(result.version().state()).isEqualTo("MATCHED");
+        assertThat(result.message()).contains("构建源码摘要一致");
         assertThat(result.excerpts()).extracting(Excerpt::path).containsExactly("two/Gateway.java");
         var different = match(index, new FailureFrame("fixture.Gateway", "lookup", "Gateway.java", 1, "f".repeat(64)));
         assertThat(different.state()).isEqualTo("SOURCE_MISMATCH"); assertThat(different.version().state()).isEqualTo("DIFFERENT"); assertThat(different.excerpts()).isEmpty();
