@@ -55,7 +55,7 @@ v0.4.0 新增可选的 [JPA 数据库观测](docs/STARTER.md#jpa-数据库观测
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
 ```
 
-macOS/Linux 使用 `bash start-demo.sh`，另需 curl。首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面是从源码启动的方式。
+macOS/Linux 使用 `bash start-demo.sh`，另需 curl。首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面的源码命令使用主分支当前的 v0.5.0，与上面的 v0.4.0 发布包分开。
 
 需要 JDK 21+。仓库自带 Maven Wrapper，首次构建会下载 Maven 和依赖。
 
@@ -72,7 +72,7 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 打开 <http://127.0.0.1:18080>。默认使用 H2 文件数据库，记录保存在 `data/` 目录。按 `Ctrl+C` 停止服务。
 
-也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.4.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
+也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.5.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
 
 ## 跑通本地真实请求
 
@@ -80,12 +80,12 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 ```powershell
 .\mvnw.cmd -f inventory-service/pom.xml verify
-java -jar inventory-service/target/triage-inventory-service-0.4.0.jar
+java -jar inventory-service/target/triage-inventory-service-0.5.0.jar
 ```
 
 ```powershell
 .\mvnw.cmd -f sample-service/pom.xml verify
-java -jar sample-service/target/triage-sample-service-0.4.0.jar
+java -jar sample-service/target/triage-sample-service-0.5.0.jar
 ```
 
 在第三个终端启动排障助手：

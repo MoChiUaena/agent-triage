@@ -143,7 +143,7 @@ def main():
         return run
 
     try:
-        class_agent = ROOT / "triage-spring-boot-starter/target/triage-spring-boot-starter-0.4.0-agent.jar"
+        class_agent = ROOT / "triage-spring-boot-starter/target/triage-spring-boot-starter-0.5.0-agent.jar"
         assert class_agent.is_file(), "Build the observation class Agent first"
         start("petclinic", public / "target/spring-petclinic-3.5.0-SNAPSHOT.jar", [f"--server.port={args.base_port + 1}", "--server.address=127.0.0.1",
             "--triage.sdk.enabled=true", "--triage.sdk.service-id=petclinic-service", "--triage.sdk.downstream-id=unobserved-http",
