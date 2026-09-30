@@ -57,6 +57,11 @@ def main():
     files.append((ROOT / "LICENSE", "LICENSE"))
     files.append((ROOT / "distribution/services.yml", "config/services.yml"))
     files.append((ROOT / "triage-spring-boot-starter/pom.xml", "sdk/pom.xml"))
+    starter_name = f"triage-spring-boot-starter-{version}"
+    class_agent = ROOT / "triage-spring-boot-starter/target" / f"{starter_name}-agent.jar"
+    if not class_agent.is_file():
+        parser.error("Missing built runtime class Agent JAR.")
+    files.append((class_agent, f"sdk/{starter_name}-agent.jar"))
     manifest = {
         "version": version,
         "sourceCommit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
@@ -65,6 +70,7 @@ def main():
         "javaMinimum": 21,
         "initialMode": "DEMO",
         "observationSource": "LIVE",
+        "runtimeClassAgent": True,
         "registeredServices": ["order-service", "account-service", "catalog-service", "catalog-db-service", "ticket-service"],
         "portOffsets": {"agent": 0, "order": 2, "inventory": 4, "database": 6, "catalog": 8, "catalogDatabase": 9, "ticket": 10, "assignment": 12},
     }
@@ -76,16 +82,17 @@ def main():
         for source, name in files:
             bundle.write(source, f"{prefix}/{name}")
         bundle.writestr(f"{prefix}/manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")
-    starter_name = f"triage-spring-boot-starter-{version}"
     starter = output / f"{starter_name}.jar"
     starter_pom = output / f"{starter_name}.pom"
+    standalone_agent = output / f"{starter_name}-agent.jar"
     shutil.copyfile(ROOT / "triage-spring-boot-starter/target" / starter.name, starter)
     shutil.copyfile(ROOT / "triage-spring-boot-starter/pom.xml", starter_pom)
+    shutil.copyfile(class_agent, standalone_agent)
     checksums = "".join(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n"
-                        for path in (archive, starter, starter_pom))
+                        for path in (archive, starter, starter_pom, standalone_agent))
     (output / "SHA256SUMS.txt").write_text(checksums, encoding="utf-8")
     print(f"Created {archive.name}: {archive.stat().st_size} bytes; {len(files) + 1} allowlisted entries")
-    print(f"Exported {starter.name}, {starter_pom.name} and SHA256SUMS.txt")
+    print(f"Exported {starter.name}, {starter_pom.name}, {standalone_agent.name} and SHA256SUMS.txt")
 
 
 if __name__ == "__main__":

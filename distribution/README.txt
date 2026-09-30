@@ -1,4 +1,4 @@
-Agent Triage 0.4.0 — local LIVE demo
+Agent Triage — local LIVE demo
 
 Requirements: JDK 21 or later. macOS/Linux also need Bash and curl.
 Extract the entire archive. No Maven, database server or API Key is needed for the first run.
@@ -36,7 +36,9 @@ Open workspace management from the sidebar to page and filter the full history, 
 or check registered observation services. Deletion requires confirmation and is restricted to terminal records.
 Database V3/V6 index existing history without rewriting saved execution JSON. No automatic cleanup is enabled.
 Cancelling a local run cannot guarantee that a provider stops executing or billing an accepted request.
-config/services.yml registers five local services; the plain Starter JAR and POM are under sdk/.
+config/services.yml registers five local services; the plain Starter JAR, optional Agent JAR and POM are under sdk/.
+The Agent JAR is not needed for this demo. For another application, pass its path with -javaagent
+and use the same-build Starter dependency; see docs/STARTER.md in the source repository.
 The Starter is not published on Maven Central. Dependency setup is documented in the source repository.
 This bundle is for local single-instance use and has no multi-user login or production authentication.
 
