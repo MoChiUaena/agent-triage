@@ -26,7 +26,7 @@ def prepare(directory):
     <dependency>
       <groupId>io.github.mochiuaena</groupId>
       <artifactId>triage-spring-boot-starter</artifactId>
-      <version>0.5.0</version>
+      <version>0.6.0</version>
     </dependency>'''.replace('\n', newline)
     plugin = '''
       <plugin>

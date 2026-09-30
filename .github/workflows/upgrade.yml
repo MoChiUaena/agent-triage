@@ -1,4 +1,4 @@
-name: Upgrade from v0.4.0
+name: Upgrade from v0.5.0
 on:
   workflow_dispatch:
 permissions:
@@ -14,14 +14,14 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Build v0.5.0
+      - name: Build v0.6.0
         run: ./mvnw -B -ntp -DskipTests package
-      - name: Download the published v0.4.0 demo
+      - name: Download the published v0.5.0 demo
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$RUNNER_TEMP/triage-v04"
-          gh release download v0.4.0 --repo MoChiUaena/agent-triage --pattern agent-triage-0.4.0-demo.zip --dir "$RUNNER_TEMP/triage-v04"
-          python3 -c "import pathlib,zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); pathlib.Path(sys.argv[2]).write_bytes(z.read('agent-triage-0.4.0/lib/agent-triage.jar'))" "$RUNNER_TEMP/triage-v04/agent-triage-0.4.0-demo.zip" "$RUNNER_TEMP/triage-v04/agent-triage.jar"
+          mkdir -p "$RUNNER_TEMP/triage-v05"
+          gh release download v0.5.0 --repo MoChiUaena/agent-triage --pattern agent-triage-0.5.0-demo.zip --dir "$RUNNER_TEMP/triage-v05"
+          python3 -c "import pathlib,zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); pathlib.Path(sys.argv[2]).write_bytes(z.read('agent-triage-0.5.0/lib/agent-triage.jar'))" "$RUNNER_TEMP/triage-v05/agent-triage-0.5.0-demo.zip" "$RUNNER_TEMP/triage-v05/agent-triage.jar"
       - name: Verify saved history and model settings after upgrade
-        run: python3 scripts/upgrade_smoke.py --old-jar "$RUNNER_TEMP/triage-v04/agent-triage.jar" --new-jar target/agent-triage-0.5.0.jar
+        run: python3 scripts/upgrade_smoke.py --old-jar "$RUNNER_TEMP/triage-v05/agent-triage.jar" --new-jar target/agent-triage-0.6.0.jar

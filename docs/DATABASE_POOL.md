@@ -6,13 +6,13 @@
 
 ```powershell
 .\mvnw.cmd -f database-service/pom.xml verify
-java -jar database-service/target/triage-database-service-0.5.0.jar
+java -jar database-service/target/triage-database-service-0.6.0.jar
 ```
 
 带服务列表启动 Agent，其他样例服务启动方式不变：
 
 ```powershell
-java -jar target/agent-triage-0.5.0.jar --spring.config.additional-location=file:./examples/services.yml
+java -jar target/agent-triage-0.6.0.jar --spring.config.additional-location=file:./examples/services.yml
 ```
 
 页面选择“数据库账户样例”。可以生成正常请求、触发连接池耗尽，或释放连接并验证恢复。恢复操作先确认一次真实获取连接超时，再释放连接、清空样例窗口并执行新的正常请求；Agent 中已有的排查记录保留。

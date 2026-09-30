@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check a v0.4.0 to v0.5.0 restart against one isolated local data directory."""
+"""Check a prior release to current restart against one isolated local data directory."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -88,7 +88,7 @@ def main():
         assert value["status"] == "SUCCEEDED" and value["mode"] == "DEMO" and value["synthetic"] is True
         return value
 
-    old, old_log = start(old_jar, "v04")
+    old, old_log = start(old_jar, "prior")
     try:
         original = run()
         provider = request("/api/settings/providers", {"displayName": "升级测试", "protocol": "OPENAI_COMPATIBLE",
@@ -100,7 +100,7 @@ def main():
     finally:
         stop(old, old_log)
 
-    upgraded, upgraded_log = start(new_jar, "v05")
+    upgraded, upgraded_log = start(new_jar, "current")
     try:
         saved = request("/api/runs/" + original["id"])
         assert saved["status"] == original["status"] and saved["question"] == original["question"]
@@ -112,13 +112,14 @@ def main():
         listed = {item["id"] for item in request("/api/runs?limit=50")}
         assert {original["id"], newer["id"]} <= listed
         assert settings["selection"]["mode"] == "DEMO"
+        assert request("/api/history/retention?days=30")["eligibleCount"] == 0
     finally:
         stop(upgraded, upgraded_log)
 
     with socket.socket() as probe:
         probe.settimeout(1)
         assert probe.connect_ex(("127.0.0.1", args.port)) != 0, "Upgrade smoke process did not stop"
-    print("Upgrade passed: v0.4 history, encrypted provider, local key and new v0.5 run; zero model calls")
+    print("Upgrade passed: prior history, encrypted provider, local key and current run; no automatic cleanup or model calls")
     print(f"Isolated data and logs: {output}")
 
 
