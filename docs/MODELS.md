@@ -68,7 +68,7 @@ $env:TRIAGE_MODEL_API_KEY = [System.Net.NetworkCredential]::new('', (Read-Host '
 
 也可用启动参数 `--triage.model.max-rounds=4`、`--triage.model.max-tokens=1600` 设置。
 
-DeepSeek 和 Kimi K2.6 预设发送 `thinking.type=disabled`。百炼、GLM、LM Studio 和通用兼容接口不发送此参数。温度可在页面设置，环境变量模式默认为 0。不启用服务端 beta strict 模式，参数和输出由应用校验。各预设走 Chat Completions 接口；除已运行的百炼配置外，其他服务仍需实际凭据验证。
+DeepSeek 和 Kimi K2.6 预设发送 `thinking.type=disabled`。百炼、GLM、LM Studio 和通用兼容接口不发送此参数。温度可在页面设置，环境变量模式默认为 0。不启用服务端 beta strict 模式，参数和输出由应用校验。百炼、GLM、Kimi 和 LM Studio 已用本机 HTTP 服务核对请求路径、模型名、温度、认证头和非思考参数；这只检查客户端请求格式。除已运行的百炼配置外，其他服务仍需实际凭据验证。
 
 服务地址必须使用 HTTPS，本机服务可使用回环 HTTP 地址。地址不能携带用户名、密码或查询参数；HTTP 重定向不会被自动跟随。
 

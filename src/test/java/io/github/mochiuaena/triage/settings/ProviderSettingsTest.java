@@ -46,7 +46,7 @@ class ProviderSettingsTest {
     @BeforeEach void reset() {
         jdbc.update("DELETE FROM model_selection");
         jdbc.update("DELETE FROM model_providers");
-        MODEL.requests.clear(); MODEL.paths.clear(); MODEL.status = 200; MODEL.entered = null; MODEL.release = null;
+        MODEL.requests.clear(); MODEL.paths.clear(); MODEL.authorizations.clear(); MODEL.status = 200; MODEL.entered = null; MODEL.release = null;
     }
     @AfterAll static void shutdown() throws Exception { MODEL.close(); Files.deleteIfExists(KEY); Files.deleteIfExists(KEY_DIRECTORY); }
 
@@ -136,16 +136,52 @@ class ProviderSettingsTest {
 
     @ParameterizedTest
     @EnumSource(value = Protocol.class, names = {"DASHSCOPE", "GLM", "KIMI", "LM_STUDIO"})
-    void namedServicesCanBeSavedAndTestedThroughTheCompatibleEndpoint(Protocol protocol) {
+    void namedServicesUseTheirCompatiblePathAndRequestOptions(Protocol protocol) {
+        String path = switch (protocol) {
+            case DASHSCOPE -> "/compatible-mode/v1";
+            case GLM -> "/api/paas/v4";
+            case KIMI, LM_STUDIO -> "/v1";
+            default -> throw new IllegalArgumentException("Unexpected protocol");
+        };
+        String model = switch (protocol) {
+            case DASHSCOPE -> "qwen-plus";
+            case GLM -> "glm-5.3";
+            case KIMI -> "kimi-k2.6";
+            case LM_STUDIO -> "local-model";
+            default -> throw new IllegalArgumentException("Unexpected protocol");
+        };
+        double temperature = switch (protocol) {
+            case GLM -> 1.0;
+            case KIMI -> 0.6;
+            default -> 0.0;
+        };
         var body = input("test-provider-secret", 0); body.put("protocol", protocol.name());
-        body.put("model", protocol == Protocol.KIMI ? "kimi-k2.6" : "test-one");
-        body.put("temperature", protocol == Protocol.KIMI ? 0.6 : 0.2);
+        body.put("baseUrl", MODEL.url() + path);
+        body.put("model", model);
+        body.put("temperature", temperature);
         View provider = mutate(HttpMethod.POST, "/api/settings/providers", body, View.class).getBody();
         assertThat(provider.protocol()).isEqualTo(protocol);
         var response = mutate(HttpMethod.POST, "/api/settings/providers/" + provider.id() + "/test?version=1", null, TestResult.class);
         assertThat(response.getBody().success()).isTrue();
-        assertThat(MODEL.requests.getFirst().has("thinking")).isEqualTo(protocol == Protocol.KIMI);
-        assertThat(MODEL.requests.getFirst().path("temperature").asDouble()).isEqualTo(protocol == Protocol.KIMI ? 0.6 : 0.2);
+        assertThat(MODEL.paths).containsExactly(path + "/chat/completions");
+        assertThat(MODEL.authorizations).containsExactly("Bearer test-provider-secret");
+        JsonNode sent = MODEL.requests.getFirst();
+        assertThat(sent.path("model").asText()).isEqualTo(model);
+        assertThat(sent.path("temperature").asDouble()).isEqualTo(temperature);
+        assertThat(sent.path("max_tokens").asInt()).isEqualTo(32);
+        assertThat(sent.has("tools")).isFalse();
+        assertThat(sent.has("thinking")).isEqualTo(protocol == Protocol.KIMI);
+        if (protocol == Protocol.KIMI) assertThat(sent.at("/thinking/type").asText()).isEqualTo("disabled");
+    }
+
+    @Test void otherKimiModelsDoNotInheritK26ThinkingOptions() {
+        var body = input("test-provider-secret", 0); body.put("protocol", "KIMI");
+        body.put("baseUrl", MODEL.url() + "/v1"); body.put("model", "kimi-custom"); body.put("temperature", 1.0);
+        View provider = mutate(HttpMethod.POST, "/api/settings/providers", body, View.class).getBody();
+        assertThat(mutate(HttpMethod.POST, "/api/settings/providers/" + provider.id() + "/test?version=1", null, TestResult.class)
+            .getBody().success()).isTrue();
+        assertThat(MODEL.requests.getFirst().has("thinking")).isFalse();
+        assertThat(MODEL.requests.getFirst().path("temperature").asDouble()).isEqualTo(1.0);
     }
 
     @Test void kimiK26RejectsTemperatureOutsideItsNonThinkingSetting() {
@@ -235,6 +271,7 @@ class ProviderSettingsTest {
         final ExecutorService workers = Executors.newCachedThreadPool(Thread.ofPlatform().daemon(true).factory());
         final List<JsonNode> requests = new CopyOnWriteArrayList<>();
         final List<String> paths = new CopyOnWriteArrayList<>();
+        final List<String> authorizations = new CopyOnWriteArrayList<>();
         volatile int status = 200;
         volatile CountDownLatch entered, release;
         Stub() {
@@ -244,6 +281,7 @@ class ProviderSettingsTest {
                 com.sun.net.httpserver.HttpHandler handler = exchange -> {
                     try (exchange) {
                         paths.add(exchange.getRequestURI().getPath());
+                        authorizations.add(exchange.getRequestHeaders().getFirst("Authorization"));
                         JsonNode request = JSON.readTree(exchange.getRequestBody()); requests.add(request);
                         if (entered != null) entered.countDown();
                         if (release != null) { try { release.await(3, TimeUnit.SECONDS); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }
@@ -258,6 +296,8 @@ class ProviderSettingsTest {
                 };
                 server.createContext("/chat/completions", handler);
                 server.createContext("/v1/chat/completions", handler);
+                server.createContext("/compatible-mode/v1/chat/completions", handler);
+                server.createContext("/api/paas/v4/chat/completions", handler);
                 server.start();
             } catch (IOException e) { throw new IllegalStateException(e); }
         }
