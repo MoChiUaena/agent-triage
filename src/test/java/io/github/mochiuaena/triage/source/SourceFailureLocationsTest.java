@@ -75,6 +75,27 @@ class SourceFailureLocationsTest {
         assertThatThrownBy(() -> locator.match(evidence(frame), (id, focus) -> null,
             () -> { throw new RunFailure("RUN_CANCELLED", "fixture"); })).isInstanceOf(RunFailure.class);
     }
+    @Test void syntheticLambdaMapsOnlyToAnEnclosingMethodCandidate() throws Exception {
+        Index index = index("OwnerController.java", """
+            package fixture;
+            class OwnerController {
+                Object findOwner(int id) {
+                    return Optional.of(id)
+                        .orElseThrow(() -> new IllegalArgumentException());
+                }
+                Object showOwner(int id) { return null; }
+            }
+            """);
+        var frame = new FailureFrame("fixture.OwnerController", "lambda$findOwner$0", "OwnerController.java", 5);
+        var candidate = match(index, frame);
+        assertThat(candidate.state()).isEqualTo("LAMBDA_CANDIDATE");
+        assertThat(candidate.excerpts()).extracting(Excerpt::method).containsExactly("findOwner");
+        assertThat(candidate.version().state()).isEqualTo("UNKNOWN");
+        assertThat(match(index, new FailureFrame("fixture.OwnerController", "lambda$findOwner$0", "OwnerController.java", null)).state()).isEqualTo("UNMATCHED");
+        assertThat(match(index, new FailureFrame("fixture.OwnerController", "lambda$findOwner$0", "OwnerController.java", 7)).state()).isEqualTo("UNMATCHED");
+        assertThat(match(index, new FailureFrame("fixture.OwnerController", "lambda$unknown$0", "OwnerController.java", 5)).state()).isEqualTo("UNMATCHED");
+        assertThat(match(index, new FailureFrame("fixture.OwnerController", "lambda$findOwner$0", "OwnerController.java", 5, "f".repeat(64))).state()).isEqualTo("SOURCE_MISMATCH");
+    }
     @Test void buildDigestDistinguishesModuleCandidatesAndRefusesSameLineInDifferentSource() throws Exception {
         Index index = index("one/Gateway.java", "package fixture; class Gateway { void lookup() { } }");
         index = index("two/Gateway.java", "package fixture; class Gateway { void lookup() { int newer = 1; } }");

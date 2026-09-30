@@ -136,7 +136,7 @@ def main():
         assert len(matches) == 2 and all(match["kind"] == "REQUEST_EXCEPTION" for match in matches)
         frames = [frame for match in matches for frame in match["frames"]]
         assert any(frame["state"] == "LINE_MATCH" and frame["frame"]["methodName"] == "findOwner" for frame in frames)
-        assert any(frame["state"] == "UNMATCHED" and frame["frame"]["methodName"].startswith("lambda$") for frame in frames)
+        assert any(frame["state"] == "LAMBDA_CANDIDATE" and frame["frame"]["methodName"].startswith("lambda$") for frame in frames)
         for frame in frames:
             for excerpt in frame["excerpts"]:
                 lines = (public / excerpt["path"]).read_text(encoding="utf-8").splitlines()

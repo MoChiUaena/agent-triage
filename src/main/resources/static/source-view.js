@@ -61,7 +61,7 @@ window.sourceView = {
     const wrapper = element("section", "failure-locations");
     wrapper.append(element("h3", "call-graph-heading", "错误观测中的代码位置"),
       element("p", "source-result-note", "按错误时的业务调用位置匹配源码，请核对当前文件与运行版本。这些位置仅在本机展示。"));
-    const labels = { LINE_MATCH: "位置对应", CANDIDATE: "方法候选", AMBIGUOUS: "多个候选", LINE_MISMATCH: "行号不符", FILE_MISMATCH: "文件名不符", UNMATCHED: "索引外位置", STALE: "需要重新索引", SOURCE_MISMATCH:"源码不同" };
+    const labels = { LINE_MATCH: "位置对应", CANDIDATE: "方法候选", LAMBDA_CANDIDATE: "合成方法候选", AMBIGUOUS: "多个候选", LINE_MISMATCH: "行号不符", FILE_MISMATCH: "文件名不符", UNMATCHED: "索引外位置", STALE: "需要重新索引", SOURCE_MISMATCH:"源码不同" };
     for (const [index, match] of matches.entries()) {
       const details = element("details", "failure-event"); details.open = index === 0;
       const heading = element("summary", "", match.kind === "HTTP_CLIENT_FAILURE" ? "HTTP 调用失败时的线程位置" : "请求异常栈中的位置");
