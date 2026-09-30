@@ -2,10 +2,10 @@
 
 `triage-spring-boot-starter` 为同步 Spring MVC 应用提供 `/triage/observations`，复用 Agent 已有的 HTTP V1 和数据库 V2 契约。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
 
-当前源码版本为 0.5.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。已发布的 [v0.4.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.4.0) 仍提供旧版 JAR 与 POM；如需安装该版本，在附件所在目录运行：
+当前版本为 0.5.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。[v0.5.0 预览版](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.5.0)提供独立 Starter JAR/POM 和可选 Agent JAR；在附件所在目录安装 Starter：
 
 ```powershell
-mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.4.0.jar' '-DpomFile=triage-spring-boot-starter-0.4.0.pom'
+mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.5.0.jar' '-DpomFile=triage-spring-boot-starter-0.5.0.pom'
 ```
 
 也可在仓库根目录构建并安装 Starter：
@@ -217,7 +217,7 @@ Maven 项目可以在 `process-classes` 阶段生成清单，随后由打包步�
 java -javaagent:/path/to/triage-spring-boot-starter-0.5.0-agent.jar -jar application.jar
 ```
 
-这个入口不转换类，也不动态附加到进程。独立 JAR 不包含 Starter 或 Spring 类，避免系统类加载器抢先加载业务依赖。开启后，普通请求异常才会查询 JVM 已加载的类；只有类名在当前进程中唯一、栈帧的加载器名与模块名一致，且清单与实际类资源通过校验时，才给其他业务类的帧附上摘要。同名类被不同加载器重复定义、缺少构建清单或无法核验时，仍显示未知。查询只在已开启异常位置和版本核对的请求失败时进行；单实例应用的 Starter 最多自动枚举 20 次/秒，超出的异常帧保持未知，避免高频错误持续扫描全部类。v0.4.0 发布附件尚不包含这个可选入口，需从当前源码构建 Starter。
+这个入口不转换类，也不动态附加到进程。独立 JAR 不包含 Starter 或 Spring 类，避免系统类加载器抢先加载业务依赖。开启后，普通请求异常才会查询 JVM 已加载的类；只有类名在当前进程中唯一、栈帧的加载器名与模块名一致，且清单与实际类资源通过校验时，才给其他业务类的帧附上摘要。同名类被不同加载器重复定义、缺少构建清单或无法核验时，仍显示未知。查询只在已开启异常位置和版本核对的请求失败时进行；单实例应用的 Starter 最多自动枚举 20 次/秒，超出的异常帧保持未知，避免高频错误持续扫描全部类。v0.4.0 发布附件没有这个可选入口。
 
 [Petclinic 连续查询记录](validation/2026-09-30-runtime-class-lookup.md)给出一次 CI 环境的耗时和限频依据；目标服务的错误量与尾延迟仍需单独测量。
 

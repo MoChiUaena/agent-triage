@@ -1,7 +1,8 @@
 # 更新记录
 
-## 未发布
+## 0.5.0 — 2026-09-30
 
+- 使用 v0.4.0 发布包写入历史和加密模型配置，再由 v0.5.0 读取同一数据目录；旧记录、密钥和新执行均通过验收。[升级回归](https://github.com/MoChiUaena/agent-triage/actions/runs/36679637864)
 - 可选 Agent 的自动类查询限制为单实例每秒 20 次；新版打包加入独立 Agent JAR 和 SHA-256，旧 v0.4.0 附件仍可核验。[测量记录](docs/validation/2026-09-30-runtime-class-lookup.md)
 - 构建 Starter 时额外生成独立的 `-agent.jar`；启用后，普通请求异常可按唯一的运行类引用核对其他业务栈帧，重复类名和缺少构建证据时保持未知。[Petclinic 跨类异常复验](docs/validation/2026-09-30-petclinic-agent-class.md)已通过。
 - 不启用 Java Agent 时，与已选 MVC 处理类对应的异常帧可核对构建摘要；其他帧保持未知。[Petclinic 复验](docs/validation/2026-09-30-petclinic-request-version.md)已通过。
