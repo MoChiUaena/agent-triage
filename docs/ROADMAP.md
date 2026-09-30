@@ -112,6 +112,6 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 - [x] 固定规则和模型模式使用同一证据门槛；本地模型协议回归通过，旧记录仍按原样读取。
 - [x] 独立数据库样例和公开 Petclinic 验证了正常查询、SQL 失败、连接获取超时及恢复。[验收记录](validation/2026-09-30-sql-execution-phase.md)
 - [x] 历史页支持选择留存天数、预览并确认清理旧终态记录；默认不自动删除，排队和运行中记录保留。[H2 / PostgreSQL 回归](https://github.com/MoChiUaena/agent-triage/actions/runs/36691609141)
-- [ ] 验证 v0.5.0 历史与模型配置升级到 v0.6.0，构建、校验并发布 v0.6.0 预览版。
+- [x] 验证 [v0.5.0 历史与模型配置升级](https://github.com/MoChiUaena/agent-triage/actions/runs/36693625489)，构建、校验并公开 [v0.6.0 预览版](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0)。
 
 多用户鉴权、多实例协调和更多故障类型另列后续阶段；v0.6 不将单次 SQL 失败写成完整根因。
