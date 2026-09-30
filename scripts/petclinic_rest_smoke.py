@@ -148,7 +148,8 @@ def main():
                    for node in graph["nodes"])
         error_run = investigate(binding, failure, "Petclinic REST 验收异常")
         frames = [frame for match in error_run["sourceAnalysis"]["graph"]["failureMatches"] for frame in match["frames"]]
-        assert any("ProbeFailure" in frame["frame"]["className"] and frame["version"]["state"] == "MATCHED" for frame in frames)
+        frame_states = [(frame["frame"]["className"], frame["state"], frame["version"]["state"]) for frame in frames]
+        assert any("ProbeFailure" in name and version == "MATCHED" for name, _, version in frame_states), frame_states
 
         owner = public / "src/main/java/org/springframework/samples/petclinic/rest/controller/OwnerRestController.java"
         original_source = owner.read_bytes()
