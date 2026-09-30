@@ -2,7 +2,7 @@
 
 ## 未发布
 
-- 构建 Starter 时额外生成独立的 `-agent.jar`；启用后，普通请求异常可按唯一的运行类引用核对其他业务栈帧，重复类名和缺少构建证据时保持未知。
+- 构建 Starter 时额外生成独立的 `-agent.jar`；启用后，普通请求异常可按唯一的运行类引用核对其他业务栈帧，重复类名和缺少构建证据时保持未知。[Petclinic 跨类异常复验](docs/validation/2026-09-30-petclinic-agent-class.md)已通过。
 - 不启用 Java Agent 时，与已选 MVC 处理类对应的异常帧可核对构建摘要；其他帧保持未知。[Petclinic 复验](docs/validation/2026-09-30-petclinic-request-version.md)已通过。
 - 侧栏统一为四个固定页面入口；完整历史仍在工作区页面查看，统计和服务状态通过页内标签切换。
 - “新建排查”移到首页标题旁；窄屏的导航菜单在四个页面一致。
