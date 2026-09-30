@@ -80,7 +80,7 @@ def main():
     headers = {"X-Triage-Source": "1"}
 
     def investigate(binding, endpoint, label):
-        status, run = request(agent, "/api/runs", {"question": label + "，请核对接口和源码入口。",
+        status, run = request(agent, "/api/runs", {"question": label + "的请求延迟或下游超时有哪些证据？请核对接口和源码入口。",
             "service": "petclinic-rest-service", "windowMinutes": 5, "endpointId": endpoint["id"],
             "includeSource": True, "expectedSourceRevision": binding["revision"],
             "expectedSourceProjectId": binding["id"]}, headers)
@@ -90,6 +90,8 @@ def main():
             time.sleep(.1)
             _, run = request(agent, "/api/runs/" + run["id"])
         assert run["status"] in ("SUCCEEDED", "INSUFFICIENT_EVIDENCE") and valid_citations(run), run.get("failure")
+        assert {item["source"] for item in run["evidence"]} >= {"read_service_metrics", "query_error_logs"}, \
+            (run["status"], [item["source"] for item in run["evidence"]])
         assert run["modelExecution"] is None and not run["sourceAnalysis"]["modelUsed"]
         (output / (label + ".json")).write_text(json.dumps(run, ensure_ascii=False, indent=2), encoding="utf-8")
         return run
