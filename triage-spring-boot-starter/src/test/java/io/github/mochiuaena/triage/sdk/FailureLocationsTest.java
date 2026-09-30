@@ -90,6 +90,26 @@ class FailureLocationsTest {
         assertThat(value.errors().getFirst().failureLocation().frames()).hasSize(1);
         assertThat(TriageRequestFilter.CURRENT.get()).isNull();
     }
+    @Test void handledMvcExceptionRetainsItsLocationAndLeavesResolutionToTheApplication() throws Exception {
+        var recorder = new ObservationRecorder(properties());
+        var observer = new TriageHandledExceptionObserver(recorder);
+        var resolvers = new ArrayList<org.springframework.web.servlet.HandlerExceptionResolver>();
+        observer.extendHandlerExceptionResolvers(resolvers);
+        assertThat(resolvers).containsExactly(observer);
+        var error = new IllegalStateException("private-message");
+        error.setStackTrace(new StackTraceElement[]{new StackTraceElement("example.locations.BusinessFixture", "lookup", "BusinessFixture.java", 5)});
+        var response = new MockHttpServletResponse();
+        new TriageRequestFilter(recorder).doFilter(new MockHttpServletRequest("GET", "/api/handled-error"), response,
+            (req, res) -> {
+                assertThat(observer.resolveException((jakarta.servlet.http.HttpServletRequest) req,
+                    (jakarta.servlet.http.HttpServletResponse) res, new Object(), error)).isNull();
+                ((jakarta.servlet.http.HttpServletResponse) res).setStatus(500);
+            });
+        var window = (ObservationRecorder.EndpointWindow) recorder.endpointSnapshot(5, Instant.now(), null);
+        assertThat(window.errors().getFirst().failureLocation().frames()).extracting(FailureLocations.Frame::className)
+            .containsExactly("example.locations.BusinessFixture");
+        assertThat(TriageRequestFilter.CURRENT.get()).isNull();
+    }
     @Test void requestExceptionVersionsOnlyFramesOfTheSelectedMvcClass(@TempDir Path root) throws Exception {
         Path sources = Files.createDirectory(root.resolve("sources")), classes = Files.createDirectory(root.resolve("classes"));
         Path file = sources.resolve("Handler.java");

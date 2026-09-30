@@ -33,6 +33,10 @@ public class TriageObservationAutoConfiguration {
     }
     @Bean @ConditionalOnProperty(prefix = "triage.sdk", name = "endpoint-observations", havingValue = "true")
     TriageMvcEndpoints triageMvcEndpoints(TriageObservationProperties properties) { return new TriageMvcEndpoints(properties); }
+    @Bean @ConditionalOnProperty(prefix = "triage.sdk", name = "exception-locations", havingValue = "true")
+    TriageHandledExceptionObserver triageHandledExceptionObserver(ObservationRecorder recorder) {
+        return new TriageHandledExceptionObserver(recorder);
+    }
     @Bean(destroyMethod = "close") @ConditionalOnProperty(prefix = "triage.sdk", name = "kind", havingValue = "DATABASE")
     TriageJdbcObserver triageJdbcObserver(DataSource source, ObservationRecorder recorder) throws java.sql.SQLException {
         return new TriageJdbcObserver(source, recorder);
