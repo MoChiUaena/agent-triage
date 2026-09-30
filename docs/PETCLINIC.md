@@ -50,4 +50,4 @@ Starter 的请求前缀设为 `/owners/`，只采集这组原有业务路由：
 
 v0.4.0 发布时，普通异常栈没有可核验的运行类引用，异常位置的构建摘要保持未知；当时的接入检查因此是“部分完成”。当前源码默认核对与已选 MVC 处理类对应的异常帧；启用独立 Java Agent 后，进程内唯一加载的其他业务类也可核对。MVC 入口摘要一致不能替代整套运行代码的版本证明。`--jpa` 将 SQL 执行与连接获取观测登记为另一个服务，结果与限制见[数据库验收](validation/2026-09-30-petclinic-jpa.md)。
 
-首次本地结果见[验收记录](validation/2026-09-29-petclinic.md)，当前源码的异常摘要结果见[处理类复验](validation/2026-09-30-petclinic-request-version.md)和[跨类异常复验](validation/2026-09-30-petclinic-agent-class.md)。后者使用独立的可选 Java Agent，仅在验收模式启用辅助异常入口。
+首次本地结果见[验收记录](validation/2026-09-29-petclinic.md)，当前源码的异常摘要结果见[处理类复验](validation/2026-09-30-petclinic-request-version.md)和[跨类异常复验](validation/2026-09-30-petclinic-agent-class.md)。后者使用独立的可选 Java Agent，仅在验收模式启用辅助异常入口。[SQL 执行阶段复验](validation/2026-09-30-sql-execution-phase.md)保留了与连接获取超时的区别；v0.4.0 发布包中的旧判断不被改写。
