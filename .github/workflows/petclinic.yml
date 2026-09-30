@@ -34,9 +34,11 @@ jobs:
           ./mvnw -B -ntp -f "$public_dir/pom.xml" -DskipTests -Dcheckstyle.skip -Dspring-javaformat.skip package
       - name: Verify original requests, exceptions and source versions
         run: python3 scripts/petclinic_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic"
+      - name: Verify JPA SQL and connection-acquisition stages
+        run: python3 scripts/petclinic_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic" --jpa --base-port 18470
       - name: Confirm both verification processes stopped
         run: |
-          for endpoint in 18460/api/config 18461/actuator/health; do
+          for endpoint in 18460/api/config 18461/actuator/health 18470/api/config 18471/actuator/health; do
             if curl -fsS --max-time 2 "http://127.0.0.1:$endpoint" >/dev/null; then
               echo "Verification process at $endpoint did not stop" >&2
               exit 1

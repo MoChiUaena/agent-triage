@@ -2,19 +2,19 @@
 
 `triage-spring-boot-starter` 为同步 Spring MVC 应用提供 `/triage/observations`，复用 Agent 已有的 HTTP V1 和数据库 V2 契约。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
 
-当前源码版本为 0.3.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。可从 v0.3 候选包的输出目录取得独立 JAR 与 POM，在附件所在目录用 Maven 安装：
+当前 main 的源码版本为 0.4.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。已发布的 [v0.3.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.3.0) 提供独立 JAR 与 POM；在附件所在目录安装该版本：
 
 ```powershell
 mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.3.0.jar' '-DpomFile=triage-spring-boot-starter-0.3.0.pom'
 ```
 
-也可以在源码仓库根目录使用 Maven Wrapper 安装：
+使用当前源码中的 v0.4.0 时，可在仓库根目录构建并安装 Starter：
 
 ```powershell
 .\mvnw.cmd -B -ntp -f triage-spring-boot-starter/pom.xml install
 ```
 
-已经公开的 [v0.2.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.2.0)保留对应版本的独立附件；使用它时文件名和依赖版本均为 0.2.0。
+已经公开的 [v0.2.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.2.0)保留对应版本的独立附件；使用它时文件名和依赖版本均为 0.2.0。下面的基本 HTTP 接入依赖仍以已发布的 v0.3.0 为例；JPA 接入需要 v0.4.0。
 
 业务项目添加依赖：
 
@@ -89,7 +89,55 @@ return observer.query(connection -> {
 
 每次回调是一条观测操作，不等同于整条 HTTP 请求。获取连接耗时与回调耗时分别统计，查询耗时不含连接关闭时间；回调本身包含的其他计算也会计入查询阶段。回调异常仍按原类型向业务代码抛出，不保存异常正文。HikariCP 池满等待按 50ms 周期采样，获取连接超时与获取连接后的失败使用不同错误代码。
 
-这不是透明的 JDBC 代理。直接使用 `JdbcTemplate`、JPA 或已有事务中的连接不会被自动记录；回调内不要返回依赖已关闭连接的对象。连接池大小在运行中不应修改。
+上述显式回调模式不会自动采集 `JdbcTemplate` 或 JPA。回调内不要返回依赖已关闭连接的对象；连接池大小在运行中不应修改。
+
+## JPA 数据库观测
+
+v0.4.0 可在 HTTP V3 应用中另接入一个数据库观测服务。业务仓库方法保持原样，但需要显式提供使用观测包装的 Hikari `DataSource`。两个服务共用业务应用的本机端口，分别读取 HTTP 接口和数据库阶段：
+
+```yaml
+triage:
+  sdk:
+    enabled: true
+    service-id: petclinic-service
+    downstream-id: unobserved-http
+    downstream-base-url: http://127.0.0.1:1
+    request-path-prefix: /owners/
+    endpoint-observations: true
+    jpa-observations: true
+    jpa-service-id: petclinic-db-service
+    jpa-database-id: petclinic-h2
+```
+
+在 Spring 应用里提供 `DataSource` Bean；常见 Spring Data JPA 仓库会使用这一 Bean：
+
+```java
+@Bean(destroyMethod = "close")
+TriageJpaObserver.ObservedDataSource dataSource(DataSourceProperties properties,
+                                                 TriageJpaObserver observer) throws SQLException {
+    HikariDataSource pool = properties.initializeDataSourceBuilder().type(HikariDataSource.class).build();
+    return observer.wrap(pool);
+}
+```
+
+Agent 启动配置同时登记 `OBSERVATIONS_V3` 服务与以下数据库服务，`base-url` 使用同一本机应用 origin：
+
+```yaml
+    - id: petclinic-db-service
+      name: Spring Petclinic 数据库
+      downstream-id: petclinic-h2
+      downstream-name: H2
+      base-url: http://127.0.0.1:18471
+      protocol: DATABASE_V2
+      database-alias: true
+      max-window-minutes: 15
+```
+
+`database-alias` 仅适用于 `DATABASE_V2`，Agent 只访问固定的 `/triage/database-observations`；原有数据库接入仍读取 `/triage/observations`。两个观测接口都只接受本机读取。不开启 `jpa-observations` 时，不创建数据库观测 Bean；开启但未接入包装池时返回不可用，不会伪造空窗口。
+
+数据库 `requestCount` 表示被观测的 JDBC 执行次数加连接获取失败次数，可能多于 HTTP 请求数。获取连接和 `Statement.execute*` 分开计时；只记录阶段、耗时、固定错误代码和随机请求标识，不保存 SQL、参数或异常正文。获取连接超时与 SQL 执行失败保留原有 V2 错误代码和池采样规则。启动阶段、过滤器路径之外和其他线程的 JDBC 操作不计入业务窗口；`ResultSet` 遍历和直接取出底层连接后的调用暂未覆盖。原有 `TriageJdbcObserver` 显式回调模式继续可用。
+
+[官方 Petclinic 验收](PETCLINIC.md)给出可运行配置与实际结果。其额外的测试故障入口只存在于验收配置类，Starter 不提供故障控制接口。
 
 ## 在 Agent 中登记
 

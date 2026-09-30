@@ -106,7 +106,10 @@ def main():
         return value
 
     def database_run(label):
-        status, run = request(agent, "/api/runs", {"question": label + "数据库查询为什么变慢？", "service": "petclinic-db-service", "windowMinutes":5})
+        questions = {"Petclinic JPA 正常查询": "Petclinic 数据库的 JPA 查询是否正常？",
+            "Petclinic SQL 阶段错误": "Petclinic 的 SQL 执行失败是否意味着连接池耗尽？",
+            "Petclinic 连接获取超时": "Petclinic 的连接池耗尽有哪些证据？"}
+        status, run = request(agent, "/api/runs", {"question": questions[label], "service": "petclinic-db-service", "windowMinutes":5})
         assert status == 202, (status, run)
         deadline = time.monotonic() + 15
         while run["status"] in ("RUNNING", "QUEUED") and time.monotonic() < deadline:
@@ -250,7 +253,10 @@ def main():
             "agentUrl": agent, "applicationUrl": application, "pids": [child.pid for child in children]}
         if database_results: summary["database"] = database_results
         (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
-        print("Petclinic passed: original MVC pages, actual application exceptions, local source lines, build mismatch, frozen history and zero model calls")
+        if database_results:
+            print("Petclinic JPA passed: observed statements, SQL-stage failure, acquisition timeout, pool contention and recovery; zero model calls")
+        else:
+            print("Petclinic passed: original MVC pages, actual application exceptions, local source lines, build mismatch, frozen history and zero model calls")
         print(f"Saved isolated verification to {output}")
         if args.keep_running:
             retained = True

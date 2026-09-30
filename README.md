@@ -49,6 +49,8 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 包内登记五个服务，统一启动八个进程。端口、源码演示与升级方法见 [v0.3.0 说明](docs/releases/v0.3.0.md)；包内 `SOURCE_DEMO.md` 可以逐步操作。[v0.1.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.1.0) 与 [v0.2.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.2.0) 的附件保留原版本。
 
+main 已进入 v0.4.0 开发：新增可选的 [JPA 数据库观测](docs/STARTER.md#jpa-数据库观测)，并在[官方 Petclinic 验收](docs/PETCLINIC.md)中区分 SQL 执行错误与连接获取超时。范围见[v0.4.0 候选说明](docs/releases/v0.4.0.md)；v0.3.0 下载附件保持发布时的功能。
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
 ```

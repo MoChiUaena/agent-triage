@@ -28,7 +28,7 @@ public final class DatabaseDiagnosis {
             var logs = selected.stream().filter(e -> e.source().equals("query_error_logs")).findFirst().orElseThrow();
             var rule = selected.stream().filter(e -> e.source().equals("search_runbooks") && e.id().startsWith(required)).findFirst().orElseThrow();
             causes = List.of(new Finding(exhausted
-                ? "本窗口发生数据库连接获取超时，采样也记录了连接池满载与等待线程；" + info.name() + "请求可能受连接池耗尽影响。"
+                ? "本窗口发生数据库连接获取超时，采样也记录了连接池满载与等待线程；" + info.name() + "的操作可能受连接池耗尽影响。"
                 : "本窗口未发现连接池耗尽的超时证据；仍需检查 SQL 耗时和其他延迟来源。", List.of(metrics.id(), logs.id(), rule.id())));
         }
         return new Diagnosis(observations, causes, steps, success

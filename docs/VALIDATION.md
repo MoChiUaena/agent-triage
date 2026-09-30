@@ -12,6 +12,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+v0.4 数据库增量：主项目 256 项测试无失败，Windows 下 1 项符号链接权限检查跳过；Starter 22 项、商品 HTTP/JDBC 集成检查与[公开 Petclinic 的本机 JPA 验收](validation/2026-09-30-petclinic-jpa.md)通过。新检查覆盖固定数据库别名、真实 Hikari 连接获取超时、SQL 执行失败、样本满载等待、恢复、窗口隔离及 SQL 文本不进入观测。普通异常的 lambda 位置标为候选，构建摘要仍保持未知。
+
 公开项目增量：主项目 253 项测试无失败，Windows 下 1 项符号链接权限检查跳过。新增 HTTP 回归检查普通请求异常返回证据不足、没有下游归因且仍保留本机代码位置。[官方 Petclinic 验收](validation/2026-09-29-petclinic.md)覆盖原有业务请求、实际异常、MVC 入口摘要、源码差异与历史快照；[复现步骤](PETCLINIC.md)区分已验证内容与 JPA、lambda 和异常摘要的缺口。
 
 v0.3 发布包检查：主项目 252 项测试无失败，Windows 下 1 项符号链接权限检查跳过；Starter 21 项及订单、库存、数据库、商品、工单、分配模块构建通过。免构建 ZIP 校验了 24 个文件、独立 Starter JAR/POM，以及六个工单源码文件和运行 class 的构建摘要。

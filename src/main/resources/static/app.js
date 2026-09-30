@@ -109,6 +109,7 @@ async function loadConfiguration(serviceId = $("#service").value) {
     if (!["DEMO", "MODEL"].includes(config.mode))
       throw new Error("运行模式无效。");
     runtimeConfig = config;
+    const databaseService = config.services.find(target => target.id === config.service)?.protocol === "DATABASE_V2";
     $("#service").replaceChildren(...config.services.map(target => {
       const option = element("option", "", target.name + " · " + target.id);
       option.value = target.id;
@@ -116,10 +117,13 @@ async function loadConfiguration(serviceId = $("#service").value) {
     }));
     $("#service").value = config.service;
     $("#workspace-service").textContent = config.service;
-    $("#question").placeholder = "描述问题，例如：" + config.serviceInfo.name + "请求为什么变慢了？";
-    const defaultQuestions = ["服务请求为什么变慢了？", ...config.services.map(target => target.name + "请求为什么变慢了？")];
+    const exampleQuestion = databaseService ? config.serviceInfo.name + "的操作是否出现连接等待？"
+      : config.serviceInfo.name + "请求为什么变慢了？";
+    $("#question").placeholder = "描述问题，例如：" + exampleQuestion;
+    const defaultQuestions = ["服务请求为什么变慢了？", ...config.services.flatMap(target =>
+      [target.name + "请求为什么变慢了？", target.name + "的操作是否出现连接等待？"])];
     if (defaultQuestions.includes($("#question").value.trim()))
-      $("#question").value = config.serviceInfo.name + "请求为什么变慢了？";
+      $("#question").value = exampleQuestion;
     const previousWindow = Number($("#window").value);
     const windows = [5, 15, 60].filter(value => value <= config.maxWindowMinutes);
     if (!windows.includes(config.maxWindowMinutes)) windows.push(config.maxWindowMinutes);
@@ -141,10 +145,10 @@ async function loadConfiguration(serviceId = $("#service").value) {
       $("#mode-description").textContent = !config.observationAvailable
         ? config.observationMessage || "所选服务的观测接口未连接，请检查服务是否运行。"
         : config.mode === "MODEL"
-          ? "读取 " + config.serviceInfo.name + " 的实际请求数据，并发送给模型 " +
+          ? "读取 " + config.serviceInfo.name + (databaseService ? " 的实际数据库操作数据，并发送给模型 " : " 的实际请求数据，并发送给模型 ") +
             config.model +
             "。"
-          : "读取所选服务的实际请求数据，按固定规则生成结论。";
+          : "读取所选服务的实际" + (databaseService ? "数据库操作" : "请求") + "数据，按固定规则生成结论。";
       if (config.observationAvailable && config.observationRequestCount === 0)
         $("#mode-description").textContent = config.observationMessage;
       $("#composer-note").textContent = config.observationAvailable
@@ -163,7 +167,7 @@ async function loadConfiguration(serviceId = $("#service").value) {
           : "仅查询所选服务的演示数据";
     }
     $("#context-note").textContent = live
-      ? "指标和错误事件来自 " + config.serviceInfo.name + " 的实际请求。"
+      ? "指标和错误事件来自 " + config.serviceInfo.name + (databaseService ? " 的实际数据库操作。" : " 的实际请求。")
       : "演示数据仅供本地测试。";
     $("#config-retry").hidden = !live || config.observationAvailable;
     document.querySelectorAll("[data-lab-scenario]").forEach((button) => {
@@ -485,12 +489,12 @@ function renderMetrics(run) {
   const data = evidence.data;
   if (data.observationType === "DATABASE_POOL") {
     const pool = data.databasePool;
-    const values = [["请求 p95", data.requestCount ? data.requestP95Ms : null, "ms", "最近 " + run.windowMinutes + " 分钟"],
+    const values = [["数据库操作 p95", data.requestCount ? data.requestP95Ms : null, "ms", "最近 " + run.windowMinutes + " 分钟"],
       ["获取连接 p95", data.requestCount ? pool.acquisitionP95Ms : null, "ms", "与 SQL 执行阶段分开统计"],
       ["SQL 查询 p95", pool.queryCount ? pool.queryP95Ms : null, "ms", pool.queryCount ? "实际查询数 " + pool.queryCount : "本窗口未执行 SQL 查询"],
       ["连接占用峰值", pool.peakActiveConnections, "", "池上限 " + pool.maximumConnections],
       ["等待线程峰值", pool.peakPendingThreads, "", "窗口内采样峰值"],
-      ["获取连接超时", pool.acquisitionTimeoutCount, "次", "窗口内请求数 " + data.requestCount]];
+      ["获取连接超时", pool.acquisitionTimeoutCount, "次", "窗口内操作数 " + data.requestCount]];
     for (const [label, value, unit, caption] of values) {
       const card = element("div", "metric" + (pool.acquisitionTimeoutCount > 0 && label !== "SQL 查询 p95" ? " warning" : ""));
       const number = element("div", "metric-value", value == null ? "—" : Number(value).toLocaleString("zh-CN"));
@@ -740,12 +744,12 @@ function renderEvidence(run) {
       const data = evidence.data;
       const table = element("dl", "metric-table");
       const rows = data.observationType === "DATABASE_POOL" ? [
-        ["请求 p95", data.requestP95Ms + " ms"], ["获取连接 p95", data.databasePool.acquisitionP95Ms + " ms"],
+        ["数据库操作 p95", data.requestP95Ms + " ms"], ["获取连接 p95", data.databasePool.acquisitionP95Ms + " ms"],
         ["SQL 查询 p95", data.databasePool.queryCount ? data.databasePool.queryP95Ms + " ms" : "未执行"],
         ["实际 SQL 查询数", data.databasePool.queryCount], ["连接占用峰值 / 上限", data.databasePool.peakActiveConnections + " / " + data.databasePool.maximumConnections],
         ["等待线程峰值", data.databasePool.peakPendingThreads], ["连接池满载且有等待的采样数", data.databasePool.exhaustedSamples],
         ["获取连接超时 / 失败", data.databasePool.acquisitionTimeoutCount + " / " + data.databasePool.acquisitionErrorCount],
-        ["SQL 查询失败", data.databasePool.queryErrorCount], ["窗口内请求数", data.requestCount],
+        ["SQL 查询失败", data.databasePool.queryErrorCount], ["窗口内操作数", data.requestCount],
         ["查询窗口", timeText(data.windowStart) + " – " + timeText(data.windowEnd)],
       ] : [
         [data.endpointScoped ? "接口请求 p95" : "服务请求 p95", (data.requestP95Ms ?? data.orderP95Ms) + " ms"],
