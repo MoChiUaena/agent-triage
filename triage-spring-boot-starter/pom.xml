@@ -16,4 +16,17 @@
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-test</artifactId><scope>test</scope></dependency>
     <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
   </dependencies>
+  <build><plugins><plugin>
+    <groupId>org.apache.maven.plugins</groupId><artifactId>maven-jar-plugin</artifactId>
+    <executions><execution>
+      <id>runtime-class-agent</id><phase>package</phase><goals><goal>jar</goal></goals>
+      <configuration>
+        <classifier>agent</classifier>
+        <includes><include>io/github/mochiuaena/triage/sdk/RuntimeClassAgent.class</include></includes>
+        <archive><manifestEntries>
+          <Premain-Class>io.github.mochiuaena.triage.sdk.RuntimeClassAgent</Premain-Class>
+        </manifestEntries></archive>
+      </configuration>
+    </execution></executions>
+  </plugin></plugins></build>
 </project>

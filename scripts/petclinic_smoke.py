@@ -68,13 +68,13 @@ def main():
     retained = False
     headers = {"X-Triage-Source": "1"}
 
-    def start(name, jar, options):
+    def start(name, jar, options, java_options=()):
         assert jar.is_file(), f"Build {name} first"
         runtime = output / (name + ".jar")
         shutil.copyfile(jar, runtime)
         stream = (output / (name + ".log")).open("wb")
         handles.append(stream)
-        children.append(subprocess.Popen([java, "-jar", str(runtime), *options], cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
+        children.append(subprocess.Popen([java, *java_options, "-jar", str(runtime), *options], cwd=ROOT, stdout=stream, stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0))
 
     def business(path, expected):
@@ -134,13 +134,16 @@ def main():
         return run
 
     try:
+        class_agent = ROOT / "triage-spring-boot-starter/target/triage-spring-boot-starter-0.4.0-agent.jar"
+        assert class_agent.is_file(), "Build the observation class Agent first"
         start("petclinic", public / "target/spring-petclinic-3.5.0-SNAPSHOT.jar", [f"--server.port={args.base_port + 1}", "--server.address=127.0.0.1",
             "--triage.sdk.enabled=true", "--triage.sdk.service-id=petclinic-service", "--triage.sdk.downstream-id=unobserved-http",
             "--triage.sdk.downstream-base-url=http://127.0.0.1:1", "--triage.sdk.request-path-prefix=/owners/",
             "--triage.sdk.endpoint-observations=true", "--triage.sdk.exception-locations=true", "--triage.sdk.source-version-checks=true",
             "--triage.sdk.application-packages=org.springframework.samples.petclinic",
             f"--triage.sdk.jpa-observations={str(args.jpa).lower()}", "--triage.sdk.jpa-service-id=petclinic-db-service",
-            "--triage.sdk.jpa-database-id=petclinic-h2", f"--triage.verification.lab-enabled={str(args.jpa).lower()}"])
+            "--triage.sdk.jpa-database-id=petclinic-h2", f"--triage.verification.lab-enabled={str(args.jpa).lower()}"],
+            [f"-javaagent:{class_agent}"])
         artifact, version = project(ROOT)
         start("agent", ROOT / "target" / f"{artifact}-{version}.jar", [f"--server.port={args.base_port}", "--triage.mode=DEMO",
             f"--spring.config.additional-location={configuration.as_uri()}",
@@ -244,9 +247,18 @@ def main():
             assert database_window()["databasePool"]["queryCount"] > exhausted["databasePool"]["queryCount"]
             db_statistics = request(agent, "/api/statistics?days=7&service=petclinic-db-service")[1]
             assert db_statistics["total"] == 3 and db_statistics["modelCalls"] == 0
+            assert post_lab("/owners/verification-class-error") == 500
+            _, probe_choices = request(agent, "/api/services/petclinic-service/endpoints?windowMinutes=5")
+            probe_endpoint = next(item["endpoint"] for item in probe_choices["endpoints"]
+                                  if item["endpoint"]["routeTemplate"] == "/owners/verification-class-error")
+            probe_run = investigate(probe_endpoint, "Petclinic 验收辅助类异常")
+            probe_frames = [frame for match in probe_run["sourceAnalysis"]["graph"]["failureMatches"]
+                            for frame in match["frames"]]
+            assert any("ProbeFailure" in frame["frame"]["className"] and frame["version"]["state"] == "MATCHED"
+                       for frame in probe_frames), probe_frames
             database_results = {"healthyQueries": healthy_db["databasePool"]["queryCount"], "queryErrors":sql_db["databasePool"]["queryErrorCount"],
                 "acquisitionTimeouts":exhausted["databasePool"]["acquisitionTimeoutCount"], "exhaustedSamples":exhausted["databasePool"]["exhaustedSamples"],
-                "runStatuses":[healthy_run["status"], sql_run["status"], pool_run["status"]]}
+                "runStatuses":[healthy_run["status"], sql_run["status"], pool_run["status"]], "agentClassLookup":"MATCHED"}
         summary = {"upstreamCommit": revision, "mode": "DEMO", "observation": "LIVE", "requests": 6, "businessErrors": 2,
             "indexedFiles": binding["files"], "indexedSymbols": binding["symbols"], "parseFailures": binding["parseFailures"],
             "normalRun": normal["id"], "errorRun": failed["id"], "differentRun": different["id"],
@@ -256,7 +268,7 @@ def main():
         if database_results: summary["database"] = database_results
         (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         if database_results:
-            print("Petclinic JPA passed: observed statements, SQL-stage failure, acquisition timeout, pool contention and recovery; zero model calls")
+            print("Petclinic JPA passed: SQL stages, pool recovery and unique runtime-class source version; zero model calls")
         else:
             print("Petclinic passed: original MVC pages, actual application exceptions, local source lines, build mismatch, frozen history and zero model calls")
         print(f"Saved isolated verification to {output}")

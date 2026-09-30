@@ -26,8 +26,6 @@ final class FailureLocations {
         boolean truncated = cause != null;
         var frames = new LinkedHashSet<Frame>();
         var versions = new HashMap<StackTraceElement, String>();
-        String handlerHash = properties.isSourceVersionChecks() && "REQUEST_EXCEPTION".equals(kind) && selectedHandlerClass != null
-            ? SourceBuildVersions.sourceHash(selectedHandlerClass) : null;
         if (properties.isSourceVersionChecks() && "HTTP_CLIENT_FAILURE".equals(kind)) {
             try {
                 StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).walk(stream -> {
@@ -39,6 +37,26 @@ final class FailureLocations {
         }
         List<StackTraceElement[]> stacks = "HTTP_CLIENT_FAILURE".equals(kind)
             ? Collections.singletonList(Thread.currentThread().getStackTrace()) : causes.stream().map(Throwable::getStackTrace).toList();
+        var loadedClasses = new HashMap<String, Class<?>>();
+        boolean agentActive = false;
+        if (properties.isSourceVersionChecks() && "REQUEST_EXCEPTION".equals(kind)) {
+            var names = new LinkedHashSet<String>();
+            for (var stack : stacks) {
+                for (int i = 0; i < Math.min(128, stack.length) && names.size() < 8; i++) {
+                    var frame = stack[i];
+                    if (properties.getApplicationPackages().stream().anyMatch(prefix -> frame.getClassName().startsWith(prefix + "."))
+                        && javaName(frame.getClassName(), 240, true) && method(frame.getMethodName())) names.add(frame.getClassName());
+                }
+            }
+            if (!names.isEmpty()) {
+                String[] requested = names.toArray(String[]::new);
+                var found = RuntimeClassLookup.find(requested);
+                agentActive = found.active();
+                for (int i = 0; i < requested.length; i++) if (found.classes()[i] != null) loadedClasses.put(requested[i], found.classes()[i]);
+            }
+        }
+        String handlerHash = !agentActive && properties.isSourceVersionChecks() && "REQUEST_EXCEPTION".equals(kind) && selectedHandlerClass != null
+            ? SourceBuildVersions.sourceHash(selectedHandlerClass) : null;
         for (var stack : stacks) {
             if (stack.length > 128) truncated = true;
             for (int i = 0; i < Math.min(128, stack.length); i++) {
@@ -48,6 +66,8 @@ final class FailureLocations {
                 String file = frame.getFileName();
                 if (file != null && !file.matches("[\\p{L}\\p{N}_$-]{1,150}\\.java")) file = null;
                 String hash = versions.get(frame);
+                Class<?> loaded = loadedClasses.get(frame.getClassName());
+                if (hash == null && loaded != null && selectedClassFrame(frame, loaded)) hash = SourceBuildVersions.sourceHash(loaded);
                 if (hash == null && handlerHash != null && selectedClassFrame(frame, selectedHandlerClass)) hash = handlerHash;
                 var value = new Frame(frame.getClassName(), frame.getMethodName(), file,
                     frame.getLineNumber() > 0 && frame.getLineNumber() <= 1_000_000 ? frame.getLineNumber() : null, hash);

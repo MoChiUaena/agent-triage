@@ -62,5 +62,17 @@ public class PetclinicTriageConfiguration {
                 return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
             }
         }
+
+        @PostMapping("/owners/verification-class-error")
+        public ResponseEntity<Void> classError(@RequestHeader(value = "X-Triage-Lab", required = false) String header,
+                                               HttpServletRequest request) {
+            local(request, header);
+            ProbeFailure.fail();
+            return ResponseEntity.noContent().build();
+        }
+
+        static final class ProbeFailure {
+            static void fail() { throw new IllegalStateException("verification-only failure"); }
+        }
     }
 }

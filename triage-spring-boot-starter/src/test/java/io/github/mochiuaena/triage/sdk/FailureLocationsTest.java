@@ -2,11 +2,14 @@ package io.github.mochiuaena.triage.sdk;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import example.locations.BusinessFixture;
+import java.lang.instrument.Instrumentation;
+import java.lang.reflect.Proxy;
 import java.net.SocketTimeoutException;
 import java.net.URLClassLoader;
 import java.nio.file.*;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.tools.ToolProvider;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -112,6 +115,25 @@ class FailureLocationsTest {
             assertThat(FailureLocations.capture(failure, configured, "REQUEST_EXCEPTION", selected).frames())
                 .extracting(FailureLocations.Frame::sourceHash).containsOnlyNulls();
             configured.setSourceVersionChecks(true);
+            var loaded = new AtomicReference<Class<?>[]>();
+            var runtime = (Instrumentation) Proxy.newProxyInstance(getClass().getClassLoader(), new Class<?>[]{Instrumentation.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("getAllLoadedClasses")) return loaded.get();
+                    throw new UnsupportedOperationException(method.getName());
+                });
+            Class<?> helper = loader.loadClass("example.locations.Helper");
+            try (var duplicate = new URLClassLoader(new java.net.URL[]{classes.toUri().toURL()}, null)) {
+                RuntimeClassAgent.premain("", runtime);
+                loaded.set(new Class<?>[]{selected, helper});
+                var resolved = FailureLocations.capture(failure, configured, "REQUEST_EXCEPTION", selected);
+                assertThat(resolved.frames()).extracting(FailureLocations.Frame::sourceHash).containsExactly(expected, expected);
+                loaded.set(new Class<?>[]{selected, helper, duplicate.loadClass("example.locations.Helper")});
+                var ambiguousHelper = FailureLocations.capture(failure, configured, "REQUEST_EXCEPTION", selected);
+                assertThat(ambiguousHelper.frames()).extracting(FailureLocations.Frame::sourceHash).containsExactly((String) null, expected);
+                loaded.set(new Class<?>[]{selected, duplicate.loadClass("example.locations.Handler"), helper});
+                var ambiguousHandler = FailureLocations.capture(failure, configured, "REQUEST_EXCEPTION", selected);
+                assertThat(ambiguousHandler.frames()).extracting(FailureLocations.Frame::sourceHash).containsExactly(expected, (String) null);
+            } finally { RuntimeClassAgent.premain("", null); }
             failure.setStackTrace(new StackTraceElement[]{new StackTraceElement("another-loader", null, null,
                 selected.getName(), "fail", "Handler.java", 1)});
             assertThat(FailureLocations.capture(failure, configured, "REQUEST_EXCEPTION", selected).frames().getFirst().sourceHash()).isNull();
