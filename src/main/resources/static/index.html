@@ -12,54 +12,27 @@
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/typography.css" />
     <link rel="stylesheet" href="/theme.css" />
-    <link rel="stylesheet" href="/workspace.css" />
     <link rel="stylesheet" href="/sources.css" />
+    <script src="/navigation.js" defer></script>
     <script src="/source-view.js" defer></script>
     <script src="/app.js" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main">跳转到内容</a>
     <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
-    <aside class="sidebar" id="sidebar" aria-label="工作区导航">
+    <aside class="sidebar settings-sidebar" id="sidebar" aria-label="工作区导航">
       <a class="brand" href="/" aria-label="Agent Triage 首页">
         <span class="brand-mark"
           ><svg class="icon"><use href="/icons.svg#activity" /></svg
         ></span>
         <span>Agent Triage</span><span class="version">v0.4</span>
       </a>
-      <button class="new-run" id="new-run" type="button">
-        <svg class="icon"><use href="/icons.svg#plus" /></svg>新建排查
-      </button>
-      <div class="sidebar-section">
-        <h2>最近排查</h2>
-        <button
-          class="icon-button"
-          id="refresh-history"
-          type="button"
-          aria-label="刷新执行记录"
-          title="刷新"
-        >
-          <svg class="icon"><use href="/icons.svg#refresh" /></svg>
-        </button>
-      </div>
-      <label class="history-search">
-        <svg class="icon"><use href="/icons.svg#search" /></svg>
-        <input
-          id="history-search"
-          type="search"
-          placeholder="搜索最近记录…"
-          aria-label="搜索执行记录"
-          autocomplete="off"
-        />
-      </label>
-      <div id="history" class="history" aria-label="执行记录">
-        <p class="sidebar-empty">正在加载…</p>
-      </div>
-      <a class="all-history-link" href="/workspace.html">全部记录与筛选 <svg class="icon"><use href="/icons.svg#arrow" /></svg></a>
-      <a class="settings-nav" href="/sources.html"><svg class="icon"><use href="/icons.svg#file" /></svg>项目源码</a>
-      <a class="settings-nav" href="/settings.html"
-        ><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a
-      >
+      <nav class="settings-links" aria-label="主导航">
+        <a href="/" aria-current="page"><svg class="icon"><use href="/icons.svg#search" /></svg>服务排查</a>
+        <a href="/workspace.html"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史与统计</a>
+        <a href="/sources.html"><svg class="icon"><use href="/icons.svg#file" /></svg>项目源码</a>
+        <a href="/settings.html"><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a>
+      </nav>
       <div class="sidebar-footer">
         <svg class="icon"><use href="/icons.svg#server" /></svg>
         <div><strong>本地工作区</strong><span id="workspace-service">读取服务</span></div>
@@ -72,7 +45,7 @@
           class="icon-button mobile-menu"
           id="sidebar-toggle"
           type="button"
-          aria-label="打开执行记录"
+          aria-label="打开导航菜单"
           aria-controls="sidebar"
           aria-expanded="false"
         >
@@ -108,6 +81,7 @@
             <h1>服务排查</h1>
             <p>查询服务观测，结合本机项目源码定位需要检查的代码。</p>
           </div>
+          <button class="new-run" id="new-run" type="button"><svg class="icon"><use href="/icons.svg#plus" /></svg>新建排查</button>
         </div>
         <section
           class="live-lab"
@@ -261,7 +235,7 @@
                     ><svg class="icon"><use href="/icons.svg#search" /></svg
                   ></span>
                   <h3>还没有排查结果</h3>
-                  <p>输入问题并开始排查，或从左侧打开已有记录。</p>
+                  <p>输入问题并开始排查，或到“历史与统计”打开已有记录。</p>
                 </div>
               </div>
             </div>

@@ -1,29 +1,6 @@
 .settings-sidebar .sidebar-footer {
   margin-top: auto;
 }
-.settings-links {
-  display: grid;
-  gap: 5px;
-  padding: 5px;
-}
-.settings-links a {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  text-decoration: none;
-  border-radius: 5px;
-  padding: 10px;
-  color: var(--muted);
-  font-size: 12px;
-}
-.settings-links a[aria-current] {
-  background: #e9ecf5;
-  color: var(--ink);
-  font-weight: 500;
-}
-.settings-links a:hover {
-  background: #eceef3;
-}
 .back-link {
   margin-left: auto;
   text-decoration: none;
@@ -372,9 +349,6 @@ dialog form {
   }
 }
 @media (max-width: 720px) {
-  .settings-sidebar {
-    display: none;
-  }
   .settings-workspace {
     padding: 24px 18px;
   }

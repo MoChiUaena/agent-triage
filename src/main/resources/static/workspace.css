@@ -36,7 +36,6 @@
 #delete-question { font-size: 14px; overflow-wrap: anywhere; }
 #delete-detail { margin-top: 8px; }
 .delete-warning { margin-top: 18px; color: var(--muted); font-size: 13px; line-height: 1.8; }
-.all-history-link { display: flex; align-items: center; justify-content: space-between; text-decoration: none; padding: 11px 9px; border-top: 1px solid var(--line); color: var(--accent); font-size: 12px; }
 .workspace-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
 .workspace-tabs button { padding: 10px 3px 12px; font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent; }
 .workspace-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }

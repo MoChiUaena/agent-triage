@@ -9,10 +9,12 @@
     <link rel="stylesheet" href="/settings.css" />
     <link rel="stylesheet" href="/typography.css" />
     <link rel="stylesheet" href="/theme.css" />
+    <script src="/navigation.js" defer></script>
     <script src="/settings.js" defer></script>
   </head>
   <body class="settings-page">
-    <aside class="sidebar settings-sidebar" aria-label="工作区导航">
+    <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+    <aside class="sidebar settings-sidebar" id="sidebar" aria-label="工作区导航">
       <a class="brand" href="/" aria-label="Agent Triage 首页"
         ><span class="brand-mark"
           ><svg class="icon"><use href="/icons.svg#activity" /></svg></span
@@ -22,7 +24,7 @@
         <a href="/"
           ><svg class="icon"><use href="/icons.svg#search" /></svg>服务排查</a
         >
-        <a href="/workspace.html"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史记录</a>
+        <a href="/workspace.html"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史与统计</a>
         <a href="/sources.html"><svg class="icon"><use href="/icons.svg#file" /></svg>项目源码</a>
         <a href="/settings.html" aria-current="page"
           ><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a
@@ -35,6 +37,7 @@
     </aside>
     <div class="app-shell">
       <header class="topbar">
+        <button class="icon-button mobile-menu" id="sidebar-toggle" type="button" aria-label="打开导航菜单" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="/icons.svg#menu" /></svg></button>
         <nav class="breadcrumb" aria-label="当前位置">
           <a href="/">工作区</a><span class="divider">/</span
           ><strong>模型设置</strong>

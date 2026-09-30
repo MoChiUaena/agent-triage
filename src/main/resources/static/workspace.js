@@ -215,7 +215,6 @@ function selectTab(value) {
   $("#workspace-title").textContent = title; $("#page-title").textContent = title; document.title = title + " · Agent Triage";
   $("#page-description").textContent = { history: "按服务、接口、执行状态和日期查找已保存的排查。", statistics: "按服务和接口查看排查结果、耗时与已知用量。", services: "核对服务连通性、观测协议和当前窗口请求。" }[activeTab];
   document.querySelectorAll("[data-workspace-tab]").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.workspaceTab === activeTab)));
-  document.querySelectorAll("[data-workspace-nav]").forEach((link) => { if (link.dataset.workspaceNav === activeTab) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current"); });
   $("#history-panel").hidden = activeTab !== "history"; $("#statistics-panel").hidden = activeTab !== "statistics";
   $("#services-panel").hidden = activeTab !== "services";
   notice(""); if (activeTab === "statistics") loadStatistics(); if (activeTab === "services") loadServiceChecks();

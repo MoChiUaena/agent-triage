@@ -28,14 +28,12 @@ pre {
   font-size: 16px;
 }
 .context-sidebar h2,
-.sidebar-section h2,
 .result-heading,
 .settings-workspace .provider-card-header h3,
 .settings-workspace .current-mode strong,
 .empty-state h3 {
   font-size: 14px;
 }
-.history-item strong,
 .tool-row,
 .finding,
 .next-steps,
@@ -53,9 +51,6 @@ pre {
 .tabs button {
   font-size: 13px;
 }
-.history-item small,
-.history-group,
-.history-search input,
 .sidebar-footer span:not(.local-dot),
 .version,
 .connection,

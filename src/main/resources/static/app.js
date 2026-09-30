@@ -17,8 +17,6 @@ const tools = {
 let activeRun = null;
 let stream = null;
 let selectionVersion = 0;
-let historyVersion = 0;
-let historyRuns = [];
 let displayedEvents = new Set();
 let submitting = false;
 let runtimeConfig = null;
@@ -323,17 +321,6 @@ function closeStream() {
   stream = null;
 }
 
-function setSidebar(open) {
-  const mobile = window.matchMedia("(max-width: 720px)").matches;
-  open = open && mobile;
-  document.body.classList.toggle("sidebar-open", open);
-  $("#sidebar-backdrop").hidden = !open;
-  $("#sidebar-toggle").setAttribute("aria-expanded", String(open));
-  $("#sidebar").inert = mobile && !open;
-  $(".app-shell").inert = open;
-  if (open) $("#new-run").focus();
-}
-
 function showTab(name, focus = false) {
   document.querySelectorAll("[data-tab]").forEach((button) => {
     const selected = button.dataset.tab === name;
@@ -401,7 +388,7 @@ function resetResult() {
     ["执行时间", "—"],
   ]);
   setStatus("未开始");
-  emptyResult("还没有排查结果", "输入问题并开始排查，或从左侧打开已有记录。");
+  emptyResult("还没有排查结果", "输入问题并开始排查，或到“历史与统计”打开已有记录。");
   showTab("overview");
 }
 
@@ -417,9 +404,6 @@ function newRun() {
     runtimeConfig?.observationSource === "LIVE"
       ? runtimeConfig.scenario || "NORMAL"
       : "DOWNSTREAM_TIMEOUT";
-  $("#history-search").value = "";
-  renderHistory();
-  setSidebar(false);
   $("#question").focus();
 }
 
@@ -704,7 +688,7 @@ async function cancelRun() {
   try {
     const result = await request("/api/runs/" + run.id + "/cancel", { method: "POST", headers: { "X-Triage-Run": "1" } });
     if (version !== selectionVersion || activeRun?.id !== run.id) return;
-    closeStream(); renderRun(result); refreshHistory();
+    closeStream(); renderRun(result);
     if (result.status !== "CANCELLED") showError("排查已结束，当前结果已保留。");
   } catch (error) { if (version === selectionVersion) showError(error.message); }
   finally {
@@ -902,7 +886,6 @@ function renderRun(run) {
     $("#source-note").textContent =
       run.toolCalls + " 次调用 · " + run.evidence.length + " 条证据";
   }
-  renderHistory();
 }
 
 function connect(run, version) {
@@ -931,7 +914,7 @@ function connect(run, version) {
         const latest = await request("/api/runs/" + run.id);
         if (version !== selectionVersion || activeRun?.id !== run.id || terminal(activeRun)) return;
         renderRun(latest);
-        if (terminal(latest)) { source.close(); refreshHistory(); return; }
+        if (terminal(latest)) { source.close(); return; }
       } while (refreshAgain);
     } catch (_) { /* SSE reconnect also refreshes the persisted snapshot. */ }
     finally { refreshing = false; }
@@ -940,7 +923,6 @@ function connect(run, version) {
     source.close();
     if (version !== selectionVersion) return;
     renderRun(JSON.parse(event.data));
-    refreshHistory();
   });
   source.onerror = async () => {
     if (version !== selectionVersion) return;
@@ -952,7 +934,6 @@ function connect(run, version) {
       renderRun(latest);
       if (terminal(latest)) source.close();
       else $("#source-note").textContent = "连接中断，正在重新连接…";
-      refreshHistory();
     } catch (error) {
       if (
         version === selectionVersion &&
@@ -967,7 +948,6 @@ async function selectRun(id) {
   const version = ++selectionVersion;
   closeStream();
   $("#form-error").hidden = true;
-  setSidebar(false);
   try {
     const run = await request("/api/runs/" + id);
     if (version !== selectionVersion) return;
@@ -991,79 +971,6 @@ async function selectRun(id) {
     connect(run, version);
   } catch (error) {
     if (version === selectionVersion) showError(error.message);
-  }
-}
-
-function renderHistory() {
-  const query = $("#history-search").value.trim().toLocaleLowerCase();
-  const runs = historyRuns.filter((run) =>
-    (run.question + " " + (run.service || "order-service") + " " + (run.serviceInfo?.name || "") + " " +
-      (run.endpoint ? [run.endpoint.httpMethod, run.endpoint.routeTemplate, run.endpoint.handlerClass, run.endpoint.handlerMethod].join(" ") : "整个服务")).toLocaleLowerCase().includes(query),
-  );
-  const target = $("#history");
-  target.replaceChildren();
-  if (!runs.length) {
-    target.append(
-      element(
-        "p",
-        "sidebar-empty",
-        query ? "没有匹配的记录" : "还没有执行记录",
-      ),
-    );
-    return;
-  }
-  let previousDate = "";
-  for (const run of runs) {
-    const date = new Date(run.createdAt);
-    const today = date.toDateString() === new Date().toDateString();
-    const label = today ? "今天" : date.toLocaleDateString("zh-CN");
-    if (label !== previousDate) {
-      target.append(element("h3", "history-group", label));
-      previousDate = label;
-    }
-    const selected = run.id === activeRun?.id;
-    const button = element(
-      "button",
-      "history-item" + (selected ? " selected" : ""),
-    );
-    button.type = "button";
-    button.dataset.id = run.id;
-    button.setAttribute("aria-pressed", String(selected));
-    const scope = run.endpoint ? run.endpoint.httpMethod + " " + run.endpoint.routeTemplate : "整个服务";
-    button.title = run.question + " · " + scope + " · " + statusText[run.status];
-    const detail = element("small");
-    const time = element("time", "", timeText(run.createdAt).slice(0, 5));
-    time.dateTime = run.createdAt;
-    detail.append(
-      element("span", "history-dot " + statusClass(run.status)),
-      element(
-        "span",
-        "",
-        (run.mode === "MODEL" ? "模型 · " : "") +
-          (run.service || "order-service") + " · " + scenarioText(run.scenario) +
-          " · " +
-          statusText[run.status],
-      ),
-      time,
-    );
-    button.append(element("strong", "", run.question), element("span", "sidebar-history-scope", scope), detail);
-    button.addEventListener("click", () => selectRun(run.id));
-    target.append(button);
-  }
-}
-
-async function refreshHistory() {
-  const version = ++historyVersion;
-  try {
-    const runs = await request("/api/runs?limit=20");
-    if (version !== historyVersion) return;
-    historyRuns = runs;
-    renderHistory();
-  } catch (error) {
-    if (version !== historyVersion) return;
-    $("#history").replaceChildren(
-      element("p", "sidebar-empty", "记录加载失败，请点击刷新重试。"),
-    );
   }
 }
 
@@ -1096,7 +1003,6 @@ $("#investigate-form").addEventListener("submit", async (event) => {
   resetResult();
   setStatus("QUEUED");
   emptyResult("正在提交", "正在创建排查记录。");
-  renderHistory();
   try {
     const run = await request("/api/runs", {
       method: "POST",
@@ -1107,7 +1013,6 @@ $("#investigate-form").addEventListener("submit", async (event) => {
       renderRun(run);
       connect(run, version);
     }
-    await refreshHistory();
   } catch (error) {
     if (version === selectionVersion) {
       const changed = ["运行模式或模型配置已变更", "源码索引已变化", "源码项目已变化", "当前源码未授权", "所选接口"].some(message => error.message.includes(message));
@@ -1173,7 +1078,6 @@ document.querySelectorAll("[data-lab-scenario]").forEach((button) => {
     generateLabTraffic(button.dataset.labScenario),
   );
 });
-$("#refresh-history").addEventListener("click", refreshHistory);
 $("#config-retry").addEventListener("click", () => loadConfiguration());
 $("#refresh-endpoints").addEventListener("click", () => loadEndpoints(true));
 $("#window").addEventListener("change", () => loadEndpoints(true));
@@ -1185,45 +1089,10 @@ $("#service").addEventListener("change", () => {
   selectionVersion++;
   closeStream();
   resetResult();
-  renderHistory();
   loadConfiguration();
 });
-$("#history-search").addEventListener("input", renderHistory);
-$("#sidebar-toggle").addEventListener("click", () =>
-  setSidebar(!document.body.classList.contains("sidebar-open")),
-);
-$("#sidebar-backdrop").addEventListener("click", () => setSidebar(false));
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Tab" && document.body.classList.contains("sidebar-open")) {
-    const controls = [
-      ...$("#sidebar").querySelectorAll(
-        "a[href], button:not(:disabled), input:not(:disabled)",
-      ),
-    ];
-    const first = controls[0];
-    const last = controls[controls.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-  if (
-    event.key === "Escape" &&
-    document.body.classList.contains("sidebar-open")
-  ) {
-    setSidebar(false);
-    $("#sidebar-toggle").focus();
-  }
-});
-const mobileLayout = window.matchMedia("(max-width: 720px)");
-mobileLayout.addEventListener("change", () => setSidebar(false));
-setSidebar(false);
 const requestedService = new URLSearchParams(window.location.search).get("service");
 loadConfiguration(requestedService && /^[a-z][a-z0-9-]{0,63}$/.test(requestedService) ? requestedService : "").then(() => {
   const requestedRun = new URLSearchParams(window.location.search).get("run");
   if (requestedRun && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedRun)) selectRun(requestedRun);
 });
-refreshHistory();

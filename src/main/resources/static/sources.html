@@ -10,22 +10,24 @@
   <link rel="stylesheet" href="/typography.css" />
   <link rel="stylesheet" href="/theme.css" />
   <link rel="stylesheet" href="/sources.css" />
+  <script src="/navigation.js" defer></script>
   <script src="/source-view.js" defer></script>
   <script src="/sources.js" defer></script>
 </head>
 <body class="settings-page">
-  <aside class="sidebar settings-sidebar" aria-label="工作区导航">
+  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+  <aside class="sidebar settings-sidebar" id="sidebar" aria-label="工作区导航">
     <a class="brand" href="/"><span class="brand-mark"><svg class="icon"><use href="/icons.svg#activity" /></svg></span><span>Agent Triage</span><span class="version">v0.4</span></a>
     <nav class="settings-links">
       <a href="/"><svg class="icon"><use href="/icons.svg#search" /></svg>服务排查</a>
-      <a href="/workspace.html"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史记录</a>
+      <a href="/workspace.html"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史与统计</a>
       <a href="/sources.html" aria-current="page"><svg class="icon"><use href="/icons.svg#file" /></svg>项目源码</a>
       <a href="/settings.html"><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a>
     </nav>
     <div class="sidebar-footer"><svg class="icon"><use href="/icons.svg#server" /></svg><div><strong>本地工作区</strong><span>源码目录仅在本机登记</span></div></div>
   </aside>
   <div class="app-shell">
-    <header class="topbar"><nav class="breadcrumb" aria-label="当前位置"><a href="/">工作区</a><span class="divider">/</span><strong>项目源码</strong></nav><a class="back-link" href="/">返回排查 <svg class="icon"><use href="/icons.svg#arrow" /></svg></a></header>
+    <header class="topbar"><button class="icon-button mobile-menu" id="sidebar-toggle" type="button" aria-label="打开导航菜单" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="/icons.svg#menu" /></svg></button><nav class="breadcrumb" aria-label="当前位置"><a href="/">工作区</a><span class="divider">/</span><strong>项目源码</strong></nav><a class="back-link" href="/">返回排查 <svg class="icon"><use href="/icons.svg#arrow" /></svg></a></header>
     <main class="workspace settings-workspace">
       <div class="settings-heading"><div><h1>项目源码</h1><p>登记本机 Java 项目，把排查结果关联到类、方法和接口位置。</p></div><button class="secondary" id="refresh-sources" type="button">刷新</button></div>
       <p class="settings-notice" id="source-notice" role="status" hidden></p>

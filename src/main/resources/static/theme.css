@@ -30,19 +30,16 @@ body {
   border-radius: 9px;
 }
 
-.new-run,
-.history-search {
+.new-run {
   background: #fff;
   border-color: #cdddec;
 }
 
-.history-item.selected,
 .settings-links a[aria-current] {
   background: #d9eafd;
   color: #1b4f91;
 }
 
-.history-item:hover,
 .settings-links a:hover {
   background: #e0eefc;
 }
