@@ -234,7 +234,9 @@ def main():
             assert sql_db["databasePool"]["queryErrorCount"] == 1 and sql_db["databasePool"]["acquisitionTimeoutCount"] == 0
             assert any(item["code"] == "SQL_QUERY_FAILED" for item in sql_db["errors"])
             sql_run = database_run("Petclinic SQL 阶段错误")
-            assert sql_run["status"] == "INSUFFICIENT_EVIDENCE"
+            assert sql_run["status"] == "SUCCEEDED"
+            assert "SQL 执行阶段失败" in sql_run["diagnosis"]["possibleCauses"][0]["text"]
+            assert "连接池耗尽影响" not in sql_run["diagnosis"]["possibleCauses"][0]["text"]
             with ThreadPoolExecutor(max_workers=1) as pool:
                 held = pool.submit(post_lab, "/verification/pool-hold")
                 deadline = time.monotonic() + 1.0

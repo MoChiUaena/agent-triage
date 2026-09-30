@@ -179,6 +179,8 @@ MODEL 模式还包含 `MODEL_STARTED`、`MODEL_COMPLETED` 和 `MODEL_FAILED` 事
 | `usage` | 完整累计用量：inputTokens、outputTokens、totalTokens；任一轮缺失时为空 |
 | `assessment` | 新版已校验的判断类型；应用门槛、失败和旧历史中为空 |
 
+数据库判断新增 `DB_SQL_EXECUTION_FAILURE_OBSERVED`，只表示查询窗口内有经过计数、错误事件和规则共同验证的 SQL 执行阶段失败，不表示已找到 SQL 内部根因。旧记录的 `assessment` 不会被改写。
+
 服务地址、凭据和原始模型消息不会通过接口返回。
 
 ## 模型设置接口

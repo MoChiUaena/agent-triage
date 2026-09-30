@@ -12,11 +12,13 @@ class DatabaseModelOutputTest {
     private final ModelOutput output = new ModelOutput(json);
     private final ServiceInfo info = new ServiceInfo("account-service", "账户服务", "accounts-db", "账户数据库");
     private List<Evidence> evidence(int requests, int timeouts, int queryErrors, int active, int pending, int overlap, String code) {
-        var pool = Map.<String, Object>of("maximumConnections", 2, "peakActiveConnections", active, "peakPendingThreads", pending,
+        var pool = new HashMap<String, Object>(Map.of("maximumConnections", 2, "peakActiveConnections", active, "peakPendingThreads", pending,
             "poolSamples", 20, "exhaustedSamples", overlap, "acquisitionTimeoutCount", timeouts, "acquisitionErrorCount", 0,
-            "queryErrorCount", queryErrors, "acquisitionP95Ms", timeouts > 0 ? 351 : 1, "queryP95Ms", queryErrors > 0 ? 601 : 3);
+            "queryErrorCount", queryErrors, "acquisitionP95Ms", timeouts > 0 ? 351 : 1, "queryP95Ms", queryErrors > 0 ? 601 : 3));
+        pool.put("queryCount", requests - timeouts);
         var entries = code == null ? List.of() : List.of(Map.of("code", code, "traceId", "fixture-trace", "message", "Database error"));
-        return List.of(new Evidence(timeouts > 0 ? "DOC-DB-POOL-EXHAUSTION#v1" : "DOC-DB-POOL-BASELINE#v1", "search_runbooks", "规则", "规则", Map.of()),
+        return List.of(new Evidence(timeouts > 0 ? "DOC-DB-POOL-EXHAUSTION#v1" : queryErrors > 0
+            ? "DOC-DB-SQL-EXECUTION-FAILURE#v1" : "DOC-DB-POOL-BASELINE#v1", "search_runbooks", "规则", "规则", Map.of()),
             new Evidence("METRICS-DB", "read_service_metrics", "指标", "实际数据库窗口指标", Map.of("observationType", "DATABASE_POOL", "requestCount", requests,
                 "requestP95Ms", requests > 0 ? 351 : 0, "databasePool", pool)),
             new Evidence("LOGS-DB", "query_error_logs", "日志", "数据库错误事件", Map.of("observationType", "DATABASE_POOL", "requestCount", requests,
@@ -38,14 +40,30 @@ class DatabaseModelOutputTest {
         var result = output.parse(answer("NO_DB_POOL_EXHAUSTION_OBSERVED", evidence, "INSPECT_DB_QUERIES"), evidence, info);
         assertThat(result.decision().diagnosis().possibleCauses().getFirst().text()).contains("本窗口未发现").doesNotContain("数据库健康", "服务健康");
     }
-    @Test void sqlFailuresAreInsufficientToDiagnosePoolExhaustion() throws Exception {
+    @Test void sqlExecutionFailureIsASeparatePhaseNotAPoolDiagnosis() throws Exception {
         var evidence = evidence(5, 0, 1, 2, 0, 0, "SQL_QUERY_FAILED");
-        var result = output.parse(answer("INSUFFICIENT_EVIDENCE", evidence, "INSPECT_DB_QUERIES"), evidence, info);
-        assertThat(result.decision().status()).isEqualTo(Status.INSUFFICIENT_EVIDENCE);
-        assertThat(result.decision().diagnosis().possibleCauses()).isEmpty();
+        var result = output.parse(answer("DB_SQL_EXECUTION_FAILURE_OBSERVED", evidence, "INSPECT_DB_QUERIES", "CORRELATE_TRACE"), evidence, info);
+        assertThat(result.decision().status()).isEqualTo(Status.SUCCEEDED);
+        assertThat(result.decision().diagnosis().possibleCauses().getFirst().text()).contains("SQL 执行阶段失败")
+            .doesNotContain("锁等待导致", "连接池耗尽影响");
+        assertThat(new DemoReasoner().diagnose(evidence, info).possibleCauses().getFirst().text()).contains("SQL 执行阶段失败");
         for (String assessment : List.of("DB_POOL_EXHAUSTION_OBSERVED", "NO_DB_POOL_EXHAUSTION_OBSERVED"))
             assertThatThrownBy(() -> output.parse(answer(assessment, evidence, "INSPECT_DB_QUERIES"), evidence, info)).isInstanceOf(RunFailure.class);
-        assertThat(new DemoReasoner().diagnose(evidence, info).possibleCauses()).isEmpty();
+    }
+    @Test void sqlPhaseNeedsMatchingEventCountersAndRule() throws Exception {
+        var wrongEvent = evidence(5, 0, 1, 2, 0, 0, "DB_CONNECTION_ACQUIRE_TIMEOUT");
+        assertThatThrownBy(() -> output.parse(answer("DB_SQL_EXECUTION_FAILURE_OBSERVED", wrongEvent, "INSPECT_DB_QUERIES"), wrongEvent, info))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_ASSESSMENT_MISMATCH"));
+        var mixed = evidence(5, 1, 1, 2, 1, 0, "SQL_QUERY_FAILED");
+        assertThatThrownBy(() -> output.parse(answer("DB_SQL_EXECUTION_FAILURE_OBSERVED", mixed, "INSPECT_DB_QUERIES"), mixed, info))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_ASSESSMENT_MISMATCH"));
+        var impossibleCount = evidence(1, 0, 2, 1, 0, 0, "SQL_QUERY_FAILED");
+        assertThatThrownBy(() -> output.parse(answer("DB_SQL_EXECUTION_FAILURE_OBSERVED", impossibleCount, "INSPECT_DB_QUERIES"), impossibleCount, info))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_ASSESSMENT_MISMATCH"));
+        var valid = evidence(5, 0, 1, 2, 0, 0, "SQL_QUERY_FAILED");
+        var wrongRule = List.of(new Evidence("DOC-DB-POOL-BASELINE#v1", "search_runbooks", "规则", "规则", Map.of()), valid.get(1), valid.get(2));
+        assertThatThrownBy(() -> output.parse(answer("DB_SQL_EXECUTION_FAILURE_OBSERVED", wrongRule, "INSPECT_DB_QUERIES"), wrongRule, info))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_MISSING_EVIDENCE"));
     }
     @Test void capacityPeakWithoutOverlappingWaitingOrTimeoutLogIsNotEnough() throws Exception {
         for (var evidence : List.of(evidence(5, 1, 0, 1, 1, 0, "DB_CONNECTION_ACQUIRE_TIMEOUT"),

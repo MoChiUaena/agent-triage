@@ -6,6 +6,7 @@ import java.util.*;
 public final class EvidenceRules {
     public static final String DB_TIMEOUT = "DOC-DB-POOL-EXHAUSTION#";
     public static final String DB_BASELINE = "DOC-DB-POOL-BASELINE#";
+    public static final String DB_SQL_FAILURE = "DOC-DB-SQL-EXECUTION-FAILURE#";
     private EvidenceRules() {}
     public static boolean database(Evidence metrics) { return metrics != null && "DATABASE_POOL".equals(metrics.data().get("observationType")); }
     public static Map<?, ?> pool(Evidence metrics) {
@@ -13,7 +14,11 @@ public final class EvidenceRules {
     }
     public static long count(Map<?, ?> data, String key) { return data.get(key) instanceof Number number ? number.longValue() : -1; }
     public static String required(Evidence metrics) {
-        if (database(metrics)) return count(pool(metrics), "acquisitionTimeoutCount") > 0 ? DB_TIMEOUT : DB_BASELINE;
+        if (database(metrics)) {
+            var values = pool(metrics);
+            return count(values, "acquisitionTimeoutCount") > 0 ? DB_TIMEOUT
+                : count(values, "queryErrorCount") > 0 ? DB_SQL_FAILURE : DB_BASELINE;
+        }
         return metrics != null && metrics.data().get("downstreamTimeoutRate") instanceof Number rate
             ? rate.doubleValue() > 0 ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#" : null;
     }
@@ -31,6 +36,17 @@ public final class EvidenceRules {
         return count(pool, "poolSamples") > 0 && count(pool, "acquisitionTimeoutCount") == 0 && count(pool, "acquisitionErrorCount") == 0
             && count(pool, "queryErrorCount") == 0 && sameDatabaseCounters(metrics, logs)
             && logs.data().get("entries") instanceof List<?> entries && entries.isEmpty();
+    }
+    public static boolean sqlExecutionFailed(Evidence metrics, Evidence logs) {
+        var values = pool(metrics);
+        if (count(metrics.data(), "requestCount") < 1 || count(values, "queryCount") < 1
+            || count(values, "queryErrorCount") < 1 || count(values, "queryErrorCount") > count(values, "queryCount")
+            || count(values, "acquisitionTimeoutCount") != 0
+            || count(values, "acquisitionErrorCount") != 0 || !sameDatabaseCounters(metrics, logs)) return false;
+        return logs.data().get("entries") instanceof List<?> entries
+            && count(logs.data(), "returnedCount") == entries.size()
+            && entries.stream().anyMatch(entry -> entry instanceof Map<?, ?> data
+                && "SQL_QUERY_FAILED".equals(data.get("code")));
     }
     private static boolean sameDatabaseCounters(Evidence metrics, Evidence logs) {
         if (logs == null || count(logs.data(), "requestCount") != count(metrics.data(), "requestCount")) return false;

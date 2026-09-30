@@ -840,6 +840,7 @@ function renderRun(run) {
           INSUFFICIENT_EVIDENCE: "证据不足",
           DB_POOL_EXHAUSTION_OBSERVED: "发现连接池耗尽的超时证据",
           NO_DB_POOL_EXHAUSTION_OBSERVED: "未发现连接池耗尽的超时证据",
+          DB_SQL_EXECUTION_FAILURE_OBSERVED: "发现 SQL 执行阶段失败",
         }[model.assessment] || "证据不足",
       ]);
     if (run.events.some((event) => event.type === "CONCLUSION_RENDERED"))

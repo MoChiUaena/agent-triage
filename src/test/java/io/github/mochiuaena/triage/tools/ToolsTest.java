@@ -2,6 +2,7 @@ package io.github.mochiuaena.triage.tools;
 
 import io.github.mochiuaena.triage.domain.TriageModel.Scenario;
 import org.junit.jupiter.api.Test;
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -69,5 +70,14 @@ class ToolsTest {
         assertThat(results.get(2).data()).containsEntry("queryMatched", true).containsEntry("serviceReference", false);
         assertThat(new RunbookSearchTool().execute(context(Scenario.NORMAL), "验证原因"))
             .extracting(item -> item.id()).containsExactly("DOC-EVIDENCE-LIMITS#v1");
+    }
+    @Test void databaseSearchIncludesTheSeparateSqlFailureRule() throws Exception {
+        var target = new ServiceRegistry.Target(new io.github.mochiuaena.triage.domain.TriageModel.ServiceInfo(
+            "account-service", "账户服务", "accounts-db", "账户数据库"), URI.create("http://127.0.0.1:18096"),
+            ServiceRegistry.Protocol.DATABASE_V2, 15, false);
+        var database = new ToolContext("account-service", 5, Scenario.OBSERVED, end, target);
+        var search = new RunbookSearchTool(new ObservationSource("LIVE", "http://127.0.0.1:18096"));
+        assertThat(search.execute(database, "数据库 SQL 执行失败")).extracting(item -> item.id()).containsExactly(
+            "DOC-DB-POOL-EXHAUSTION#v1", "DOC-DB-POOL-BASELINE#v1", "DOC-DB-SQL-EXECUTION-FAILURE#v1");
     }
 }

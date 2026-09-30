@@ -69,11 +69,15 @@ def final_answer(evidence):
         pool = metrics["data"]["databasePool"]
         exhausted = pool["acquisitionTimeoutCount"] > 0 and pool["peakActiveConnections"] == pool["maximumConnections"] and pool["exhaustedSamples"] > 0
         normal = pool["acquisitionTimeoutCount"] == 0 and pool["acquisitionErrorCount"] == 0 and pool["queryErrorCount"] == 0 and not logs["data"]["entries"]
-        assessment = "DB_POOL_EXHAUSTION_OBSERVED" if exhausted else "NO_DB_POOL_EXHAUSTION_OBSERVED" if normal else "INSUFFICIENT_EVIDENCE"
-        prefix = "DOC-DB-POOL-EXHAUSTION#" if exhausted else "DOC-DB-POOL-BASELINE#"
+        sql_failed = pool["acquisitionTimeoutCount"] == 0 and pool["acquisitionErrorCount"] == 0 and pool["queryErrorCount"] > 0 \
+            and any(item["code"] == "SQL_QUERY_FAILED" for item in logs["data"]["entries"])
+        assessment = "DB_POOL_EXHAUSTION_OBSERVED" if exhausted else "DB_SQL_EXECUTION_FAILURE_OBSERVED" if sql_failed \
+            else "NO_DB_POOL_EXHAUSTION_OBSERVED" if normal else "INSUFFICIENT_EVIDENCE"
+        prefix = "DOC-DB-POOL-EXHAUSTION#" if exhausted else "DOC-DB-SQL-EXECUTION-FAILURE#" if sql_failed else "DOC-DB-POOL-BASELINE#"
         rule = next(item for item in evidence if item["id"].startswith(prefix))
         return {"assessment": assessment, "evidenceIds": [metrics["id"], logs["id"], rule["id"]],
-                "nextChecks": ["INSPECT_DB_CONNECTION_HOLDERS", "VERIFY_DB_POOL_LIMITS"] if exhausted else ["INSPECT_DB_QUERIES", "COLLECT_RESOURCE_METRICS"]}
+                "nextChecks": ["INSPECT_DB_CONNECTION_HOLDERS", "VERIFY_DB_POOL_LIMITS"] if exhausted
+                    else ["INSPECT_DB_QUERIES", "CORRELATE_TRACE"] if sql_failed else ["INSPECT_DB_QUERIES", "COLLECT_RESOURCE_METRICS"]}
     timed_out = metrics["data"]["downstreamTimeoutRate"] > 0
     doc_prefix = "DOC-DOWNSTREAM-TIMEOUT#" if timed_out else "DOC-HEALTHY-BASELINE#"
     rule = next(item for item in evidence if item["id"].startswith(doc_prefix))

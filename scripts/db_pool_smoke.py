@@ -44,7 +44,7 @@ def main():
     rows, runs = [], [empty]
     for name, scenario, expected in [("normal", "NORMAL", "SUCCEEDED"),
         ("exhausted", "DB_POOL_EXHAUSTED", "SUCCEEDED"), ("recovery", "DB_POOL_RECOVERY", "SUCCEEDED"),
-        ("sql_lock", "DB_QUERY_LOCK_WAIT", "INSUFFICIENT_EVIDENCE")]:
+        ("sql_lock", "DB_QUERY_LOCK_WAIT", "SUCCEEDED")]:
         status, traffic = request(agent, "/api/live-lab/traffic", {"service": "account-service", "scenario": scenario, "count": 3}, headers)
         assert status == 200, (status, traffic)
         if name == "recovery": assert traffic["recoveryVerified"]
@@ -60,12 +60,13 @@ def main():
             assert pool["peakActiveConnections"] == pool["maximumConnections"] and pool["peakPendingThreads"] > 0 and pool["exhaustedSamples"] > 0
         elif name == "sql_lock":
             assert pool["acquisitionTimeoutCount"] == 0 and pool["queryErrorCount"] == 3 and pool["queryCount"] == 3
-            assert not run["diagnosis"]["possibleCauses"]
+            assert "SQL 执行阶段失败" in run["diagnosis"]["possibleCauses"][0]["text"]
+            assert "锁等待导致" not in run["diagnosis"]["possibleCauses"][0]["text"]
         else:
             assert pool["acquisitionTimeoutCount"] == 0 and pool["queryErrorCount"] == 0 and pool["queryCount"] == 3
             assert 1 <= pool["peakActiveConnections"] <= pool["maximumConnections"]
         if config["mode"] == "MODEL":
-            assessment = "DB_POOL_EXHAUSTION_OBSERVED" if name == "exhausted" else "INSUFFICIENT_EVIDENCE" if name == "sql_lock" else "NO_DB_POOL_EXHAUSTION_OBSERVED"
+            assessment = "DB_POOL_EXHAUSTION_OBSERVED" if name == "exhausted" else "DB_SQL_EXECUTION_FAILURE_OBSERVED" if name == "sql_lock" else "NO_DB_POOL_EXHAUSTION_OBSERVED"
             assert run["modelExecution"]["assessment"] == assessment and run["modelExecution"]["calls"] == 2
         rows.append({"case": name, "status": run["status"], "requestCount": metrics["requestCount"], "acquisitionTimeoutCount": pool["acquisitionTimeoutCount"],
             "queryCount": pool["queryCount"], "queryErrorCount": pool["queryErrorCount"]})

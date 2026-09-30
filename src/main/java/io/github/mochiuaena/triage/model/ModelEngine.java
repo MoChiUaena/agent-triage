@@ -248,8 +248,9 @@ public final class ModelEngine implements TriageEngine {
         String assessmentRules = database(session) ? """
             本次是 DATABASE_POOL 观测，只能选择数据库判断类型。先区分获取连接阶段和 SQL 执行阶段。
             有请求、获取连接超时数大于零、池采样存在满载与等待重叠且日志含 DB_CONNECTION_ACQUIRE_TIMEOUT 时，选择 DB_POOL_EXHAUSTION_OBSERVED。
+            有请求、获取连接超时和失败均为零、SQL 查询失败数大于零且日志含 SQL_QUERY_FAILED 时，可选择 DB_SQL_EXECUTION_FAILURE_OBSERVED；只确认失败阶段，不推断具体 SQL 根因。
             有请求、有池采样、获取连接超时/失败和 SQL 错误均为零且错误日志为空时，选择 NO_DB_POOL_EXHAUSTION_OBSERVED；这不代表数据库整体健康。
-            SQL_QUERY_FAILED、SQL 耗时高或连接占用峰值高，都不能单独证明连接池耗尽；证据不满足时选择 INSUFFICIENT_EVIDENCE。
+            SQL_QUERY_FAILED、SQL 耗时高或连接占用峰值高，都不能单独证明连接池耗尽；SQL 执行失败也须有同窗口计数、事件和匹配规则。证据不满足时选择 INSUFFICIENT_EVIDENCE。
             峰值只描述冻结窗口，不能推断当前仍池满；不确认连接泄漏，也不自动扩大连接池或执行 SQL。
             """ : """
             有请求、窗口超时率大于零且日志记录超时时，选择 DOWNSTREAM_TIMEOUT_OBSERVED。

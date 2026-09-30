@@ -13,7 +13,8 @@ import java.util.stream.Collectors;
 /** The model selects claims and evidence; only application code writes diagnostic text. */
 final class ModelOutput {
     enum Assessment { DOWNSTREAM_TIMEOUT_OBSERVED, NO_DOWNSTREAM_TIMEOUT_OBSERVED,
-        DB_POOL_EXHAUSTION_OBSERVED, NO_DB_POOL_EXHAUSTION_OBSERVED, INSUFFICIENT_EVIDENCE }
+        DB_POOL_EXHAUSTION_OBSERVED, NO_DB_POOL_EXHAUSTION_OBSERVED,
+        DB_SQL_EXECUTION_FAILURE_OBSERVED, INSUFFICIENT_EVIDENCE }
     enum Check {
         INSPECT_INVENTORY_LATENCY, CORRELATE_TRACE, VERIFY_REQUEST_TIMEOUT, COLLECT_RESOURCE_METRICS,
         FIND_SLOW_REQUEST, COLLECT_OBSERVATIONS, SEARCH_MATCHING_RULE,
@@ -69,7 +70,8 @@ final class ModelOutput {
         } catch (JsonProcessingException e) { throw new IllegalStateException("Cannot build observation-specific schema", e); }
     }
     static boolean databaseAssessment(Assessment assessment) {
-        return assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED || assessment == Assessment.NO_DB_POOL_EXHAUSTION_OBSERVED;
+        return assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED || assessment == Assessment.NO_DB_POOL_EXHAUSTION_OBSERVED
+            || assessment == Assessment.DB_SQL_EXECUTION_FAILURE_OBSERVED;
     }
 
     Parsed parse(String text, List<Evidence> evidence) {
@@ -130,6 +132,8 @@ final class ModelOutput {
                 Check.INSPECT_INVENTORY_LATENCY);
             case DB_POOL_EXHAUSTION_OBSERVED -> List.of(Check.CORRELATE_TRACE, Check.INSPECT_DB_CONNECTION_HOLDERS,
                 Check.VERIFY_DB_POOL_LIMITS, Check.INSPECT_DB_QUERIES, Check.COLLECT_RESOURCE_METRICS, Check.FIND_SLOW_REQUEST);
+            case DB_SQL_EXECUTION_FAILURE_OBSERVED -> List.of(Check.CORRELATE_TRACE, Check.INSPECT_DB_QUERIES,
+                Check.COLLECT_RESOURCE_METRICS, Check.FIND_SLOW_REQUEST);
             case NO_DB_POOL_EXHAUSTION_OBSERVED -> List.of(Check.INSPECT_DB_QUERIES, Check.COLLECT_RESOURCE_METRICS,
                 Check.FIND_SLOW_REQUEST, Check.VERIFY_DB_POOL_LIMITS);
             case INSUFFICIENT_EVIDENCE -> List.of(Check.COLLECT_OBSERVATIONS, Check.SEARCH_MATCHING_RULE,
@@ -147,7 +151,8 @@ final class ModelOutput {
         boolean hasRequests = metrics != null && metrics.data().get("requestCount") instanceof Number count && count.longValue() > 0;
         if (assessment != Assessment.INSUFFICIENT_EVIDENCE) {
             if (database) {
-                checks.add(Check.INSPECT_DB_QUERIES); checks.add(Check.VERIFY_DB_POOL_LIMITS);
+                checks.add(Check.INSPECT_DB_QUERIES);
+                if (assessment != Assessment.DB_SQL_EXECUTION_FAILURE_OBSERVED) checks.add(Check.VERIFY_DB_POOL_LIMITS);
                 if (assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED) checks.add(Check.INSPECT_DB_CONNECTION_HOLDERS);
             } else {
                 checks.add(Check.INSPECT_INVENTORY_LATENCY);
@@ -176,17 +181,27 @@ final class ModelOutput {
         if (!(metrics.data().get("requestCount") instanceof Number count) || count.longValue() <= 0)
             throw new RunFailure("MODEL_NO_OBSERVATIONS", "模型试图在无请求窗口生成成功判断，已拒绝。");
         if (EvidenceRules.database(metrics)) {
+            boolean supported = switch (assessment) {
+                case DB_POOL_EXHAUSTION_OBSERVED -> EvidenceRules.exhausted(metrics, logs);
+                case DB_SQL_EXECUTION_FAILURE_OBSERVED -> EvidenceRules.sqlExecutionFailed(metrics, logs);
+                case NO_DB_POOL_EXHAUSTION_OBSERVED -> EvidenceRules.noDatabaseTimeout(metrics, logs);
+                default -> false;
+            };
             if (!databaseAssessment(assessment) || !"DATABASE_POOL".equals(logs.data().get("observationType"))
                 || !(logs.data().get("entries") instanceof List<?> entries) || EvidenceRules.count(logs.data(), "returnedCount") != entries.size()
-                || (assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED ? !EvidenceRules.exhausted(metrics, logs) : !EvidenceRules.noDatabaseTimeout(metrics, logs)))
-                throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "模型判断与数据库连接获取阶段、池采样或错误事件不符，已拒绝。");
+                || !supported)
+                throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "模型判断与数据库阶段、计数或错误事件不符，已拒绝。");
             number(metrics, "requestP95Ms");
-            String rule = assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED ? EvidenceRules.DB_TIMEOUT : EvidenceRules.DB_BASELINE;
+            String rule = switch (assessment) {
+                case DB_POOL_EXHAUSTION_OBSERVED -> EvidenceRules.DB_TIMEOUT;
+                case DB_SQL_EXECUTION_FAILURE_OBSERVED -> EvidenceRules.DB_SQL_FAILURE;
+                default -> EvidenceRules.DB_BASELINE;
+            };
             if (selected.stream().noneMatch(item -> item.source().equals("search_runbooks") && item.id().startsWith(rule)))
                 throw new RunFailure("MODEL_MISSING_EVIDENCE", "模型没有选择与数据库观测对应的排障规则。");
             return;
         }
-        if (databaseAssessment(assessment)) throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "HTTP 观测不能支持数据库连接池判断。");
+        if (databaseAssessment(assessment)) throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "HTTP 观测不能支持数据库阶段判断。");
         double rate = number(metrics, "downstreamTimeoutRate");
         if (rate > 1) throw new IllegalArgumentException();
         number(metrics, "orderP95Ms");
@@ -221,11 +236,19 @@ final class ModelOutput {
     private Diagnosis render(Response response, List<Evidence> selected, List<Check> prioritized, ServiceInfo info) {
         String service = info.equals(ServiceInfo.order()) ? "订单" : info.name();
         String downstream = info.equals(ServiceInfo.order()) ? "库存" : info.downstreamName();
-        if (selected.stream().anyMatch(EvidenceRules::database))
-            return DatabaseDiagnosis.render(selected, info, response.assessment() == Assessment.DB_POOL_EXHAUSTION_OBSERVED,
-                response.assessment() != Assessment.INSUFFICIENT_EVIDENCE,
-                prioritized.stream().map(check -> check == Check.CORRELATE_TRACE ? "使用错误事件中的 traceId 核对请求的连接获取阶段耗时。"
+        if (selected.stream().anyMatch(EvidenceRules::database)) {
+            DatabaseDiagnosis.Stage stage = switch (response.assessment()) {
+                case DB_POOL_EXHAUSTION_OBSERVED -> DatabaseDiagnosis.Stage.POOL_EXHAUSTED;
+                case DB_SQL_EXECUTION_FAILURE_OBSERVED -> DatabaseDiagnosis.Stage.SQL_EXECUTION_FAILED;
+                default -> DatabaseDiagnosis.Stage.NO_POOL_TIMEOUT;
+            };
+            return DatabaseDiagnosis.render(selected, info, stage, response.assessment() != Assessment.INSUFFICIENT_EVIDENCE,
+                prioritized.stream().map(check -> check == Check.CORRELATE_TRACE
+                    ? stage == DatabaseDiagnosis.Stage.SQL_EXECUTION_FAILED
+                        ? "使用错误事件中的 traceId 核对 SQL 执行失败的请求与事务。"
+                        : "使用错误事件中的 traceId 核对请求的连接获取阶段耗时。"
                     : checkText(check, service, downstream, info.downstreamName())).toList());
+        }
         List<Finding> observations = selected.stream()
             .filter(item -> Set.of("read_service_metrics", "query_error_logs").contains(item.source()))
             .map(item -> new Finding(item.summary(), List.of(item.id()))).toList();

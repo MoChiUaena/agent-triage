@@ -45,7 +45,9 @@ public class RunbookSearchTool implements ReadOnlyTool {
                 List.of("正常", "健康", "healthy", "baseline"), 3, false), documents.get(2));
         databaseDocuments = List.of(
             load("DOC-DB-POOL-EXHAUSTION#v1", "连接池耗尽排查", "db-pool-exhaustion.md", List.of("数据库", "连接池", "超时", "database", "pool", "timeout"), 1, false),
-            load("DOC-DB-POOL-BASELINE#v1", "数据库窗口对照", "db-pool-baseline.md", List.of("数据库", "正常", "慢", "sql", "database", "baseline"), 1, false), documents.get(2));
+            load("DOC-DB-POOL-BASELINE#v1", "数据库窗口对照", "db-pool-baseline.md", List.of("数据库", "正常", "慢", "sql", "database", "baseline"), 1, false),
+            load("DOC-DB-SQL-EXECUTION-FAILURE#v1", "SQL 执行失败", "db-sql-execution-failure.md", List.of("数据库", "SQL", "sql", "执行", "失败", "database", "query"), 1, false),
+            documents.get(2));
     }
 
     private Document load(String id, String title, String file, List<String> keywords, int version, boolean synthetic) throws IOException {
@@ -74,6 +76,7 @@ public class RunbookSearchTool implements ReadOnlyTool {
 
     private boolean matches(Document doc, String query) { return doc.keywords().stream().anyMatch(query::contains); }
     private boolean coreRule(Document doc) {
-        return doc.id().startsWith("DOC-DOWNSTREAM-TIMEOUT#") || doc.id().startsWith("DOC-HEALTHY-BASELINE#") || doc.id().startsWith("DOC-DB-POOL-");
+        return doc.id().startsWith("DOC-DOWNSTREAM-TIMEOUT#") || doc.id().startsWith("DOC-HEALTHY-BASELINE#")
+            || doc.id().startsWith("DOC-DB-POOL-") || doc.id().startsWith("DOC-DB-SQL-");
     }
 }
