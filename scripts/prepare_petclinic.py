@@ -4,6 +4,8 @@ import argparse
 import subprocess
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[1]
+
 REVISION = '67643c4137eb75bfeb177b427f8459c471bdcbd8'
 
 def prepare(directory):
@@ -24,7 +26,7 @@ def prepare(directory):
     <dependency>
       <groupId>io.github.mochiuaena</groupId>
       <artifactId>triage-spring-boot-starter</artifactId>
-      <version>0.3.0</version>
+      <version>0.4.0</version>
     </dependency>'''.replace('\n', newline)
     plugin = '''
       <plugin>
@@ -54,7 +56,11 @@ def prepare(directory):
     backup.parent.mkdir(exist_ok=True)
     backup.write_bytes(original)
     pom.write_bytes(text.encode('utf-8'))
-    print('Added Starter and source build manifest plugin; business source files untouched')
+    support = ROOT / 'verification/petclinic/PetclinicTriageConfiguration.java'
+    destination = directory / 'src/main/java/org/springframework/samples/petclinic/triage/PetclinicTriageConfiguration.java'
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_bytes(support.read_bytes())
+    print('Added Starter, source build manifest and isolated observation wiring; business source files untouched')
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)

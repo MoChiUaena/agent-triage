@@ -17,6 +17,9 @@ public class TriageObservationProperties {
     private boolean endpointObservations;
     private boolean exceptionLocations;
     private boolean sourceVersionChecks;
+    private boolean jpaObservations;
+    private String jpaServiceId;
+    private String jpaDatabaseId;
     private java.util.List<String> applicationPackages = java.util.List.of();
 
     void validate() {
@@ -24,6 +27,8 @@ public class TriageObservationProperties {
             throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
         if (endpointObservations && kind != Kind.HTTP) throw new IllegalArgumentException("triage.sdk endpoint-observations requires HTTP kind");
         if (sourceVersionChecks && !endpointObservations) throw new IllegalArgumentException("triage.sdk source-version-checks requires endpoint-observations");
+        if (jpaObservations && (kind != Kind.HTTP || !identity(jpaServiceId) || !identity(jpaDatabaseId) || jpaServiceId.equals(serviceId)))
+            throw new IllegalArgumentException("triage.sdk JPA observations require HTTP kind, a separate service-id and a database-id");
         if (applicationPackages == null || applicationPackages.size() > 8 || applicationPackages.stream().anyMatch(value -> !FailureLocations.javaName(value, 160, true))
             || exceptionLocations && (!endpointObservations || applicationPackages.isEmpty()))
             throw new IllegalArgumentException("triage.sdk exception-locations requires endpoint-observations and 1..8 application-packages");
@@ -66,6 +71,12 @@ public class TriageObservationProperties {
     public boolean isExceptionLocations() { return exceptionLocations; }
     public boolean isSourceVersionChecks() { return sourceVersionChecks; }
     public void setSourceVersionChecks(boolean value) { sourceVersionChecks = value; }
+    public boolean isJpaObservations() { return jpaObservations; }
+    public void setJpaObservations(boolean value) { jpaObservations = value; }
+    public String getJpaServiceId() { return jpaServiceId; }
+    public void setJpaServiceId(String value) { jpaServiceId = value; }
+    public String getJpaDatabaseId() { return jpaDatabaseId; }
+    public void setJpaDatabaseId(String value) { jpaDatabaseId = value; }
     public void setExceptionLocations(boolean value) { exceptionLocations = value; }
     public java.util.List<String> getApplicationPackages() { return applicationPackages; }
     public void setApplicationPackages(java.util.List<String> value) { applicationPackages = value == null ? null : java.util.List.copyOf(value); }

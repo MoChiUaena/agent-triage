@@ -16,8 +16,9 @@ public class TriageObservationAutoConfiguration {
         properties.validate();
         return new ObservationRecorder(properties);
     }
-    @Bean TriageObservationsEndpoint triageObservationsEndpoint(ObservationRecorder recorder) {
-        return new TriageObservationsEndpoint(recorder);
+    @Bean TriageObservationsEndpoint triageObservationsEndpoint(ObservationRecorder recorder,
+                                                                org.springframework.beans.factory.ObjectProvider<TriageJpaObserver> jpa) {
+        return new TriageObservationsEndpoint(recorder, jpa);
     }
     @Bean @ConditionalOnProperty(prefix = "triage.sdk", name = "kind", havingValue = "HTTP", matchIfMissing = true)
     FilterRegistrationBean<TriageRequestFilter> triageRequestFilter(ObservationRecorder recorder, TriageObservationProperties properties) {
@@ -35,5 +36,9 @@ public class TriageObservationAutoConfiguration {
     @Bean(destroyMethod = "close") @ConditionalOnProperty(prefix = "triage.sdk", name = "kind", havingValue = "DATABASE")
     TriageJdbcObserver triageJdbcObserver(DataSource source, ObservationRecorder recorder) throws java.sql.SQLException {
         return new TriageJdbcObserver(source, recorder);
+    }
+    @Bean(destroyMethod = "close") @ConditionalOnProperty(prefix = "triage.sdk", name = "jpa-observations", havingValue = "true")
+    TriageJpaObserver triageJpaObserver(TriageObservationProperties properties) {
+        return new TriageJpaObserver(properties);
     }
 }

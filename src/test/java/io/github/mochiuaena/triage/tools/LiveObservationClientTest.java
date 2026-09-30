@@ -65,6 +65,23 @@ class LiveObservationClientTest {
             .doesNotContainKeys("downstreamTimeoutRate", "downstreamP95Ms", "orderP95Ms");
         assertThat(client.scenario(registry.defaultTarget())).isEqualTo(Scenario.OBSERVED);
     }
+    @Test void databaseAliasReadsOnlyTheFixedLoopbackDatabaseEndpoint() throws Exception {
+        var accesses = new AtomicInteger();
+        server.createContext("/triage/database-observations", exchange -> {
+            accesses.incrementAndGet();
+            byte[] body = json.writeValueAsBytes(databaseResponse());
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) { out.write(body); }
+        });
+        String origin = "http://127.0.0.1:" + server.getAddress().getPort();
+        registry = new ServiceRegistry(new ObservationSource("LIVE", origin), List.of(new ServiceRegistry.Config(
+            "account-service", "账户服务", "accounts-db", "数据库", origin, ServiceRegistry.Protocol.DATABASE_V2, 5, false, true)));
+        client = new LiveObservationClient(registry, json);
+        context = new ToolContext("account-service", 5, Scenario.OBSERVED, end, registry.defaultTarget());
+        var value = client.snapshot(context);
+        assertThat(value.databasePool().queryCount()).isEqualTo(5);
+        assertThat(accesses).hasValue(1);
+    }
     @Test void rejectsIncompletePoolValuesWrongStagesAndInconsistentQueryCounts() throws Exception {
         databaseClient();
         List<Consumer<ObjectNode>> changes = List.of(node -> node.put("database", "inventory-service"), node -> node.put("kind", "HTTP"),

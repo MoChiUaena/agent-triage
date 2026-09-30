@@ -50,4 +50,12 @@ class ServiceRegistryTest {
         assertThatThrownBy(() -> new ServiceRegistry(new ObservationSource("SYNTHETIC", "http://127.0.0.1:19082"), List.of(good)))
             .isInstanceOf(IllegalArgumentException.class);
     }
+    @Test void allowsOnlyDatabaseV2ToReadTheFixedSecondaryEndpoint() {
+        var alias = new ServiceRegistry.Config("petclinic-db", "Petclinic DB", "petclinic-h2", "H2",
+            "http://127.0.0.1:18461", ServiceRegistry.Protocol.DATABASE_V2, 15, false, true);
+        assertThat(new ServiceRegistry(live, List.of(alias)).defaultTarget().databaseAlias()).isTrue();
+        var invalid = new ServiceRegistry.Config("petclinic-http", "Petclinic", "none", "none",
+            "http://127.0.0.1:18461", ServiceRegistry.Protocol.OBSERVATIONS_V3, 15, false, true);
+        assertThatThrownBy(() -> new ServiceRegistry(live, List.of(invalid))).isInstanceOf(IllegalArgumentException.class);
+    }
 }

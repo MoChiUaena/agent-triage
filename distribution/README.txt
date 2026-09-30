@@ -1,4 +1,4 @@
-Agent Triage 0.3.0 — local LIVE demo
+Agent Triage 0.4.0 — local LIVE demo
 
 Requirements: JDK 21 or later. macOS/Linux also need Bash and curl.
 Extract the entire archive. No Maven, database server or API Key is needed for the first run.

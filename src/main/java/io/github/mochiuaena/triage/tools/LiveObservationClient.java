@@ -104,7 +104,8 @@ public class LiveObservationClient {
         ServiceRegistry.Target target = context.target();
         String end = URLEncoder.encode(context.endTime().toString(), StandardCharsets.UTF_8);
         try {
-            String path = target.protocol() == ServiceRegistry.Protocol.LAB ? "/lab/observations" : target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V3 ? "/triage/endpoint-observations" : "/triage/observations";
+            String path = target.protocol() == ServiceRegistry.Protocol.LAB ? "/lab/observations" : target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V3 ? "/triage/endpoint-observations"
+                : target.databaseAlias() ? "/triage/database-observations" : "/triage/observations";
             byte[] response = get(target, path + "?windowMinutes=" + context.windowMinutes() + "&endTime=" + end
                 + (context.endpoint() == null ? "" : "&endpointId=" + context.endpoint().id()));
             Snapshot snapshot;

@@ -14,8 +14,19 @@ import java.util.*;
 public final class ServiceRegistry {
     public enum Protocol { LAB, OBSERVATIONS_V1, DATABASE_V2, OBSERVATIONS_V3 }
     public record Config(String id, String name, String downstreamId, String downstreamName,
-                         String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled) {}
-    public record Target(ServiceInfo info, URI baseUrl, Protocol protocol, int maxWindowMinutes, boolean labEnabled) {}
+                         String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled, Boolean databaseAlias) {
+        @org.springframework.boot.context.properties.bind.ConstructorBinding
+        public Config {}
+        public Config(String id, String name, String downstreamId, String downstreamName,
+                      String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled) {
+            this(id, name, downstreamId, downstreamName, baseUrl, protocol, maxWindowMinutes, labEnabled, null);
+        }
+    }
+    public record Target(ServiceInfo info, URI baseUrl, Protocol protocol, int maxWindowMinutes, boolean labEnabled, boolean databaseAlias) {
+        public Target(ServiceInfo info, URI baseUrl, Protocol protocol, int maxWindowMinutes, boolean labEnabled) {
+            this(info, baseUrl, protocol, maxWindowMinutes, labEnabled, false);
+        }
+    }
     public record View(String id, String name, String downstreamId, String downstreamName,
                        Protocol protocol, int maxWindowMinutes, boolean labEnabled) {}
     private final Map<String, Target> targets;
@@ -43,8 +54,11 @@ public final class ServiceRegistry {
                     throw new IllegalArgumentException("LAB protocol is reserved for the legacy order sample");
                 if (lab && protocol != Protocol.LAB && protocol != Protocol.DATABASE_V2)
                     throw new IllegalArgumentException("Lab controls require an explicit lab protocol");
+                boolean databaseAlias = Boolean.TRUE.equals(config.databaseAlias());
+                if (databaseAlias && protocol != Protocol.DATABASE_V2)
+                    throw new IllegalArgumentException("Database alias requires DATABASE_V2");
                 Target target = new Target(new ServiceInfo(id, label(config.name(), id), downstream,
-                    label(config.downstreamName(), downstream)), ObservationSource.origin(config.baseUrl()), protocol, window, lab);
+                    label(config.downstreamName(), downstream)), ObservationSource.origin(config.baseUrl()), protocol, window, lab, databaseAlias);
                 if (values.putIfAbsent(id, target) != null) throw new IllegalArgumentException("Duplicate registered service");
             }
         }

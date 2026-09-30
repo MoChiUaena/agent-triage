@@ -41,7 +41,7 @@ def verify(directory, version, commit=None):
     allowed = {"lib/agent-triage.jar", "lib/order-service.jar", "lib/inventory-service.jar", "lib/database-service.jar",
                "lib/catalog-service.jar", f"sdk/{starter_name}.jar", "sdk/pom.xml", "config/services.yml",
                "start-demo.ps1", "start-demo.sh", "README.txt", "LICENSE"}
-    if version == "0.3.0":
+    if version in ("0.3.0", "0.4.0"):
         allowed |= {"lib/ticket-service.jar", "lib/assignment-service.jar", "SOURCE_DEMO.md", "projects/ticket-service/pom.xml", "projects/ticket-service/src/main/resources/application.yml"}
         allowed |= {f"projects/ticket-service/src/main/java/example/helpdesk/{name}.java" for name in
                     ("AssignmentGateway", "DefaultTicketService", "TicketApplication", "TicketController", "TicketFormatter", "TicketService")}
@@ -61,7 +61,7 @@ def verify(directory, version, commit=None):
             with archive.open(prefix + name) as source:
                 if stream_digest(source) != expected:
                     raise ValueError(f"Embedded checksum mismatch: {name}")
-        if version == "0.3.0":
+        if version in ("0.3.0", "0.4.0"):
             if manifest.get("registeredServices") != ["order-service", "account-service", "catalog-service", "catalog-db-service", "ticket-service"] \
                     or manifest.get("portOffsets") != {"agent":0,"order":2,"inventory":4,"database":6,"catalog":8,"catalogDatabase":9,"ticket":10,"assignment":12}:
                 raise ValueError("Bundle service and port manifest does not match")

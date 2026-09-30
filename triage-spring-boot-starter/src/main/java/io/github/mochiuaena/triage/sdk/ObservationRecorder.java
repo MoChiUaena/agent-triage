@@ -95,6 +95,9 @@ public final class ObservationRecorder {
             recorded, p95(matching.stream().map(HttpSample::requestMs).toList()), p95(matching.stream().map(HttpSample::downstreamMs).toList()),
             matching.isEmpty() ? 0 : (double) timeouts / matching.size(), null, errors(matching), false);
     }
+    synchronized DatabaseWindow databaseSnapshot(int minutes, Instant end) {
+        return databaseWindow(windowStart(minutes, end), end);
+    }
     private Instant windowStart(int minutes, Instant end) {
         if (minutes < 1 || minutes > properties.getMaxWindowMinutes() || end == null || end.isAfter(now().plusSeconds(5)))
             throw new ResponseStatusException(BAD_REQUEST, "Invalid observation window");
