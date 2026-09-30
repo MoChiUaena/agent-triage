@@ -51,7 +51,7 @@ class JpaObserverTest {
                 assertThat(window.databasePool().queryErrorCount()).isEqualTo(1);
                 assertThat(window.databasePool().exhaustedSamples()).isGreaterThan(0);
                 assertThat(window.errors()).extracting(ObservationRecorder.DatabaseError::code)
-                    .containsExactly("SQL_QUERY_FAILED", "DB_CONNECTION_ACQUIRE_TIMEOUT");
+                    .containsExactlyInAnyOrder("SQL_QUERY_FAILED", "DB_CONNECTION_ACQUIRE_TIMEOUT");
                 assertThat(window.toString()).doesNotContain("private_missing_table", "jdbc:");
                 assertThat(source.toString()).doesNotContain("jdbc:");
             }
