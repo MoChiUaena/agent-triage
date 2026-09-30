@@ -46,17 +46,17 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 ## 快速启动
 
-免构建的演示包在 [v0.5.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.5.0) 中提供，包含订单、库存、数据库、Starter、可选 Java Agent 和工单源码示例。需要 JDK 21，完整解压后运行：
+免构建的演示包在 [v0.6.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0) 中提供，包含订单、库存、数据库、Starter、可选 Java Agent 和工单源码示例。需要 JDK 21，完整解压后运行：
 
-包内登记五个服务，统一启动八个进程。端口、源码演示与升级方法见 [v0.5.0 说明](docs/releases/v0.5.0.md)；包内 `SOURCE_DEMO.md` 可以逐步操作。[v0.4.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.4.0) 及更早版本的附件保持原样。
+包内登记五个服务，统一启动八个进程。端口、源码演示与升级方法见 [v0.6.0 说明](docs/releases/v0.6.0.md)；包内 `SOURCE_DEMO.md` 可以逐步操作。[v0.5.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.5.0) 及更早版本的附件保持原样。
 
-v0.5.0 可选用独立 Java Agent 核对普通异常中的跨类源码版本；默认不启用。此前的 [JPA 数据库观测](docs/STARTER.md#jpa-数据库观测)仍需业务应用显式接入，[官方 Petclinic 验收](docs/PETCLINIC.md)覆盖了两类能力。
+v0.6.0 将 SQL 执行阶段失败与连接池耗尽分开判断，并增加默认不自动执行的历史清理入口。独立 Java Agent 仍为可选；[JPA 数据库观测](docs/STARTER.md#jpa-数据库观测)需业务应用显式接入，[官方 Petclinic 验收](docs/PETCLINIC.md)覆盖实际请求。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
 ```
 
-macOS/Linux 使用 `bash start-demo.sh`，另需 curl。首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面的源码命令使用主分支当前的 v0.6.0，与上面的 v0.5.0 发布包分开。
+macOS/Linux 使用 `bash start-demo.sh`，另需 curl。首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面是从 v0.6.0 源码启动的方式。
 
 需要 JDK 21+。仓库自带 Maven Wrapper，首次构建会下载 Maven 和依赖。
 
