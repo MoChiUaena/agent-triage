@@ -97,6 +97,15 @@ def main():
             error.read()
             return error.code
 
+    def class_lookup_benchmark():
+        probe = urllib.request.Request(application + "/verification/class-lookup-benchmark", data=b"", method="POST",
+                                       headers={"X-Triage-Lab": "1"})
+        with urllib.request.urlopen(probe, timeout=30) as response:
+            value = json.load(response)
+            assert response.status == 200 and value["samples"] == 200
+            assert 0 < value["p50Nanos"] <= value["p95Nanos"] <= value["maxNanos"]
+            return value
+
     def database_window():
         end = quote(datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"), safe="")
         status, value = request(application, "/triage/database-observations?windowMinutes=5&endTime=" + end)
@@ -256,9 +265,11 @@ def main():
                             for frame in match["frames"]]
             assert any("ProbeFailure" in frame["frame"]["className"] and frame["version"]["state"] == "MATCHED"
                        for frame in probe_frames), probe_frames
+            lookup_benchmark = class_lookup_benchmark()
             database_results = {"healthyQueries": healthy_db["databasePool"]["queryCount"], "queryErrors":sql_db["databasePool"]["queryErrorCount"],
                 "acquisitionTimeouts":exhausted["databasePool"]["acquisitionTimeoutCount"], "exhaustedSamples":exhausted["databasePool"]["exhaustedSamples"],
-                "runStatuses":[healthy_run["status"], sql_run["status"], pool_run["status"]], "agentClassLookup":"MATCHED"}
+                "runStatuses":[healthy_run["status"], sql_run["status"], pool_run["status"]], "agentClassLookup":"MATCHED",
+                "classLookupBenchmark": lookup_benchmark}
         summary = {"upstreamCommit": revision, "mode": "DEMO", "observation": "LIVE", "requests": 6, "businessErrors": 2,
             "indexedFiles": binding["files"], "indexedSymbols": binding["symbols"], "parseFailures": binding["parseFailures"],
             "normalRun": normal["id"], "errorRun": failed["id"], "differentRun": different["id"],
@@ -269,6 +280,9 @@ def main():
         (output / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
         if database_results:
             print("Petclinic JPA passed: SQL stages, pool recovery and unique runtime-class source version; zero model calls")
+            measured = database_results["classLookupBenchmark"]
+            print(f"Runtime class lookup: 200 samples, p50={measured['p50Nanos'] / 1_000_000:.3f} ms, "
+                  f"p95={measured['p95Nanos'] / 1_000_000:.3f} ms, max={measured['maxNanos'] / 1_000_000:.3f} ms")
         else:
             print("Petclinic passed: original MVC pages, actual application exceptions, local source lines, build mismatch, frozen history and zero model calls")
         print(f"Saved isolated verification to {output}")

@@ -2,9 +2,12 @@ package org.springframework.samples.petclinic.triage;
 
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.mochiuaena.triage.sdk.TriageJpaObserver;
+import io.github.mochiuaena.triage.sdk.RuntimeClassAgent;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.InetAddress;
 import java.sql.SQLException;
+import java.util.Arrays;
+import java.util.Map;
 import javax.sql.DataSource;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -73,6 +76,30 @@ public class PetclinicTriageConfiguration {
 
         static final class ProbeFailure {
             static void fail() { throw new IllegalStateException("verification-only failure"); }
+        }
+
+        @PostMapping("/verification/class-lookup-benchmark")
+        public Map<String, Long> classLookupBenchmark(@RequestHeader(value = "X-Triage-Lab", required = false) String header,
+                                                       HttpServletRequest request) {
+            local(request, header);
+            if (!RuntimeClassAgent.active()) throw new IllegalStateException("Class lookup Agent is not active");
+            String[] names = {LocalDatabaseCheck.class.getName(), ProbeFailure.class.getName()};
+            for (int i = 0; i < 50; i++) verifyLookup(names);
+            long[] elapsed = new long[200];
+            for (int i = 0; i < elapsed.length; i++) {
+                long started = System.nanoTime();
+                verifyLookup(names);
+                elapsed[i] = System.nanoTime() - started;
+            }
+            Arrays.sort(elapsed);
+            return Map.of("samples", (long) elapsed.length, "p50Nanos", elapsed[elapsed.length / 2],
+                "p95Nanos", elapsed[(int) (elapsed.length * 0.95)], "maxNanos", elapsed[elapsed.length - 1]);
+        }
+
+        private void verifyLookup(String[] names) {
+            Class<?>[] found = RuntimeClassAgent.uniqueLoadedClasses(names);
+            if (found.length != 2 || found[0] != LocalDatabaseCheck.class || found[1] != ProbeFailure.class)
+                throw new IllegalStateException("The runtime class lookup is not unique");
         }
     }
 }
