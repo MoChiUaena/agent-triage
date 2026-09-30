@@ -104,4 +104,4 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 
 - [x] 测量连续类枚举开销；单实例应用的 Starter 最多自动查询 20 次/秒，超出时保持未知。[数据与边界](validation/2026-09-30-runtime-class-lookup.md)
 - [x] 新演示包加入独立 Agent JAR 与校验清单；原始 v0.4.0 附件继续通过旧格式核对。
-- [ ] 完成升级回归与 v0.5 预览发布。
+- [x] 完成[v0.4.0 到 v0.5.0 升级回归](https://github.com/MoChiUaena/agent-triage/actions/runs/36679637864)并公开 [v0.5.0 预览版](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.5.0)。
