@@ -172,3 +172,7 @@ def main():
                     child.wait(timeout=5)
         for stream in handles:
             stream.close()
+
+
+if __name__ == "__main__":
+    main()
