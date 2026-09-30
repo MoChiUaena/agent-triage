@@ -7,6 +7,9 @@ let filters = new URLSearchParams();
 let historyRequest = 0;
 let deleting = false;
 let deleteSelection = null;
+let retentionPreview = null;
+let retentionRequest = 0;
+let retentionBusy = false;
 let activeTab = "history";
 let statisticsRequest = 0;
 let serviceRequest = 0;
@@ -31,6 +34,13 @@ function notice(message, error = false) {
   $("#workspace-notice").textContent = message;
   $("#workspace-notice").hidden = !message;
   $("#workspace-notice").classList.toggle("error", error);
+}
+function resetRetentionPreview(message = "选择留存时间后预览，不会立即删除。") {
+  retentionRequest++;
+  retentionPreview = null;
+  $("#retention-preview").disabled = false;
+  $("#retention-open").hidden = true;
+  $("#retention-summary").textContent = message;
 }
 function time(value) { return new Date(value).toLocaleString("zh-CN", { hour12: false }); }
 function duration(value) { return value == null ? "—" : value < 1000 ? Math.round(value) + " ms" : (value / 1000).toFixed(2) + " s"; }
@@ -161,12 +171,57 @@ $("#delete-history-form").addEventListener("submit", async (event) => {
   try {
     await request("/api/history/" + id, { method: "DELETE", headers: { "Content-Type": "application/json", "X-Triage-History": "1" }, body: JSON.stringify({ confirmId: id }) });
     $("#delete-history-dialog").close(); deleteSelection = null;
+    resetRetentionPreview();
     notice("排查记录已删除。");
     if (historyPage?.items.length === 1 && previousCursors.length) await loadHistory(previousCursors.at(-1), "previous");
     else await loadHistory();
     loadServices().catch(() => notice("记录已删除，服务筛选列表暂未刷新，请稍后刷新页面。"));
   } catch (error) { $("#delete-error").textContent = error.message; $("#delete-error").hidden = false; }
   finally { deleting = false; for (const selector of ["#confirm-delete", "#cancel-delete", "#close-delete"]) $(selector).disabled = false; }
+});
+$("#retention-days").addEventListener("change", () => resetRetentionPreview());
+$("#retention-preview").addEventListener("click", async () => {
+  const version = ++retentionRequest;
+  const button = $("#retention-preview"); button.disabled = true;
+  try {
+    const preview = await request("/api/history/retention?" + new URLSearchParams({ days: $("#retention-days").value }));
+    if (version !== retentionRequest) return;
+    retentionPreview = preview;
+    $("#retention-summary").textContent = "截止 " + time(preview.cutoff) + " 之前，符合条件的已结束记录 " + preview.eligibleCount + " 条。";
+    $("#retention-open").hidden = preview.eligibleCount === 0;
+  } catch (error) {
+    if (version === retentionRequest) { resetRetentionPreview("预览失败，请稍后重试。"); notice(error.message, true); }
+  } finally { if (version === retentionRequest) button.disabled = false; }
+});
+$("#retention-open").addEventListener("click", () => {
+  if (!retentionPreview || retentionBusy) return;
+  $("#retention-detail").textContent = "将删除 " + retentionPreview.eligibleCount + " 条在 " + time(retentionPreview.cutoff) + " 之前创建的已结束记录。";
+  $("#retention-confirm-text").value = "";
+  $("#retention-error").hidden = true;
+  $("#retention-dialog").showModal(); $("#retention-confirm-text").focus();
+});
+function closeRetention() { if (!retentionBusy) $("#retention-dialog").close(); }
+$("#retention-dialog").addEventListener("cancel", (event) => { if (retentionBusy) event.preventDefault(); });
+for (const selector of ["#retention-close", "#retention-cancel"]) $(selector).addEventListener("click", closeRetention);
+$("#retention-form").addEventListener("submit", async (event) => {
+  event.preventDefault(); if (retentionBusy || !retentionPreview) return;
+  if ($("#retention-confirm-text").value.trim() !== "删除旧记录") {
+    $("#retention-error").textContent = "请输入“删除旧记录”后再确认。"; $("#retention-error").hidden = false; return;
+  }
+  retentionBusy = true;
+  for (const selector of ["#retention-confirm", "#retention-cancel", "#retention-close"]) $(selector).disabled = true;
+  try {
+    const preview = retentionPreview;
+    const result = await request("/api/history/retention", { method: "POST",
+      headers: { "Content-Type": "application/json", "X-Triage-History": "1" },
+      body: JSON.stringify({ cutoff: preview.cutoff, expectedCount: preview.eligibleCount, confirmation: "删除旧记录" }) });
+    $("#retention-dialog").close();
+    resetRetentionPreview("已清理 " + result.deletedCount + " 条旧记录。需要继续清理时请重新预览。");
+    notice("已清理 " + result.deletedCount + " 条旧记录。");
+    previousCursors = []; historyCursor = null; await loadHistory(null);
+    loadServices().catch(() => notice("记录已清理，服务筛选列表暂未刷新，请稍后刷新页面。"));
+  } catch (error) { $("#retention-error").textContent = error.message; $("#retention-error").hidden = false; }
+  finally { retentionBusy = false; for (const selector of ["#retention-confirm", "#retention-cancel", "#retention-close"]) $(selector).disabled = false; }
 });
 $("#history-filter").addEventListener("submit", (event) => {
   event.preventDefault();

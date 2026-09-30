@@ -18,6 +18,8 @@
 
 浏览器请求需要本机同源访问和 `X-Triage-History: 1`；确认体中的 UUID 必须与路径一致，防止确认对象与删除对象错位。没有自动清理任务。
 
+历史页还可手动选择保留最近 30、90、180、365 或 730 天。预览只返回截止时间与符合条件的终态记录数；确认窗口要求输入“删除旧记录”，服务端再次核对数量后才删除。若预览后记录数变化，返回 409 并要求重新预览。排队和执行中的记录、模型设置及最近 30 天的记录不会被这项清理操作删除。清理不可恢复，操作前应备份本机数据库。
+
 ## 旧数据与接口
 
 V3 数据库迁移增加查询索引列，V6 补充接口索引与回填版本。启动时分批从保存的 JSON 补齐查询列，不重写原始 JSON；没有接口的记录同样标记为已回填。新执行每次保存时原子更新 JSON 与索引。
@@ -25,6 +27,8 @@ V3 数据库迁移增加查询索引列，V6 补充接口索引与回填版本�
 `GET /api/history` 返回 `items`、`total`、`nextCursor` 和 `pageSize`，窗口最多 50 条。关键词按字面搜索，`%` 与 `_` 不作为通配符。时间参数 `from` 包含、`until` 不包含，均为 ISO-8601 时间。
 
 `GET /api/history/services` 返回已记录的服务标识与最新名称。`DELETE /api/history/{id}` 需要 JSON 确认体 `{"confirmId":"同一个 UUID"}`，成功返回 204；不存在为 404，执行未结束为 409。原有 `GET /api/runs?limit=20` 数组接口保持可用。
+
+`GET /api/history/retention?days=90` 预览 30–3650 天的终态旧记录。`POST /api/history/retention` 需要 `X-Triage-History: 1` 和预览返回的 `cutoff`、`eligibleCount`（作为 `expectedCount`）及确认文字 `删除旧记录`；数量变化返回 409。没有后台定时删除。
 
 `GET /api/history/endpoints?service=ticket-service` 返回该服务已保存的接口描述，最多 200 个，按路径、HTTP 方法和接口 ID 排序。历史条目与最近摘要的 `endpoint` 均来自执行快照，旧记录为空。
 

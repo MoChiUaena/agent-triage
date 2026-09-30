@@ -41,6 +41,16 @@
           <div class="table-scroll"><table class="history-table"><thead><tr><th scope="col">问题、范围与时间</th><th scope="col">服务</th><th scope="col">状态</th><th scope="col">模式</th><th scope="col">耗时</th><th scope="col">操作</th></tr></thead><tbody id="history-rows"><tr><td colspan="6" class="table-empty">正在加载…</td></tr></tbody></table></div>
           <div class="history-pagination"><span id="history-count">每页 20 条</span><div><button type="button" class="secondary" id="history-previous" disabled>上一页</button><button type="button" class="secondary" id="history-next" disabled>下一页</button></div></div>
         </section>
+        <section class="management-card retention-card" aria-labelledby="retention-title">
+          <div class="management-heading"><h2 id="retention-title">旧记录留存</h2></div>
+          <p class="management-caption">默认不自动清理。这里仅删除截止时间之前已结束的排查；排队和执行中的记录始终保留。</p>
+          <div class="retention-controls">
+            <label>保留最近<select id="retention-days"><option value="30">30 天</option><option value="90" selected>90 天</option><option value="180">180 天</option><option value="365">365 天</option><option value="730">730 天</option></select></label>
+            <button id="retention-preview" type="button" class="secondary">预览可清理记录</button>
+            <button id="retention-open" type="button" class="danger-button" hidden>清理旧记录</button>
+          </div>
+          <p id="retention-summary" class="management-caption" role="status">选择留存时间后预览，不会立即删除。</p>
+        </section>
       </section>
       <section id="statistics-panel" role="tabpanel" aria-labelledby="tab-statistics" hidden>
         <form id="statistics-filter" class="management-card statistics-filter">
@@ -68,6 +78,13 @@
       <div class="dialog-heading"><h2 id="delete-history-title">删除排查记录</h2><button type="button" class="icon-button" id="close-delete" aria-label="关闭删除确认"><svg class="icon"><use href="/icons.svg#close" /></svg></button></div>
       <div class="dialog-content"><p id="delete-question"></p><p id="delete-detail" class="management-caption"></p><p class="delete-warning">本条记录的结果、证据和执行事件将永久删除，无法恢复。模型设置继续保留。</p><p id="delete-error" class="form-error" role="alert" hidden></p></div>
       <div class="dialog-actions"><button type="button" class="secondary" id="cancel-delete">保留记录</button><button type="submit" class="danger-button" id="confirm-delete">确认删除</button></div>
+    </form>
+  </dialog>
+  <dialog id="retention-dialog" aria-labelledby="retention-dialog-title">
+    <form id="retention-form">
+      <div class="dialog-heading"><h2 id="retention-dialog-title">清理旧记录</h2><button type="button" class="icon-button" id="retention-close" aria-label="关闭清理确认"><svg class="icon"><use href="/icons.svg#close" /></svg></button></div>
+      <div class="dialog-content"><p id="retention-detail"></p><p class="delete-warning">排查结果、证据和执行事件会永久删除。请先备份本机数据库；模型设置不会删除。</p><label class="retention-confirm-label">输入“删除旧记录”确认<input id="retention-confirm-text" type="text" autocomplete="off" required /></label><p id="retention-error" class="form-error" role="alert" hidden></p></div>
+      <div class="dialog-actions"><button type="button" class="secondary" id="retention-cancel">保留记录</button><button type="submit" class="danger-button" id="retention-confirm">确认清理</button></div>
     </form>
   </dialog>
 </body>

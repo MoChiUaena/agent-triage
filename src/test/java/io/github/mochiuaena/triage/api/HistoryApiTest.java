@@ -8,6 +8,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.*;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import static org.assertj.core.api.Assertions.*;
 
@@ -19,8 +20,8 @@ import static org.assertj.core.api.Assertions.*;
 class HistoryApiTest {
     @Autowired TestRestTemplate http;
     @Autowired RunRepository runs;
-    private Run row(Status status) {
-        Instant time = Instant.now();
+    private Run row(Status status) { return row(status, Instant.now()); }
+    private Run row(Status status, Instant time) {
         var run = new Run(UUID.randomUUID(), "fixture private question", "archived-service", 5, Scenario.OBSERVED, "DEMO", false,
             status, time, status.terminal() ? time.plusMillis(1) : null, 0, List.of(), List.of(), null, null);
         runs.insert(run); return run;
@@ -53,6 +54,29 @@ class HistoryApiTest {
             assertThat(delete(run.id(), run.id(), null, true).getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
             assertThat(runs.find(run.id())).isPresent();
         }
+    }
+    @Test void retentionRequiresPreviewAndConfirmationAndNeverRemovesActiveOrRecentRuns() {
+        Instant old = Instant.now().minus(120, ChronoUnit.DAYS);
+        Run completed = row(Status.SUCCEEDED, old), failed = row(Status.FAILED, old.plusSeconds(1));
+        Run running = row(Status.RUNNING, old), recent = row(Status.SUCCEEDED);
+        var preview = http.getForObject("/api/history/retention?days=90", HistoryRepository.RetentionPreview.class);
+        assertThat(preview.eligibleCount()).isEqualTo(2);
+        assertThat(http.getForEntity("/api/history/retention?days=1", String.class).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        var headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); headers.set("X-Triage-History", "1");
+        var confirmation = Map.of("cutoff", preview.cutoff().toString(), "expectedCount", 2, "confirmation", "删除旧记录");
+        assertThat(http.postForEntity("/api/history/retention", confirmation, String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(http.exchange("/api/history/retention", HttpMethod.POST,
+            new HttpEntity<>(Map.of("cutoff", preview.cutoff().toString(), "expectedCount", 3, "confirmation", "删除旧记录"), headers), String.class)
+            .getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(http.exchange("/api/history/retention", HttpMethod.POST,
+            new HttpEntity<>(Map.of("cutoff", Instant.now().toString(), "expectedCount", 2, "confirmation", "删除旧记录"), headers), String.class)
+            .getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        var result = http.exchange("/api/history/retention", HttpMethod.POST, new HttpEntity<>(confirmation, headers),
+            HistoryController.RetentionResult.class);
+        assertThat(result.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(result.getBody().deletedCount()).isEqualTo(2);
+        assertThat(runs.find(completed.id())).isEmpty(); assertThat(runs.find(failed.id())).isEmpty();
+        assertThat(runs.find(running.id())).isPresent(); assertThat(runs.find(recent.id())).isPresent();
     }
     @Test void newHistoryFiltersAndOldRecentArrayBothRemainUsable() {
         var run = row(Status.FAILED);

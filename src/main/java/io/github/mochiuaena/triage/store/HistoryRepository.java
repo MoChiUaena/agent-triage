@@ -21,6 +21,8 @@ public class HistoryRepository {
                         RequestEndpoint endpoint) {}
     public record Page(List<Entry> items, String nextCursor, long total, int pageSize) {}
     public record Service(String id, String name) {}
+    public record RetentionPreview(Instant cutoff, long eligibleCount) {}
+    public static final class RetentionChanged extends RuntimeException {}
     public record Durations(long samples, Double averageMillis, Long p95Millis, Long maximumMillis) {}
     public record Usage(long calledRuns, long completeRuns, long partialRuns, long missingRuns, TokenUsage knownUsage) {}
     public record Statistics(Instant from, Instant until, String service, long total, Map<Status, Long> statuses,
@@ -78,6 +80,22 @@ public class HistoryRepository {
     }
     public boolean deleteTerminal(UUID id) {
         return jdbc.update("DELETE FROM triage_runs WHERE id = ? AND status IN ('SUCCEEDED','INSUFFICIENT_EVIDENCE','FAILED','CANCELLED')", id.toString()) == 1;
+    }
+    private long oldTerminalCount(Instant cutoff) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM triage_runs WHERE created_at < ? "
+            + "AND status IN ('SUCCEEDED','INSUFFICIENT_EVIDENCE','FAILED','CANCELLED')", Long.class,
+            OffsetDateTime.ofInstant(cutoff, ZoneOffset.UTC));
+    }
+    @Transactional(readOnly = true)
+    public RetentionPreview retentionPreview(Instant cutoff) { return new RetentionPreview(cutoff, oldTerminalCount(cutoff)); }
+    @Transactional(isolation = Isolation.SERIALIZABLE)
+    public long deleteOldTerminal(Instant cutoff, long expectedCount) {
+        if (oldTerminalCount(cutoff) != expectedCount) throw new RetentionChanged();
+        int deleted = jdbc.update("DELETE FROM triage_runs WHERE created_at < ? "
+            + "AND status IN ('SUCCEEDED','INSUFFICIENT_EVIDENCE','FAILED','CANCELLED')",
+            OffsetDateTime.ofInstant(cutoff, ZoneOffset.UTC));
+        if (deleted != expectedCount) throw new RetentionChanged();
+        return deleted;
     }
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public Statistics statistics(HistoryFilter filter) {

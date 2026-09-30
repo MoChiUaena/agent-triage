@@ -70,6 +70,8 @@ V3 的指标证据含本机使用的 `requestDetails`，`graph.endpointMatches` 
 | `GET /api/history/services` | 历史中的服务与最新名称，包含已移除的服务 |
 | `GET /api/history/endpoints?service=ticket-service` | 该服务历史中保存的接口描述，最多 200 个；不访问业务服务 |
 | `DELETE /api/history/{uuid}` | 本机同源请求带 `X-Triage-History: 1` 和匹配的 `confirmId`，删除已结束记录 |
+| `GET /api/history/retention?days=90` | 预览截止时间之前可手动清理的终态记录数；天数范围 30–3650 |
+| `POST /api/history/retention` | 带 `X-Triage-History: 1`、预览截止时间、预期数量与确认文字，清理旧终态记录 |
 | `GET /api/statistics?days=7` | 近 1–90 天的状态、耗时、调用和已知用量，可按历史服务和接口筛选 |
 | `GET /api/services/status` | 登记服务的只读观测状态，短期缓存，不依赖模型选择 |
 | `GET /api/services/{id}/source-check?windowMinutes=5` | 本机同源接入检查：服务观测、请求窗口、源码绑定、入口及构建摘要；不创建历史或调用模型 |

@@ -36,6 +36,13 @@
 #delete-question { font-size: 14px; overflow-wrap: anywhere; }
 #delete-detail { margin-top: 8px; }
 .delete-warning { margin-top: 18px; color: var(--muted); font-size: 13px; line-height: 1.8; }
+.retention-controls { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin: 18px 0 12px; }
+.retention-controls label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+.retention-controls select,.retention-confirm-label input { padding: 9px 11px; border: 1px solid var(--line); border-radius: 7px; background: #f8fbff; font-size: 13px; }
+.retention-controls button { min-height: 36px; }
+.retention-confirm-label { display: grid; gap: 8px; margin-top: 18px; color: var(--muted); font-size: 13px; }
+#retention-dialog { width: min(480px, calc(100vw - 32px)); }
+#retention-detail { line-height: 1.8; }
 .workspace-tabs { display: flex; gap: 22px; border-bottom: 1px solid var(--line); margin-bottom: 22px; }
 .workspace-tabs button { padding: 10px 3px 12px; font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent; }
 .workspace-tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
