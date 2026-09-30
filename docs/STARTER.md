@@ -2,19 +2,19 @@
 
 `triage-spring-boot-starter` 为同步 Spring MVC 应用提供 `/triage/observations`，复用 Agent 已有的 HTTP V1 和数据库 V2 契约。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
 
-当前 main 的源码版本为 0.4.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。已发布的 [v0.3.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.3.0) 提供独立 JAR 与 POM；在附件所在目录安装该版本：
+当前版本为 0.4.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。[v0.4.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.4.0) 提供独立 JAR 与 POM；在附件所在目录安装：
 
 ```powershell
-mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.3.0.jar' '-DpomFile=triage-spring-boot-starter-0.3.0.pom'
+mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.4.0.jar' '-DpomFile=triage-spring-boot-starter-0.4.0.pom'
 ```
 
-使用当前源码中的 v0.4.0 时，可在仓库根目录构建并安装 Starter：
+也可在仓库根目录构建并安装 Starter：
 
 ```powershell
 .\mvnw.cmd -B -ntp -f triage-spring-boot-starter/pom.xml install
 ```
 
-已经公开的 [v0.2.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.2.0)保留对应版本的独立附件；使用它时文件名和依赖版本均为 0.2.0。下面的基本 HTTP 接入依赖仍以已发布的 v0.3.0 为例；JPA 接入需要 v0.4.0。
+已经公开的 [v0.3.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.3.0) 和 [v0.2.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.2.0)保留原版本附件；JPA 接入需要 v0.4.0。
 
 业务项目添加依赖：
 
@@ -22,7 +22,7 @@ mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=tri
 <dependency>
   <groupId>io.github.mochiuaena</groupId>
   <artifactId>triage-spring-boot-starter</artifactId>
-  <version>0.3.0</version>
+  <version>0.4.0</version>
 </dependency>
 ```
 
@@ -207,7 +207,7 @@ Maven 项目可以在 `process-classes` 阶段生成清单，随后由打包步�
 </plugin>
 ```
 
-也可运行 `java -cp triage-spring-boot-starter-0.3.0.jar io.github.mochiuaena.triage.sdk.SourceBuildManifest 源码目录 类文件目录`，在打包前将清单放入类输出目录。当前工具接受一个源码根目录，最多 2000 个 Java 文件、20 MB 源码、10000 个类文件与 1 MB 清单；重名源文件无法唯一关联时不生成对应条目。
+也可运行 `java -cp triage-spring-boot-starter-0.4.0.jar io.github.mochiuaena.triage.sdk.SourceBuildManifest 源码目录 类文件目录`，在打包前将清单放入类输出目录。当前工具接受一个源码根目录，最多 2000 个 Java 文件、20 MB 源码、10000 个类文件与 1 MB 清单；重名源文件无法唯一关联时不生成对应条目。
 
 运行端只读取处理类所属代码来源的清单，并核验对应类资源的摘要。MVC 描述和 HTTP 失败时仍在当前线程中的业务位置可提供可选 `sourceHash`；普通异常栈只有名称，不能据此确定实际类加载器，因此不补猜测的摘要。V1/V2 输出保持原样。
 

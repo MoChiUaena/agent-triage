@@ -24,3 +24,5 @@ SQL 错误由验收配置中的固定无效查询触发，连接持有也由该�
 ![原有请求发生连接获取超时后的排查](../assets/petclinic-jpa-pool.png)
 
 [单独 SQL 错误的证据不足结果](../assets/petclinic-jpa-sql.png)与[两类错误事件](../assets/petclinic-jpa-evidence.png)保留了页面上的阶段区别。
+
+[Windows、Linux、PostgreSQL 与 LIVE 协议回归](https://github.com/MoChiUaena/agent-triage/actions/runs/36664286042)在功能提交上全部通过；[独立 Petclinic Linux 验收](https://github.com/MoChiUaena/agent-triage/actions/runs/36664167624)还检查了两种数据库故障和验证进程的停止流程。
