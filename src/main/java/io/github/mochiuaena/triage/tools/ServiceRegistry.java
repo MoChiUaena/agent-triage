@@ -58,7 +58,7 @@ public final class ServiceRegistry {
                 if (databaseAlias && protocol != Protocol.DATABASE_V2)
                     throw new IllegalArgumentException("Database alias requires DATABASE_V2");
                 Target target = new Target(new ServiceInfo(id, label(config.name(), id), downstream,
-                    label(config.downstreamName(), downstream)), ObservationSource.origin(config.baseUrl()), protocol, window, lab, databaseAlias);
+                    label(config.downstreamName(), downstream)), ObservationSource.registeredBase(config.baseUrl()), protocol, window, lab, databaseAlias);
                 if (values.putIfAbsent(id, target) != null) throw new IllegalArgumentException("Duplicate registered service");
             }
         }

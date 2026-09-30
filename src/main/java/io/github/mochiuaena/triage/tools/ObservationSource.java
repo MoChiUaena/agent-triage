@@ -18,15 +18,26 @@ public class ObservationSource {
     }
 
     public static URI origin(String url) {
+        return loopback(url, false);
+    }
+
+    public static URI registeredBase(String url) {
+        return loopback(url, true);
+    }
+
+    private static URI loopback(String url, boolean contextPath) {
         if (url == null) throw new IllegalArgumentException("Observation origin is required");
         URI baseUrl = URI.create(url);
         String host = baseUrl.getHost();
+        String path = baseUrl.getRawPath();
+        boolean allowedPath = path == null || path.isEmpty() || "/".equals(path)
+            || contextPath && path.length() <= 160 && path.matches("/[A-Za-z0-9_-]{1,40}(?:/[A-Za-z0-9_-]{1,40})*/?");
         if (!"http".equals(baseUrl.getScheme()) || host == null
             || !Set.of("127.0.0.1", "localhost", "[::1]").contains(host)
             || baseUrl.getPort() < 1 || baseUrl.getPort() > 65535
             || baseUrl.getUserInfo() != null || baseUrl.getQuery() != null || baseUrl.getFragment() != null
-            || !(baseUrl.getPath().isEmpty() || "/".equals(baseUrl.getPath())))
-            throw new IllegalArgumentException("Observation base URL must be a loopback HTTP origin with an explicit port");
+            || !allowedPath)
+            throw new IllegalArgumentException("Observation base URL must be loopback HTTP with an explicit port and a plain context path");
         return baseUrl;
     }
 

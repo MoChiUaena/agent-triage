@@ -41,13 +41,21 @@ class ServiceRegistryTest {
         var good = config("checkout-service", "http://127.0.0.1:19092");
         assertThatThrownBy(() -> new ServiceRegistry(live, List.of(good, good))).isInstanceOf(IllegalArgumentException.class);
         for (String url : List.of("https://127.0.0.1:19092", "http://example.com:80", "http://127.0.0.1",
-            "http://user:pass@127.0.0.1:19092", "http://127.0.0.1:19092/path", "http://127.0.0.1:19092?url=x"))
+            "http://user:pass@127.0.0.1:19092", "http://127.0.0.1:19092?url=x",
+            "http://127.0.0.1:19092/petclinic/../admin", "http://127.0.0.1:19092/%2e%2e/admin",
+            "http://127.0.0.1:19092//admin", "http://127.0.0.1:19092/petclinic;admin"))
             assertThatThrownBy(() -> new ServiceRegistry(live, List.of(config("checkout-service", url))))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ServiceRegistry(live, List.of(new ServiceRegistry.Config("checkout-service", null,
             "stock-service", null, "http://127.0.0.1:19092", ServiceRegistry.Protocol.OBSERVATIONS_V1, 15, true))))
             .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ServiceRegistry(new ObservationSource("SYNTHETIC", "http://127.0.0.1:19082"), List.of(good)))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+    @Test void registeredServiceCanUseAPlainLoopbackContextPath() {
+        var registry = new ServiceRegistry(live, List.of(config("checkout-service", "http://127.0.0.1:19092/petclinic/")));
+        assertThat(registry.defaultTarget().baseUrl().getPath()).isEqualTo("/petclinic/");
+        assertThatThrownBy(() -> new ObservationSource("LIVE", "http://127.0.0.1:19092/petclinic"))
             .isInstanceOf(IllegalArgumentException.class);
     }
     @Test void allowsOnlyDatabaseV2ToReadTheFixedSecondaryEndpoint() {

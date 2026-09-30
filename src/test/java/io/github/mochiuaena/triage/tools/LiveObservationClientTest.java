@@ -65,6 +65,24 @@ class LiveObservationClientTest {
             .doesNotContainKeys("downstreamTimeoutRate", "downstreamP95Ms", "orderP95Ms");
         assertThat(client.scenario(registry.defaultTarget())).isEqualTo(Scenario.OBSERVED);
     }
+    @Test void registeredContextPathStillReadsOnlyTheFixedObservationRoute() throws Exception {
+        server.removeContext("/triage/observations");
+        var accesses = new AtomicInteger();
+        server.createContext("/petclinic/triage/observations", exchange -> {
+            accesses.incrementAndGet();
+            byte[] body = response.get();
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) { out.write(body); }
+        });
+        String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/petclinic";
+        registry = new ServiceRegistry(new ObservationSource("LIVE", "http://127.0.0.1:" + server.getAddress().getPort()),
+            List.of(new ServiceRegistry.Config("checkout-service", "结算服务", "stock-service", "商品服务",
+                base, ServiceRegistry.Protocol.OBSERVATIONS_V1, 15, false)));
+        client = new LiveObservationClient(registry, json);
+        context = new ToolContext("checkout-service", 5, Scenario.OBSERVED, end, registry.defaultTarget());
+        assertThat(client.snapshot(context).requestCount()).isEqualTo(5);
+        assertThat(accesses).hasValue(1);
+    }
     @Test void databaseAliasReadsOnlyTheFixedLoopbackDatabaseEndpoint() throws Exception {
         var accesses = new AtomicInteger();
         server.createContext("/triage/database-observations", exchange -> {
