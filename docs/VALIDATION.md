@@ -12,6 +12,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+v0.7 接入增量：Starter 25 项测试通过，模型设置 19 项和观测地址相关 19 项定向测试通过。[Petclinic REST 验收](validation/2026-09-30-petclinic-rest.md)在 Ubuntu CI 中重新构建固定版本的公开项目，检查原有 JSON 请求、`/petclinic/` 路径、MVC 入口、经全局处理器处理的异常位置和源码版本差异。
+
 v0.4 数据库增量：主项目 256 项测试无失败，Windows 下 1 项符号链接权限检查跳过；Starter 22 项、商品 HTTP/JDBC 集成检查与[公开 Petclinic 的本机 JPA 验收](validation/2026-09-30-petclinic-jpa.md)通过。新检查覆盖固定数据库别名、真实 Hikari 连接获取超时、SQL 执行失败、样本满载等待、恢复、窗口隔离及 SQL 文本不进入观测。普通异常的 lambda 位置标为候选，构建摘要仍保持未知。
 
 公开项目增量：主项目 253 项测试无失败，Windows 下 1 项符号链接权限检查跳过。新增 HTTP 回归检查普通请求异常返回证据不足、没有下游归因且仍保留本机代码位置。[官方 Petclinic 验收](validation/2026-09-29-petclinic.md)覆盖原有业务请求、实际异常、MVC 入口摘要、源码差异与历史快照；[复现步骤](PETCLINIC.md)区分已验证内容与 JPA、lambda 和异常摘要的缺口。
