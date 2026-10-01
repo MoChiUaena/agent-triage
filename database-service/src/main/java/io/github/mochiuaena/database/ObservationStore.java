@@ -6,6 +6,8 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
+import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -33,6 +35,7 @@ public class ObservationStore {
     private final String serviceId, databaseId;
     private final Instant startedAt = Instant.now();
     private long recorded;
+    private Instant droppedThrough;
 
     public ObservationStore(HikariDataSource pool, MeterRegistry metrics, ObjectMapper json,
                             @Value("${sample.service-id:account-service}") String serviceId,
@@ -49,18 +52,22 @@ public class ObservationStore {
         var bean = pool.getHikariPoolMXBean();
         if (bean == null) return;
         pools.addLast(new PoolSample(Instant.now(), bean.getActiveConnections(), bean.getThreadsAwaitingConnection()));
-        while (pools.size() > 72_000) pools.removeFirst();
+        while (pools.size() > 72_000) dropped(pools.removeFirst().timestamp());
     }
     public synchronized void record(RequestSample value) {
         requests.addLast(value); recorded++;
-        while (requests.size() > 10_000) requests.removeFirst();
+        while (requests.size() > 10_000) dropped(requests.removeFirst().timestamp());
         metrics.counter("sample.database.requests", "outcome", value.acquisitionTimeout() ? "acquisition_timeout" : value.acquisitionError() ? "acquisition_error" : value.queryError() ? "query_error" : "ok").increment();
         if (value.error() != null) append(value.error());
     }
     public synchronized void reset() {
         requests.clear(); pools.clear();
+        droppedThrough = null;
         try { Files.createDirectories(journal.getParent()); Files.writeString(journal, "", StandardCharsets.UTF_8); }
         catch (IOException e) { throw new UncheckedIOException("Cannot reset database error journal", e); }
+    }
+    private void dropped(Instant time) {
+        if (droppedThrough == null || time.isAfter(droppedThrough)) droppedThrough = time;
     }
     private void append(ErrorEntry value) {
         try {
@@ -85,6 +92,8 @@ public class ObservationStore {
     public synchronized Snapshot snapshot(int minutes, Instant end) {
         if (minutes < 1 || minutes > 60) throw new IllegalArgumentException("Window must be 1..60 minutes");
         Instant start = end.minusSeconds(minutes * 60L);
+        if (droppedThrough != null && !droppedThrough.isBefore(start))
+            throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "Observation window is no longer fully retained; reduce the window");
         var samples = requests.stream().filter(v -> !v.timestamp().isBefore(start) && !v.timestamp().isAfter(end)).toList();
         var poolSamples = pools.stream().filter(v -> !v.timestamp().isBefore(start) && !v.timestamp().isAfter(end)).toList();
         var normal = samples.stream().filter(v -> !v.acquisitionTimeout() && !v.acquisitionError() && !v.queryError()).toList();

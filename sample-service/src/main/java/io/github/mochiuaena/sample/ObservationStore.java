@@ -2,6 +2,8 @@ package io.github.mochiuaena.sample;
 
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.server.ResponseStatusException;
+import static org.springframework.http.HttpStatus.UNPROCESSABLE_ENTITY;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Counter;
 import java.time.Duration;
@@ -33,6 +35,7 @@ public class ObservationStore {
     private final String serviceId;
     private final String downstreamService;
     private Scenario scenario = Scenario.NORMAL;
+    private Instant droppedThrough;
 
     public ObservationStore(MeterRegistry metrics, ErrorJournal errors,
                             @Value("${sample.service-id:order-service}") String serviceId,
@@ -51,12 +54,16 @@ public class ObservationStore {
 
     public synchronized void reset() {
         samples.clear();
+        droppedThrough = null;
         scenario = Scenario.NORMAL;
     }
 
     public synchronized void record(RequestSample sample) {
         samples.addLast(sample);
-        while (samples.size() > MAX_SAMPLES) samples.removeFirst();
+        while (samples.size() > MAX_SAMPLES) {
+            Instant dropped = samples.removeFirst().timestamp();
+            if (droppedThrough == null || dropped.isAfter(droppedThrough)) droppedThrough = dropped;
+        }
         metrics.counter("sample.order.requests", "outcome", sample.outcome()).increment();
         metrics.timer("sample.order.duration", "outcome", sample.outcome())
             .record(Duration.ofNanos((long) (sample.orderMs() * 1_000_000)));
@@ -67,6 +74,8 @@ public class ObservationStore {
     public synchronized Snapshot snapshot(int windowMinutes, Instant end) {
         if (windowMinutes < 1 || windowMinutes > 60) throw new IllegalArgumentException("windowMinutes must be 1..60");
         Instant start = end.minus(windowMinutes, ChronoUnit.MINUTES);
+        if (droppedThrough != null && !droppedThrough.isBefore(start))
+            throw new ResponseStatusException(UNPROCESSABLE_ENTITY, "Observation window is no longer fully retained; reduce the window");
         List<RequestSample> matching = samples.stream()
             .filter(sample -> !sample.timestamp().isBefore(start) && !sample.timestamp().isAfter(end)).toList();
         List<RequestSample> normals = matching.stream().filter(sample -> sample.scenario() == Scenario.NORMAL && "ok".equals(sample.outcome())).toList();
