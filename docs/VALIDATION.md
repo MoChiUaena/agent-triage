@@ -12,6 +12,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+v0.9 开发增量：主项目 272 项、Starter 30 项在跨平台 CI 中通过。[响应分类验收](validation/2026-10-01-http-response-classes.md)覆盖默认 V3 兼容、异步完成与未知状态、分类合计与接口一致性、固定规则和本地模型协议的证据门槛，以及公开项目的 404/5xx/下游超时区别。
+
 v0.8 开发增量：Starter 29 项、主项目 265 项测试通过，主项目有 1 项 Windows 符号链接权限测试跳过。[异步与观测访问验收](validation/2026-10-01-async-and-observation-access.md)记录了异步请求漏计的复现与修复、独立进程的令牌轮换和未覆盖的跨线程调用。[Petclinic REST 补充验收](validation/2026-09-30-petclinic-rest.md)核对原业务接口 404 的证据边界。
 
 v0.7 接入增量：Starter 25 项测试通过，模型设置 19 项和观测地址相关 19 项定向测试通过。[Petclinic REST 验收](validation/2026-09-30-petclinic-rest.md)在 Ubuntu CI 中重新构建固定版本的公开项目，检查原有 JSON 请求、`/petclinic/` 路径、MVC 入口、经全局处理器处理的异常位置和源码版本差异。
@@ -69,10 +71,10 @@ v0.1.0 交付检查：主项目 138 项、订单与库存服务各 1 项测试�
 | `RunApiTest` | 7 | HTTP 请求、参数校验、历史查询、SSE 重放、页面和模式信息 |
 | `TriageApplicationTest` | 1 | 无模型凭据时启动应用 |
 | `ModelIntegrationTest` | 38 | HTTP 多轮调用、参数纠正、补齐遗漏证据与引用、预算不足和再次不完整时停止、范围与限额、错误脱敏及 usage |
-| `LiveModelOutputTest` | 27 | 判断与证据一致性、无效建议拒绝、应用排序与原始选择保留、不插入未选项、受限措辞、登记服务名称、旧历史兼容 |
+| `LiveModelOutputTest` | 28 | 判断与证据一致性、响应错误不能生成无超时完成判断、无效建议拒绝、应用排序与原始选择保留、受限措辞、旧历史兼容 |
 | `ModelToolsTest` | 15 | 参数错误分类、反馈不回显未知值、准备阶段不执行工具、未注册工具直接失败、不能切换本次服务 |
-| `ServiceRegistryTest` | 5 | 配置绑定、旧配置兼容、窗口限制、本机上下文路径与地址限制 |
-| `LiveObservationClientTest` | 14 | V1/V3 只读观测、上下文路径、身份与数值校验、大小限制、重定向拒绝 |
+| `ServiceRegistryTest` | 7 | 配置绑定、旧配置兼容、窗口限制、本机上下文路径、令牌格式及 LAB 路由限制 |
+| `LiveObservationClientTest` | 17 | V1/V3 只读观测、上下文路径、令牌服务隔离、响应分类一致性、身份与数值校验、大小限制、重定向拒绝 |
 | `RegisteredServiceApiTest` | 3 | HTTP 双服务隔离、白名单预检、窗口限制、历史标签、只读权限 |
 | `ModelSettingsTest` | 9 | 必填配置、地址限制、凭据脱敏和配置上限 |
 | `EnvironmentSettingsTest` | 1 | 文档中的环境变量能覆盖默认配置 |
