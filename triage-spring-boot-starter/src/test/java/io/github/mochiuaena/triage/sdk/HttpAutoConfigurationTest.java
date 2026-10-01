@@ -27,6 +27,11 @@ class HttpAutoConfigurationTest {
     @Test void missingIdentitiesFailAtStartup() {
         runner.withPropertyValues("triage.sdk.enabled=true").run(context -> assertThat(context).hasFailed());
     }
+    @Test void automaticAsyncPropagationRequiresEndpointObservations() {
+        enabled().withPropertyValues("triage.sdk.async-context-propagation=true").run(context -> assertThat(context).hasFailed());
+        enabled().withPropertyValues("triage.sdk.async-context-propagation=true", "triage.sdk.endpoint-observations=true")
+            .run(context -> assertThat(context).hasNotFailed().hasSingleBean(TriageMvcEndpoints.class));
+    }
     @Test void handlesTimeoutsEvenWhenApplicationCatchesTheExceptionAndKeepsInputsPrivate() {
         enabled().run(context -> {
             var recorder = context.getBean(ObservationRecorder.class);

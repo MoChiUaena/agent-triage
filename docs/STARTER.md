@@ -61,6 +61,8 @@ executor.execute(observation.wrap(() -> {
 
 多个任务可共享同一个请求快照。累计下游耗时是被观测调用耗时之和，可能大于并发请求的总耗时，不能当作关键路径；多个超时仍只将该请求计为一次超时，错误位置保留首次捕获的结果。
 
+Spring MVC 的 Callable 和 WebAsyncTask 可显式开启 `triage.sdk.async-context-propagation: true`，同时需要 `endpoint-observations: true`。Starter 在 MVC 交接 Callable 时捕获上下文，在执行器线程处理任务前附上，并在任务返回或抛出异常后恢复。该开关默认关闭，也不会装饰应用的其他执行器。DeferredResult、CompletableFuture 或应用自行创建的任务仍需在请求线程捕获快照并显式包装。请求超时或完成后，仍在运行的任务只能继续执行业务逻辑，不能继续向已完成请求添加观测。
+
 ## 只读观测接口的访问令牌
 
 观测接口默认只接受回环地址的请求。需要限制同一机器上的其他进程时，业务应用可设置 `triage.sdk.observation-access-token`。令牌须为 32–128 位的字母、数字、`_` 或 `-`；例如用 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 生成。Agent 在对应的 `triage.services` 条目中设置同一个 `access-token`，请求时通过 `X-Triage-Observation-Token` 发送。未设置令牌的旧配置继续按回环地址规则工作；令牌不会进入服务列表或排查记录。

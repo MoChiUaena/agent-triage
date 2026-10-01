@@ -16,6 +16,7 @@ public class TriageObservationProperties {
     private int capacity = 10_000;
     private boolean endpointObservations;
     private boolean responseStatusCounts;
+    private boolean asyncContextPropagation;
     private boolean exceptionLocations;
     private boolean sourceVersionChecks;
     private boolean jpaObservations;
@@ -30,6 +31,7 @@ public class TriageObservationProperties {
             throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
         if (endpointObservations && kind != Kind.HTTP) throw new IllegalArgumentException("triage.sdk endpoint-observations requires HTTP kind");
         if (responseStatusCounts && !endpointObservations) throw new IllegalArgumentException("triage.sdk response-status-counts requires endpoint-observations");
+        if (asyncContextPropagation && !endpointObservations) throw new IllegalArgumentException("triage.sdk async-context-propagation requires endpoint-observations");
         if (sourceVersionChecks && !endpointObservations) throw new IllegalArgumentException("triage.sdk source-version-checks requires endpoint-observations");
         if (jpaObservations && (kind != Kind.HTTP || !identity(jpaServiceId) || !identity(jpaDatabaseId) || jpaServiceId.equals(serviceId)))
             throw new IllegalArgumentException("triage.sdk JPA observations require HTTP kind, a separate service-id and a database-id");
@@ -79,6 +81,8 @@ public class TriageObservationProperties {
     public void setEndpointObservations(boolean value) { endpointObservations = value; }
     public boolean isResponseStatusCounts() { return responseStatusCounts; }
     public void setResponseStatusCounts(boolean value) { responseStatusCounts = value; }
+    public boolean isAsyncContextPropagation() { return asyncContextPropagation; }
+    public void setAsyncContextPropagation(boolean value) { asyncContextPropagation = value; }
     public boolean isExceptionLocations() { return exceptionLocations; }
     public boolean isSourceVersionChecks() { return sourceVersionChecks; }
     public void setSourceVersionChecks(boolean value) { sourceVersionChecks = value; }

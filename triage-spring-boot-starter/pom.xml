@@ -8,7 +8,7 @@
   </parent>
   <groupId>io.github.mochiuaena</groupId><artifactId>triage-spring-boot-starter</artifactId>
   <version>0.6.0</version><name>triage-spring-boot-starter</name>
-  <description>Bounded, read-only observations for synchronous Spring MVC services</description>
+  <description>Bounded, read-only observations for Spring MVC services</description>
   <properties><java.version>21</java.version></properties>
   <dependencies>
     <dependency><groupId>org.springframework.boot</groupId><artifactId>spring-boot-starter-web</artifactId></dependency>
