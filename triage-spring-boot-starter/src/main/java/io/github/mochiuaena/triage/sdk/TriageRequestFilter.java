@@ -4,6 +4,7 @@ import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import java.io.IOException;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 final class TriageRequestFilter extends OncePerRequestFilter {
@@ -18,6 +19,29 @@ final class TriageRequestFilter extends OncePerRequestFilter {
     }
     private final ObservationRecorder recorder;
     TriageRequestFilter(ObservationRecorder recorder) { this.recorder = recorder; }
+    private final class AsyncCompletion implements AsyncListener {
+        private final Context context;
+        private final HttpServletResponse response;
+        private final long start;
+        private final AtomicBoolean recorded = new AtomicBoolean();
+        private volatile boolean failed;
+
+        AsyncCompletion(Context context, HttpServletResponse response, long start, boolean failed) {
+            this.context = context; this.response = response; this.start = start; this.failed = failed;
+        }
+        void record() {
+            if (recorded.compareAndSet(false, true)) recorder.recordHttp(ObservationRecorder.elapsed(start), context.downstreamMs,
+                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint, context.failureLocation);
+        }
+        @Override public void onComplete(AsyncEvent event) { record(); }
+        @Override public void onTimeout(AsyncEvent event) { failed = true; }
+        @Override public void onError(AsyncEvent event) {
+            failed = true;
+            if (context.failureLocation == null && event.getThrowable() != null)
+                context.failureLocation = recorder.requestFailure(event.getThrowable(), context.handlerClass);
+        }
+        @Override public void onStartAsync(AsyncEvent event) { event.getAsyncContext().addListener(this); }
+    }
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         Context context = new Context();
@@ -33,7 +57,11 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         }
         finally {
             CURRENT.remove();
-            if (!request.isAsyncStarted()) recorder.recordHttp(ObservationRecorder.elapsed(start), context.downstreamMs,
+            if (request.isAsyncStarted()) {
+                var completion = new AsyncCompletion(context, response, start, failed);
+                try { request.getAsyncContext().addListener(completion); }
+                catch (IllegalStateException completed) { completion.record(); }
+            } else recorder.recordHttp(ObservationRecorder.elapsed(start), context.downstreamMs,
                 context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint, context.failureLocation);
         }
     }

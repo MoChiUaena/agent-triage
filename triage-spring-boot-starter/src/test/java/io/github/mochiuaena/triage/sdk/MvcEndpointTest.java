@@ -5,12 +5,18 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.async.DeferredResult;
 import org.springframework.web.server.ResponseStatusException;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class MvcEndpointTest {
+    @RestController static final class AsyncController {
+        final DeferredResult<String> pending = new DeferredResult<>();
+        @GetMapping("/api/async/{id}") DeferredResult<String> async(@PathVariable String id) { return pending; }
+    }
     @RestController static final class Controller {
         @GetMapping("/api/items/{id}") String item(@PathVariable String id) {
             assertThat(TriageRequestFilter.CURRENT.get().handlerClass).isEqualTo(Controller.class);
@@ -53,6 +59,43 @@ class MvcEndpointTest {
         var value = (ObservationRecorder.EndpointWindow) recorder.endpointSnapshot(5, Instant.now(), null);
         assertThat(value.requestCount()).isEqualTo(1); assertThat(value.unattributedRequestCount()).isEqualTo(1);
         assertThat(value.endpoints()).isEmpty(); assertThat(value.toString()).doesNotContain("private-item");
+    }
+    @Test void asyncMvcRequestIsRecordedOnceAfterCompletionWithItsFinalStatus() throws Exception {
+        var properties = ObservationRecorderTest.properties(); properties.setEndpointObservations(true);
+        var recorder = new ObservationRecorder(properties);
+        var controller = new AsyncController();
+        var mvc = MockMvcBuilders.standaloneSetup(controller).addInterceptors(new TriageMvcEndpoints(properties))
+            .addFilters(new TriageRequestFilter(recorder)).build();
+        var pending = mvc.perform(get("/api/async/private-id")).andExpect(request().asyncStarted()).andReturn();
+        assertThat(((ObservationRecorder.EndpointWindow) recorder.endpointSnapshot(5, Instant.now(), null)).requestCount()).isZero();
+        Thread.sleep(50);
+        controller.pending.setErrorResult(new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "private-error"));
+        mvc.perform(asyncDispatch(pending)).andExpect(status().isServiceUnavailable());
+        var observed = (ObservationRecorder.EndpointWindow) recorder.endpointSnapshot(5, Instant.now(), null);
+        assertThat(observed.requestCount()).isEqualTo(1);
+        assertThat(observed.recordedRequestCount()).isEqualTo(1);
+        assertThat(observed.requestP95Ms()).isGreaterThanOrEqualTo(40);
+        assertThat(observed.errors()).hasSize(1);
+        assertThat(observed.endpoints()).singleElement().satisfies(endpoint ->
+            assertThat(endpoint.endpoint().routeTemplate()).isEqualTo("/api/async/{id}"));
+        assertThat(observed.toString()).doesNotContain("private-id", "private-error");
+        assertThat(TriageRequestFilter.CURRENT.get()).isNull();
+    }
+    @Test void successfulAsyncMvcRequestDoesNotCreateAnError() throws Exception {
+        var properties = ObservationRecorderTest.properties(); properties.setEndpointObservations(true);
+        var recorder = new ObservationRecorder(properties);
+        var controller = new AsyncController();
+        var mvc = MockMvcBuilders.standaloneSetup(controller).addInterceptors(new TriageMvcEndpoints(properties))
+            .addFilters(new TriageRequestFilter(recorder)).build();
+        var pending = mvc.perform(get("/api/async/private-id")).andExpect(request().asyncStarted()).andReturn();
+        controller.pending.setResult("private-body");
+        mvc.perform(asyncDispatch(pending)).andExpect(status().isOk());
+        var observed = (ObservationRecorder.EndpointWindow) recorder.endpointSnapshot(5, Instant.now(), null);
+        assertThat(observed.requestCount()).isEqualTo(1);
+        assertThat(observed.errors()).isEmpty();
+        assertThat(observed.endpoints()).singleElement().satisfies(endpoint ->
+            assertThat(endpoint.endpoint().routeTemplate()).isEqualTo("/api/async/{id}"));
+        assertThat(observed.toString()).doesNotContain("private-id", "private-body");
     }
     @Test void endpointIdentityMustBeObservedAndTopListIsBoundedWithoutLosingCounts() {
         var properties = ObservationRecorderTest.properties(); properties.setEndpointObservations(true);
