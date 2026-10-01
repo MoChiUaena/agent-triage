@@ -6,7 +6,10 @@ import os
 import socket
 import subprocess
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote
 from package_release import ROOT, project
@@ -21,14 +24,87 @@ def observation(base):
     return value
 
 
+def capacity_check(agent, catalog, database, model_agent=None):
+    def burst(base, path, count):
+        with ThreadPoolExecutor(max_workers=8) as workers:
+            results = list(workers.map(lambda _: request(base, path)[0], range(count)))
+        assert results == [200] * count, results
+
+    def wait_count(base, expected):
+        deadline = time.monotonic() + 5
+        while True:
+            value = observation(base)
+            if value["requestCount"] == expected:
+                return value
+            assert value["requestCount"] < expected, value["requestCount"]
+            assert time.monotonic() < deadline, "Request completion was not recorded"
+            time.sleep(.02)
+
+    burst(catalog, "/api/products/demo", 26)  # Six earlier requests + 26 = the configured capacity.
+    http = wait_count(catalog, 32)
+    assert http["timeoutCount"] == 2
+    end = quote(datetime.now(timezone.utc).isoformat(), safe="")
+    path = "/triage/endpoint-observations?windowMinutes=5&endTime=" + end
+    status, endpoints = request(catalog, path)
+    assert status == 200 and endpoints["requestCount"] == 32
+    counts = endpoints["responseStatuses"]
+    assert counts["successful"] == 30 and counts["serverError"] == 2
+    assert sum(counts.values()) == 32
+    selected = endpoints["endpoints"][0]["endpoint"]["id"]
+    assert request(catalog, path + "&endpointId=" + selected)[0] == 200
+    burst(database, "/api/prices/demo", 31)  # One earlier JDBC request + 31.
+    db = wait_count(database, 32)
+    assert db["databasePool"]["queryCount"] == 32
+    burst(catalog, "/api/products/demo", 1)
+    burst(database, "/api/prices/demo", 1)
+    for base in (catalog, database):
+        deadline = time.monotonic() + 5
+        while True:
+            end = quote(datetime.now(timezone.utc).isoformat(), safe="")
+            status, _ = request(base, "/triage/observations?windowMinutes=5&endTime=" + end)
+            if status == 422:
+                break
+            assert status == 200 and time.monotonic() < deadline, status
+            time.sleep(.02)
+    assert request(catalog, path)[0] == 422
+    assert request(catalog, path + "&endpointId=" + selected)[0] == 422
+    for triage in (agent, model_agent):
+        if triage is None:
+            continue
+        for service in ("catalog-service", "catalog-db-service"):
+            status, config = request(triage, "/api/config?service=" + service)
+            assert status == 200 and not config["observationAvailable"]
+            assert config["observationErrorCode"] == "OBSERVATION_WINDOW_LOST"
+            status, run = request(triage, "/api/runs", {
+                "question": service + " 的请求为什么变慢？", "service": service, "windowMinutes": 5,
+                "expectedSelection": config["selectionToken"],
+            })
+            assert status == 202, (status, run)
+            deadline = time.monotonic() + 15
+            while run["status"] in ("QUEUED", "RUNNING"):
+                assert time.monotonic() < deadline, "Lost-window run did not finish"
+                time.sleep(.05)
+                status, run = request(triage, "/api/runs/" + run["id"])
+                assert status == 200
+            assert run["status"] == "FAILED" and run["failure"]["code"] == "OBSERVATION_WINDOW_LOST", run
+            assert run["diagnosis"] is None
+            types = [event["type"] for event in run["events"]]
+            assert "TOOL_FAILED" in types and "RUN_FAILED" in types and "RUN_COMPLETED" not in types
+            assert not any(item["source"] in ("read_service_metrics", "query_error_logs") for item in run["evidence"])
+            if triage == model_agent:
+                assert run["mode"] == "MODEL" and run["modelExecution"]["calls"] == 1
+    print("Capacity checks passed: eight concurrent clients, exact HTTP/JDBC/V3 counts, overflow 422, DEMO/MODEL runs fail without a conclusion")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-port", type=int, default=18280)
+    parser.add_argument("--capacity-check", action="store_true", help="Exercise small buffers and a local model protocol server")
     args = parser.parse_args()
     if not 1024 <= args.base_port <= 65526:
         parser.error("base-port must be 1024..65526")
     ports = [args.base_port + offset for offset in (0, 4, 8, 9)]
-    for port in ports:
+    for port in ports + ([args.base_port + 1, args.base_port + 2] if args.capacity_check else []):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", port))
     agent, inventory, catalog, database = [f"http://127.0.0.1:{port}" for port in ports]
@@ -56,6 +132,8 @@ def main():
 """, encoding="utf-8")
     java = str(Path(os.environ["JAVA_HOME"]) / "bin" / ("java.exe" if os.name == "nt" else "java")) if os.environ.get("JAVA_HOME") else "java"
     processes, logs = [], []
+    model_server = model_thread = None
+    model_agent = None
 
     def start(directory, name, arguments):
         artifact, version = project(directory)
@@ -69,18 +147,31 @@ def main():
 
     try:
         start(ROOT / "inventory-service", "inventory", [f"--server.port={ports[1]}"])
-        start(ROOT / "catalog-service", "catalog", [f"--server.port={ports[2]}", f"--triage.sdk.downstream-base-url={inventory}"])
-        start(ROOT / "catalog-service", "database", [f"--server.port={ports[3]}", "--spring.profiles.active=database"])
+        capacity = ["--triage.sdk.capacity=32"] if args.capacity_check else []
+        endpoints = ["--triage.sdk.endpoint-observations=true", "--triage.sdk.response-status-counts=true"] if args.capacity_check else []
+        start(ROOT / "catalog-service", "catalog", [f"--server.port={ports[2]}", f"--triage.sdk.downstream-base-url={inventory}", *capacity, *endpoints])
+        start(ROOT / "catalog-service", "database", [f"--server.port={ports[3]}", "--spring.profiles.active=database", *capacity])
         start(ROOT, "agent", [f"--server.port={ports[0]}", "--triage.mode=DEMO",
             "--spring.datasource.url=jdbc:h2:mem:starter-smoke;DB_CLOSE_DELAY=-1", f"--triage.settings.key-file={output / 'local.key'}",
             f"--spring.config.additional-location={configuration.as_uri()}"])
+        if args.capacity_check:
+            from model_protocol_stub import Handler
+            model_server = ThreadingHTTPServer(("127.0.0.1", args.base_port + 2), Handler)
+            model_thread = threading.Thread(target=model_server.serve_forever, daemon=True)
+            model_thread.start()
+            model_agent = f"http://127.0.0.1:{args.base_port + 1}"
+            start(ROOT, "model-agent", [f"--server.port={args.base_port + 1}", "--triage.mode=MODEL",
+                "--spring.datasource.url=jdbc:h2:mem:capacity-model;DB_CLOSE_DELAY=-1", f"--triage.settings.key-file={output / 'model-local.key'}",
+                f"--spring.config.additional-location={configuration.as_uri()}", f"--triage.model.base-url=http://127.0.0.1:{args.base_port + 2}",
+                "--triage.model.api-key=test-only-local", "--triage.model.name=capacity-stub", "--triage.model.timeout=5s"])
         deadline = time.monotonic() + 60
         while True:
             assert all(process.poll() is None for process in processes), "A fixture stopped; inspect target/starter-smoke logs"
             try:
                 if request(inventory, "/lab/scenario")[0] == 200 and observation(catalog) and observation(database):
                     status, config = request(agent, "/api/config")
-                    if status == 200 and config["observationAvailable"]:
+                    model_ready = model_agent is None or request(model_agent, "/api/config")[0] == 200
+                    if status == 200 and config["observationAvailable"] and model_ready:
                         break
             except (OSError, AssertionError):
                 pass
@@ -123,6 +214,8 @@ def main():
                        {"X-Triage-Lab": "1"})[0] == 403
         for name, value in [("empty", empty), ("normal", normal), ("timeout", failed), ("database", db)]:
             (output / (name + ".json")).write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        if args.capacity_check:
+            capacity_check(agent, catalog, database, model_agent)
         print("Starter smoke passed: independent JVMs, V1/V2, no-requests, timeout, request recovery, citations and readonly controls")
     finally:
         for process in reversed(processes):
@@ -135,6 +228,10 @@ def main():
                     process.wait(timeout=5)
         for log in logs:
             log.close()
+        if model_server is not None:
+            model_server.shutdown()
+            model_server.server_close()
+            model_thread.join(timeout=5)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,47 @@
+name: Observation capacity
+on:
+  push:
+    branches: [main, 'fix/**', 'feature/**']
+    paths:
+      - 'triage-spring-boot-starter/**'
+      - 'sample-service/**'
+      - 'database-service/**'
+      - 'catalog-service/**'
+      - 'src/**'
+      - 'scripts/starter_smoke.py'
+      - '.github/workflows/observation-capacity.yml'
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: observation-capacity-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  capacity:
+    name: Capacity boundaries / ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Verify sample adapter buffers
+        shell: bash
+        run: |
+          ./mvnw -B -ntp -f sample-service/pom.xml verify
+          ./mvnw -B -ntp -f database-service/pom.xml verify
+      - name: Build starter and isolated applications
+        shell: bash
+        run: |
+          ./mvnw -B -ntp -f integrations/pom.xml verify
+          ./mvnw -B -ntp -f inventory-service/pom.xml -DskipTests package
+          ./mvnw -B -ntp -DskipTests package
+      - name: Exercise concurrent requests and incomplete-window runs
+        run: python scripts/starter_smoke.py --capacity-check
