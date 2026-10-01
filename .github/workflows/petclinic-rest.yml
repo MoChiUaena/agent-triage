@@ -25,7 +25,7 @@ jobs:
           git -C "$public_dir" checkout --detach 26a80b7a510af1fda0acdfb45d65aa480bdb7607
           python3 scripts/prepare_petclinic_rest.py "$public_dir"
           ./mvnw -B -ntp -f "$public_dir/pom.xml" -DskipTests package
-      - name: Verify REST response classes, faults and source versions
+      - name: Verify async attribution, response classes and source versions
         run: python3 scripts/petclinic_rest_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic-rest"
       - name: Confirm verification processes stopped
         run: |

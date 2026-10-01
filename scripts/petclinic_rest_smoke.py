@@ -129,7 +129,7 @@ def main():
             f"--server.port={args.base_port + 1}", "--server.address=127.0.0.1", "--triage.sdk.enabled=true",
             "--triage.sdk.service-id=petclinic-rest-service", "--triage.sdk.downstream-id=verification-downstream",
             f"--triage.sdk.downstream-base-url={downstream}", "--triage.sdk.request-path-prefix=/api/",
-            "--triage.sdk.endpoint-observations=true", "--triage.sdk.response-status-counts=true", "--triage.sdk.exception-locations=true",
+            "--triage.sdk.endpoint-observations=true", "--triage.sdk.response-status-counts=true", "--triage.sdk.async-context-propagation=true", "--triage.sdk.exception-locations=true",
             "--triage.sdk.source-version-checks=true",
             "--triage.sdk.application-packages=org.springframework.samples.petclinic",
             "--triage.verification.enabled=true", f"--triage.verification.downstream-base-url={downstream}"], [f"-javaagent:{class_agent}"])
@@ -161,6 +161,9 @@ def main():
         business("/api/owners/999999", 404)
         business("/api/triage-verification/error", 500, {"X-Triage-Lab": "1"})
         business("/api/triage-verification/timeout", 504, {"X-Triage-Lab": "1"})
+        for route in ("callable-timeout", "deferred-timeout", "parallel-timeout"):
+            business("/api/triage-verification/" + route, 504, {"X-Triage-Lab": "1"})
+        business("/api/triage-verification/late-timeout", 204, {"X-Triage-Lab": "1"})
 
         _, catalogue = request(agent, "/api/services/petclinic-rest-service/endpoints?windowMinutes=5")
         endpoints = {item["endpoint"]["routeTemplate"]: item["endpoint"] for item in catalogue["endpoints"]}
@@ -201,6 +204,22 @@ def main():
         assert timeout_run["status"] == "SUCCEEDED" and timeout_metrics["timeoutCount"] == 1
         assert timeout_metrics["responseStatuses"]["serverError"] == 1 and timeout_metrics["responseStatuses"]["clientError"] == 0
         assert timeout_run["sourceAnalysis"]["graph"]["failureMatches"][0]["kind"] == "HTTP_CLIENT_FAILURE"
+        for route in ("callable-timeout", "deferred-timeout", "parallel-timeout"):
+            async_run = investigate(binding, endpoints["/api/triage-verification/" + route], "Petclinic REST " + route)
+            async_metrics = evidence(async_run, "read_service_metrics")["data"]
+            assert async_run["status"] == "SUCCEEDED" and async_metrics["requestCount"] == async_metrics["timeoutCount"] == 1
+            assert async_metrics["responseStatuses"]["serverError"] == 1 and async_metrics["responseStatuses"]["unknown"] == 0
+            assert async_run["sourceAnalysis"]["graph"]["failureMatches"][0]["kind"] == "HTTP_CLIENT_FAILURE"
+            if route == "parallel-timeout":
+                assert async_metrics["downstreamP95Ms"] >= 250, "Both 150ms calls must contribute to the cumulative time"
+        deadline = time.monotonic() + 5
+        while request(application, "/petclinic/triage-verification/late-finished", headers={"X-Triage-Lab": "1"})[1]["completed"] < 1:
+            assert time.monotonic() < deadline, "Late verification call did not finish"
+            time.sleep(.05)
+        late_run = investigate(binding, endpoints["/api/triage-verification/late-timeout"], "Petclinic REST 迟到调用")
+        late_metrics = evidence(late_run, "read_service_metrics")["data"]
+        assert late_metrics["requestCount"] == 1 and late_metrics["timeoutCount"] == 0 and late_metrics["downstreamP95Ms"] == 0
+        assert late_metrics["responseStatuses"]["successful"] == 1 and evidence(late_run, "query_error_logs")["data"]["returnedCount"] == 0
 
         owner = public / "src/main/java/org/springframework/samples/petclinic/rest/controller/OwnerRestController.java"
         original_source = owner.read_bytes()
@@ -213,7 +232,7 @@ def main():
         finally:
             owner.write_bytes(original_source)
             _, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, headers)
-        print("Petclinic REST passed: original JSON routes and 404, isolated 5xx and downstream timeout, response classes and source versions; zero model calls")
+        print("Petclinic REST passed: original routes, response classes, explicit DeferredResult and opted-in Callable, parallel and late calls, source versions; zero model calls")
         print(f"Isolated results: {output}")
     finally:
         for child in reversed(children):
