@@ -128,12 +128,17 @@ def main():
         with urllib.request.urlopen(urllib.request.Request(base + path, data=data, headers=headers, method=method), timeout=15) as response:
             return json.load(response)
 
-    def start(jar, label):
+    default_store = output / "default-store"
+    default_store.mkdir()
+
+    def start(jar, label, defaults=False):
         log = (output / f"{label}.log").open("wb")
         command = [java, "-jar", str(jar), f"--server.port={args.port}", "--server.address=127.0.0.1",
-                   "--triage.mode=DEMO", f"--spring.datasource.url=jdbc:h2:file:{database}",
-                   f"--triage.settings.key-file={key_file}", f"--spring.config.additional-location={configuration.as_uri()}"]
-        child = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+                   "--triage.mode=DEMO", f"--spring.config.additional-location={configuration.as_uri()}"]
+        if not defaults:
+            # Upgrade tests start from a fully committed prior store, rather than a simulated crash of the old release.
+            command += [f"--spring.datasource.url=jdbc:h2:file:{database};WRITE_DELAY=0", f"--triage.settings.key-file={key_file}"]
+        child = subprocess.Popen(command, cwd=default_store if defaults else ROOT, stdout=log, stderr=subprocess.STDOUT,
                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         processes.append((child, log))
         try:
@@ -220,6 +225,30 @@ def main():
             assert request("/api/history/retention?days=30")["eligibleCount"] == 0
         finally:
             stop(upgraded, upgraded_log)
+
+        current, current_log = start(new_jar, "default-before-kill", defaults=True)
+        default_history = run()
+        default_provider = request("/api/settings/providers", {"displayName": "默认存储检查", "protocol": "OPENAI_COMPATIBLE",
+            "baseUrl": fixture_url, "model": "upgrade-probe", "apiKey": FIXTURE_KEY,
+            "temperature": 0.2, "timeoutSeconds": 4, "maxRounds": 4, "maxTokens": 1600, "version": 0}, settings=True)
+        request("/api/settings/selection", {"mode": "MODEL", "providerId": default_provider["id"]}, settings=True, method="PUT")
+        default_settings = request("/api/settings")
+        default_key = default_store / "data/model-config.key"
+        default_key_digest = hashlib.sha256(default_key.read_bytes()).hexdigest()
+        current.kill()  # Deliberately abrupt on both operating systems; tests the new default store's durability.
+        current.wait(timeout=10)
+        current_log.close()
+        reopened, reopened_log = start(new_jar, "default-after-kill", defaults=True)
+        try:
+            restored = request("/api/settings")
+            assert restored == default_settings, {"priorMode": default_settings["selection"]["mode"],
+                "currentMode": restored["selection"]["mode"], "currentSource": restored["selection"]["source"]}
+            assert request("/api/runs/" + default_history["id"]) == default_history
+            assert hashlib.sha256(default_key.read_bytes()).hexdigest() == default_key_digest
+            assert request(f"/api/settings/providers/{default_provider['id']}/test?version=1", {}, settings=True)["success"]
+            assert fixture.probe_calls == 3
+        finally:
+            stop(reopened, reopened_log)
     finally:
         for child, log in reversed(processes):
             stop(child, log)
@@ -230,7 +259,7 @@ def main():
     with socket.socket() as probe:
         probe.settimeout(1)
         assert probe.connect_ex(("127.0.0.1", args.port)) != 0, "Upgrade smoke process did not stop"
-    print("Upgrade passed: unchanged V3 history and service config, active model selection and saved key restored, both local probes and current run; no real model calls")
+    print("Upgrade passed: unchanged V3 history/config and active model selection; new default H2 survives abrupt stop; local probes only")
     print(f"Isolated data and logs: {output}")
 
 
