@@ -9,6 +9,7 @@
 - 异步响应完成时记录一次；显式包装 Runnable / Callable，并可选接入 MVC Callable / WebAsyncTask，安全累计并发调用并忽略迟到结果。
 - 模型预设补本地协议请求检查，其他供应商的真实凭据验证范围保持原样。
 - 默认本地 H2 使用同步写盘，避免强制结束进程后丢失最后保存的模型选择；自定义数据源按自己的配置运行。
+- 已发布 [v0.10.0 预览版](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.10.0)，同一包通过 Windows/Linux 运行验收，v0.6.0 升级与强制重启检查通过。[验收记录](docs/validation/2026-10-01-v010-preview.md)保留修复前失败。
 
 ## 0.6.0 — 2026-09-30
 

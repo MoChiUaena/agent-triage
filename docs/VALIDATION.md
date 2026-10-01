@@ -12,6 +12,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+v0.10.0 发布：同一演示包通过 Windows/Linux 的原生启动与停止检查，v0.6.0 的完整历史、已选模型和加密密钥通过升级回归；新版默认 H2 强制结束后的恢复也已验证。[发布验收](validation/2026-10-01-v010-preview.md)保留了发现的延迟写盘问题、失败检查和修复结果。
+
 v0.10 开发增量：主项目 272 项、Starter 42 项通过跨平台 CI。[跨线程验收](validation/2026-10-01-cross-thread-observations.md)覆盖显式上下文包装、Callable / WebAsyncTask 可选传播、并发累计、线程恢复、完成截止，以及公开项目副本中的 DeferredResult 与迟到调用。
 
 v0.9 开发增量：主项目 272 项、Starter 30 项在跨平台 CI 中通过。[响应分类验收](validation/2026-10-01-http-response-classes.md)覆盖默认 V3 兼容、异步完成与未知状态、分类合计与接口一致性、固定规则和本地模型协议的证据门槛，以及公开项目的 404/5xx/下游超时区别。
