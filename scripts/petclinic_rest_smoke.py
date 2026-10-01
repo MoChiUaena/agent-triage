@@ -141,11 +141,22 @@ def main():
         owner_run = investigate(binding, original, "Petclinic REST 主人详情")
         owner_metrics = evidence(owner_run, "read_service_metrics")["data"]
         assert owner_metrics["requestCount"] == 3 and owner_metrics["timeoutCount"] == 0
+        owner_logs = evidence(owner_run, "query_error_logs")["data"]
+        assert owner_logs["returnedCount"] == 0 and owner_logs["entries"] == []
         entry = owner_run["sourceAnalysis"]["graph"]["endpointMatches"][0]
         graph = owner_run["sourceAnalysis"]["graph"]
         assert entry["state"] == "MATCHED" and entry["version"]["state"] == "MATCHED"
         assert any(node["excerpt"]["id"] in entry["sourceIds"] and node["excerpt"]["path"].endswith("OwnerRestController.java")
                    for node in graph["nodes"])
+        status, missing_owner = request(agent, "/api/runs", {"question": "主人详情返回 HTTP 404 的原因是什么？",
+            "service": "petclinic-rest-service", "windowMinutes": 5, "endpointId": original["id"]})
+        assert status == 202, (status, missing_owner)
+        deadline = time.monotonic() + 20
+        while missing_owner["status"] in ("RUNNING", "QUEUED") and time.monotonic() < deadline:
+            time.sleep(.1)
+            _, missing_owner = request(agent, "/api/runs/" + missing_owner["id"])
+        assert missing_owner["status"] == "INSUFFICIENT_EVIDENCE" and not missing_owner["evidence"]
+        assert missing_owner["diagnosis"]["possibleCauses"] == [] and missing_owner["modelExecution"] is None
         error_run = investigate(binding, failure, "Petclinic REST 验收异常")
         frames = [frame for match in error_run["sourceAnalysis"]["graph"]["failureMatches"] for frame in match["frames"]]
         frame_states = [(frame["frame"]["className"], frame["state"], frame["version"]["state"]) for frame in frames]
@@ -162,7 +173,7 @@ def main():
         finally:
             owner.write_bytes(original_source)
             _, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, headers)
-        print("Petclinic REST passed: original JSON routes, context-path observation, source entry and isolated failure; zero model calls")
+        print("Petclinic REST passed: original JSON routes, context-path observation, source entry, isolated failure and 404 boundary; zero model calls")
         print(f"Isolated results: {output}")
     finally:
         for child in reversed(children):
