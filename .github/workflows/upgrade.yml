@@ -1,11 +1,14 @@
-name: Upgrade from v0.5.0
+name: Upgrade from v0.6.0
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   upgrade:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
@@ -14,14 +17,19 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Build v0.6.0
+      - name: Build v0.10.0
+        shell: bash
         run: ./mvnw -B -ntp -DskipTests package
-      - name: Download the published v0.5.0 demo
+      - name: Download and verify published v0.6.0 assets
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p "$RUNNER_TEMP/triage-v05"
-          gh release download v0.5.0 --repo MoChiUaena/agent-triage --pattern agent-triage-0.5.0-demo.zip --dir "$RUNNER_TEMP/triage-v05"
-          python3 -c "import pathlib,zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); pathlib.Path(sys.argv[2]).write_bytes(z.read('agent-triage-0.5.0/lib/agent-triage.jar'))" "$RUNNER_TEMP/triage-v05/agent-triage-0.5.0-demo.zip" "$RUNNER_TEMP/triage-v05/agent-triage.jar"
+          mkdir -p "$RUNNER_TEMP/triage-v06"
+          gh release download v0.6.0 --repo MoChiUaena/agent-triage --pattern agent-triage-0.6.0-demo.zip --pattern 'triage-spring-boot-starter-0.6.0*' --pattern SHA256SUMS.txt --dir "$RUNNER_TEMP/triage-v06"
+          prior_commit=$(gh api repos/MoChiUaena/agent-triage/commits/v0.6.0 --jq .sha)
+          python scripts/verify_release.py --directory "$RUNNER_TEMP/triage-v06" --version 0.6.0 --source-commit "$prior_commit"
+          python -c "import pathlib,zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); pathlib.Path(sys.argv[2]).write_bytes(z.read('agent-triage-0.6.0/lib/agent-triage.jar'))" "$RUNNER_TEMP/triage-v06/agent-triage-0.6.0-demo.zip" "$RUNNER_TEMP/triage-v06/agent-triage.jar"
       - name: Verify saved history and model settings after upgrade
-        run: python3 scripts/upgrade_smoke.py --old-jar "$RUNNER_TEMP/triage-v05/agent-triage.jar" --new-jar target/agent-triage-0.6.0.jar
+        shell: bash
+        run: python scripts/upgrade_smoke.py --old-jar "$RUNNER_TEMP/triage-v06/agent-triage.jar" --new-jar target/agent-triage-0.10.0.jar

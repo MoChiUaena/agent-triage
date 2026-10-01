@@ -3,6 +3,7 @@
 import argparse
 import subprocess
 from pathlib import Path
+from package_release import project
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,11 +23,11 @@ def prepare(directory):
     original = pom.read_bytes()
     text = original.decode('utf-8')
     newline = '\r\n' if '\r\n' in text else '\n'
-    dependency = '''
+    dependency = f'''
     <dependency>
       <groupId>io.github.mochiuaena</groupId>
       <artifactId>triage-spring-boot-starter</artifactId>
-      <version>0.6.0</version>
+      <version>{project(ROOT / 'triage-spring-boot-starter')[1]}</version>
     </dependency>'''.replace('\n', newline)
     plugin = '''
       <plugin>
