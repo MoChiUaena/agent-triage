@@ -90,11 +90,18 @@ public final class ObservationRecorder {
     synchronized void configurePool(int maximum) { maximumConnections = maximum; }
     private <T> void trim(Deque<T> values, java.util.function.Function<T, Instant> timestamp, int capacity) {
         Instant cutoff = now().minusSeconds(properties.getMaxWindowMinutes() * 60L + QUERY_GRACE_SECONDS);
-        values.removeIf(value -> timestamp.apply(value).isBefore(cutoff));
+        values.removeIf(value -> {
+            Instant time = timestamp.apply(value);
+            if (!time.isBefore(cutoff)) return false;
+            dropped(time);
+            return true;
+        });
         while (values.size() > capacity) {
-            Instant dropped = timestamp.apply(values.removeFirst());
-            if (droppedThrough == null || dropped.isAfter(droppedThrough)) droppedThrough = dropped;
+            dropped(timestamp.apply(values.removeFirst()));
         }
+    }
+    private void dropped(Instant time) {
+        if (droppedThrough == null || time.isAfter(droppedThrough)) droppedThrough = time;
     }
     public synchronized Object snapshot(int minutes, Instant end) {
         Instant start = windowStart(minutes, end);

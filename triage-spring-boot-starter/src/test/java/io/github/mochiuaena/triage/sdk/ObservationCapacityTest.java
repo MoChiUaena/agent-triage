@@ -92,6 +92,19 @@ class ObservationCapacityTest {
         lost(() -> recorder.databaseSnapshot(1, END));
     }
 
+    @Test void expiredSamplesStayLostIfTheWallClockMovesBackIntoTheirWindow() {
+        var properties = httpProperties(10); properties.setMaxWindowMinutes(1);
+        var time = new AtomicReference<>(END.minusSeconds(60));
+        var recorder = new ObservationRecorder(properties, clock(time));
+        recorder.recordHttp(300, 300, true, true, "expired-timeout", FIRST);
+        time.set(END.plusSeconds(121));
+        recorder.recordHttp(20, 10, false, false, "later", FIRST);
+        time.set(END);
+        recorder.recordHttp(20, 10, false, false, "after-clock-adjustment", FIRST);
+        lost(() -> recorder.snapshot(1, END));
+        lost(() -> recorder.endpointSnapshot(1, END, FIRST.id()));
+    }
+
     @Test void poolSampleOverflowRejectsAWindowWithoutDroppingAnyDatabaseRequest() {
         var properties = ObservationRecorderTest.properties();
         properties.setKind(TriageObservationProperties.Kind.DATABASE); properties.setMaxWindowMinutes(1);
