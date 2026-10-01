@@ -200,7 +200,10 @@ def main():
             saved = request("/api/runs/" + original["id"])
             assert saved == original, "Saved execution changed during upgrade"
             settings = request("/api/settings")
-            assert settings == original_settings and FIXTURE_KEY not in json.dumps(settings)
+            assert settings == original_settings, {"providerFieldsUnchanged": settings["providers"] == original_settings["providers"],
+                "priorMode": original_settings["selection"]["mode"], "currentMode": settings["selection"]["mode"],
+                "priorSource": original_settings["selection"]["source"], "currentSource": settings["selection"]["source"]}
+            assert FIXTURE_KEY not in json.dumps(settings)
             assert hashlib.sha256(key_file.read_bytes()).hexdigest() == key_digest
             assert hashlib.sha256(configuration.read_bytes()).hexdigest() == configuration_digest
             assert request("/api/config?service=upgrade-service")["services"] == services
