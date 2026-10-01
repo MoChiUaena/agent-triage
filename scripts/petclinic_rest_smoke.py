@@ -3,11 +3,13 @@
 import argparse
 from datetime import datetime, timezone
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
 from pathlib import Path
 import shutil
 import socket
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -15,6 +17,25 @@ import urllib.request
 from package_release import ROOT, project
 from live_smoke import evidence, request, valid_citations
 from prepare_petclinic_rest import REVISION
+
+
+class DelayedDownstream(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != "/delay":
+            self.send_error(404)
+            return
+        time.sleep(.45)
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+        except OSError:
+            pass  # The client has already timed out.
+
+    def log_message(self, format, *args):
+        pass
 
 
 def main():
@@ -27,14 +48,15 @@ def main():
     assert subprocess.check_output(["git", "-C", str(public), "diff", "--name-only"], text=True).splitlines() == ["pom.xml"]
     support = public / "src/main/java/org/springframework/samples/petclinic/triage/RestTriageVerification.java"
     assert support.read_bytes() == (ROOT / "verification/petclinic-rest/RestTriageVerification.java").read_bytes()
-    if not 1024 <= args.base_port <= 65534:
-        parser.error("base-port must be 1024..65534")
-    for port in (args.base_port, args.base_port + 1):
+    if not 1024 <= args.base_port <= 65533:
+        parser.error("base-port must be 1024..65533")
+    for port in (args.base_port, args.base_port + 1, args.base_port + 2):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", port))
 
     agent = f"http://127.0.0.1:{args.base_port}"
     application = f"http://127.0.0.1:{args.base_port + 1}"
+    downstream = f"http://127.0.0.1:{args.base_port + 2}"
     output = ROOT / "target/petclinic-rest-smoke" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output.mkdir(parents=True)
     services = output / "services.yml"
@@ -44,8 +66,8 @@ def main():
   services:
     - id: petclinic-rest-service
       name: Spring Petclinic REST
-      downstream-id: unobserved-http
-      downstream-name: 未采集的 HTTP 下游
+      downstream-id: verification-downstream
+      downstream-name: 验收 HTTP 下游
       base-url: {application}/petclinic
       protocol: OBSERVATIONS_V3
       max-window-minutes: 15
@@ -55,6 +77,8 @@ def main():
     class_agent = ROOT / "triage-spring-boot-starter/target" / f"{starter_name}-{starter_version}-agent.jar"
     assert class_agent.is_file(), "Build the observation Java Agent first"
     children, handles = [], []
+    delayed = None
+    delayed_thread = None
 
     def start(name, jar, options, java_options=()):
         assert jar.is_file(), f"Build {name} first"
@@ -97,14 +121,18 @@ def main():
         return run
 
     try:
+        delayed = ThreadingHTTPServer(("127.0.0.1", args.base_port + 2), DelayedDownstream)
+        delayed.daemon_threads = True
+        delayed_thread = threading.Thread(target=delayed.serve_forever, daemon=True)
+        delayed_thread.start()
         start("petclinic-rest", public / "target/spring-petclinic-rest-3.4.0.jar", [
             f"--server.port={args.base_port + 1}", "--server.address=127.0.0.1", "--triage.sdk.enabled=true",
-            "--triage.sdk.service-id=petclinic-rest-service", "--triage.sdk.downstream-id=unobserved-http",
-            "--triage.sdk.downstream-base-url=http://127.0.0.1:1", "--triage.sdk.request-path-prefix=/api/",
-            "--triage.sdk.endpoint-observations=true", "--triage.sdk.exception-locations=true",
+            "--triage.sdk.service-id=petclinic-rest-service", "--triage.sdk.downstream-id=verification-downstream",
+            f"--triage.sdk.downstream-base-url={downstream}", "--triage.sdk.request-path-prefix=/api/",
+            "--triage.sdk.endpoint-observations=true", "--triage.sdk.response-status-counts=true", "--triage.sdk.exception-locations=true",
             "--triage.sdk.source-version-checks=true",
             "--triage.sdk.application-packages=org.springframework.samples.petclinic",
-            "--triage.verification.enabled=true"], [f"-javaagent:{class_agent}"])
+            "--triage.verification.enabled=true", f"--triage.verification.downstream-base-url={downstream}"], [f"-javaagent:{class_agent}"])
         artifact, version = project(ROOT)
         start("agent", ROOT / "target" / f"{artifact}-{version}.jar", [
             f"--server.port={args.base_port}", "--triage.mode=DEMO",
@@ -132,15 +160,20 @@ def main():
             business("/api/owners", 200)
         business("/api/owners/999999", 404)
         business("/api/triage-verification/error", 500, {"X-Triage-Lab": "1"})
+        business("/api/triage-verification/timeout", 504, {"X-Triage-Lab": "1"})
 
         _, catalogue = request(agent, "/api/services/petclinic-rest-service/endpoints?windowMinutes=5")
         endpoints = {item["endpoint"]["routeTemplate"]: item["endpoint"] for item in catalogue["endpoints"]}
         original = endpoints["/api/owners/{ownerId}"]
         failure = endpoints["/api/triage-verification/error"]
+        timeout = endpoints["/api/triage-verification/timeout"]
         assert original["handlerClass"].endswith("OwnerRestController")
         owner_run = investigate(binding, original, "Petclinic REST 主人详情")
         owner_metrics = evidence(owner_run, "read_service_metrics")["data"]
         assert owner_metrics["requestCount"] == 3 and owner_metrics["timeoutCount"] == 0
+        assert owner_metrics["responseStatuses"] == {"informational": 0, "successful": 2, "redirection": 0,
+            "clientError": 1, "serverError": 0, "unknown": 0}
+        assert owner_run["status"] == "INSUFFICIENT_EVIDENCE" and owner_run["diagnosis"]["possibleCauses"] == []
         owner_logs = evidence(owner_run, "query_error_logs")["data"]
         assert owner_logs["returnedCount"] == 0 and owner_logs["entries"] == []
         entry = owner_run["sourceAnalysis"]["graph"]["endpointMatches"][0]
@@ -155,12 +188,19 @@ def main():
         while missing_owner["status"] in ("RUNNING", "QUEUED") and time.monotonic() < deadline:
             time.sleep(.1)
             _, missing_owner = request(agent, "/api/runs/" + missing_owner["id"])
-        assert missing_owner["status"] == "INSUFFICIENT_EVIDENCE" and not missing_owner["evidence"]
+        assert missing_owner["status"] == "INSUFFICIENT_EVIDENCE" and missing_owner["evidence"]
         assert missing_owner["diagnosis"]["possibleCauses"] == [] and missing_owner["modelExecution"] is None
         error_run = investigate(binding, failure, "Petclinic REST 验收异常")
+        error_metrics = evidence(error_run, "read_service_metrics")["data"]
+        assert error_metrics["responseStatuses"]["serverError"] == 1 and error_metrics["timeoutCount"] == 0
         frames = [frame for match in error_run["sourceAnalysis"]["graph"]["failureMatches"] for frame in match["frames"]]
         frame_states = [(frame["frame"]["className"], frame["state"], frame["version"]["state"]) for frame in frames]
         assert any("ProbeFailure" in name and version == "MATCHED" for name, _, version in frame_states), frame_states
+        timeout_run = investigate(binding, timeout, "Petclinic REST 验收超时")
+        timeout_metrics = evidence(timeout_run, "read_service_metrics")["data"]
+        assert timeout_run["status"] == "SUCCEEDED" and timeout_metrics["timeoutCount"] == 1
+        assert timeout_metrics["responseStatuses"]["serverError"] == 1 and timeout_metrics["responseStatuses"]["clientError"] == 0
+        assert timeout_run["sourceAnalysis"]["graph"]["failureMatches"][0]["kind"] == "HTTP_CLIENT_FAILURE"
 
         owner = public / "src/main/java/org/springframework/samples/petclinic/rest/controller/OwnerRestController.java"
         original_source = owner.read_bytes()
@@ -173,7 +213,7 @@ def main():
         finally:
             owner.write_bytes(original_source)
             _, binding = request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, headers)
-        print("Petclinic REST passed: original JSON routes, context-path observation, source entry, isolated failure and 404 boundary; zero model calls")
+        print("Petclinic REST passed: original JSON routes and 404, isolated 5xx and downstream timeout, response classes and source versions; zero model calls")
         print(f"Isolated results: {output}")
     finally:
         for child in reversed(children):
@@ -186,6 +226,11 @@ def main():
                     child.wait(timeout=5)
         for stream in handles:
             stream.close()
+        if delayed is not None:
+            delayed.shutdown()
+            delayed.server_close()
+        if delayed_thread is not None:
+            delayed_thread.join(timeout=2)
 
 
 if __name__ == "__main__":

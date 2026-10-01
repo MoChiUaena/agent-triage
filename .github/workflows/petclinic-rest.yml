@@ -25,11 +25,11 @@ jobs:
           git -C "$public_dir" checkout --detach 26a80b7a510af1fda0acdfb45d65aa480bdb7607
           python3 scripts/prepare_petclinic_rest.py "$public_dir"
           ./mvnw -B -ntp -f "$public_dir/pom.xml" -DskipTests package
-      - name: Verify original REST requests, context path and source versions
+      - name: Verify REST response classes, faults and source versions
         run: python3 scripts/petclinic_rest_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic-rest"
       - name: Confirm verification processes stopped
         run: |
-          for endpoint in 18640/api/config 18641/petclinic/actuator/health; do
+          for endpoint in 18640/api/config 18641/petclinic/actuator/health 18642/delay; do
             if curl -fsS --max-time 2 "http://127.0.0.1:$endpoint" >/dev/null; then
               echo "Verification process at $endpoint did not stop" >&2
               exit 1
