@@ -86,9 +86,10 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         }
     }
     private void complete(Context context, HttpServletResponse response, long start, boolean failed) {
+        double elapsed = ObservationRecorder.elapsed(start);
         var completed = context.finish();
         if (completed == null) return;
-        recorder.recordHttp(ObservationRecorder.elapsed(start), completed.downstreamMs(), completed.timeout(),
+        recorder.recordHttp(elapsed, completed.downstreamMs(), completed.timeout(),
             failed || response.getStatus() >= 500, context.trace, completed.endpoint(), completed.failureLocation(),
             failed && response.getStatus() < 400 ? 0 : response.getStatus());
     }

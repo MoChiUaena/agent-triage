@@ -49,7 +49,8 @@ public final class TriageJpaObserver implements AutoCloseable {
             Connection raw = connector.open();
             return proxy(raw, Connection.class, new ConnectionCalls(raw, this, request, ObservationRecorder.elapsed(start)));
         } catch (SQLException | RuntimeException e) {
-            if (request != null) request.recordIfActive(() -> recorder.recordDatabase(ObservationRecorder.elapsed(start), ObservationRecorder.elapsed(start), 0,
+            double elapsed = ObservationRecorder.elapsed(start);
+            if (request != null) request.recordIfActive(() -> recorder.recordDatabase(elapsed, elapsed, 0,
                 e instanceof SQLTransientConnectionException ? "DB_CONNECTION_ACQUIRE_TIMEOUT" : "DB_CONNECTION_ACQUIRE_FAILED", request.trace));
             throw e;
         }
