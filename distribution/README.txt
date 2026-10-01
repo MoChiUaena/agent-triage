@@ -19,6 +19,8 @@ The ticket service runs on 18090; /api/tickets/summary is healthy and /api/ticke
 Its separate assignment dependency delays actual HTTP responses on 18092. Register the bundled
 projects/ticket-service directory in the source page, then use the integration check and code references.
 Follow SOURCE_DEMO.md to compare endpoints, inspect error positions and test build source differences.
+OBSERVATIONS.md explains the 0.10.0 Starter's optional response classes, observation tokens and async context wrappers.
+These new switches stay disabled in the bundled demo; they can be enabled explicitly when integrating another application.
 Ctrl+C stops all eight processes started by the launcher.
 
 If the ports are occupied, use an alternative base port:
@@ -40,6 +42,9 @@ config/services.yml registers five local services; the plain Starter JAR, option
 The Agent JAR is not needed for this demo. For another application, pass its path with -javaagent
 and use the same-build Starter dependency; see docs/STARTER.md in the source repository.
 The Starter is not published on Maven Central. Dependency setup is documented in the source repository.
+To upgrade from v0.6.0, stop the old launch and back up the database together with data/model-config.key.
+Move the backed-up data directory to the new complete extraction, then start the new launcher.
+Review custom service ports and source-project directories; keep the original package and backup until the upgrade is checked.
 This bundle is for local single-instance use and has no multi-user login or production authentication.
 
 Keep data/triage.mv.db and data/model-config.key together when backing up saved model settings.

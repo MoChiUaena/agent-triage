@@ -49,7 +49,7 @@ def main():
         if not jar.is_file():
             parser.error(f"Missing built JAR for {artifact}.")
         files.append((jar, f"lib/{alias}.jar"))
-    for name in ["start-demo.ps1", "start-demo.sh", "README.txt", "SOURCE_DEMO.md"]:
+    for name in ["start-demo.ps1", "start-demo.sh", "README.txt", "SOURCE_DEMO.md", "OBSERVATIONS.md"]:
         files.append((ROOT / "distribution" / name, name))
     for relative in ["pom.xml", "src/main/resources/application.yml"] + [f"src/main/java/example/helpdesk/{name}.java" for name in
         ("AssignmentGateway", "DefaultTicketService", "TicketApplication", "TicketController", "TicketFormatter", "TicketService")]:

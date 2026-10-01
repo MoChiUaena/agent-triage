@@ -1,7 +1,8 @@
 [CmdletBinding()]
-param([ValidateRange(1024, 65523)][int]$BasePort = 18080, [switch]$CheckOnly)
+param([ValidateRange(1024, 65523)][int]$BasePort = 18080, [switch]$CheckOnly, [string]$StopFile)
 $ErrorActionPreference = 'Stop'
 $bundleRoot = $PSScriptRoot
+if ($StopFile -and (Test-Path -LiteralPath $StopFile)) { throw 'The stop marker must not exist before this launch.' }
 $javaExecutable = (Get-Command java -ErrorAction Stop).Source
 $javaProbe = [System.Diagnostics.Process]::new()
 $javaProbe.StartInfo.FileName = $javaExecutable
@@ -85,6 +86,7 @@ try {
     Write-Host 'Press Ctrl+C to stop all eight processes. History, model settings and logs remain in this folder.'
     if ($CheckOnly) { Write-Host 'Startup check passed; stopping this launch.'; return }
     while ($true) {
+        if ($StopFile -and (Test-Path -LiteralPath $StopFile)) { return }
         foreach ($child in $children) { if ($child.HasExited) { throw 'A service stopped. See logs/.' } }
         Start-Sleep -Seconds 1
     }

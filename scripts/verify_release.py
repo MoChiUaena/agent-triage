@@ -29,6 +29,13 @@ def version_number(value):
     return tuple(int(part) for part in value.split("."))
 
 
+def verify_jar_coordinates(jar, group, artifact, version):
+    properties = jar.read(f"META-INF/maven/{group}/{artifact}/pom.properties").decode("utf-8")
+    values = dict(line.split("=", 1) for line in properties.splitlines() if line and not line.startswith("#"))
+    if [values.get(name) for name in ("groupId", "artifactId", "version")] != [group, artifact, version]:
+        raise ValueError(f"JAR Maven coordinates do not match: {artifact}")
+
+
 def verify(directory, version, commit=None):
     number = version_number(version)
     prefix = f"agent-triage-{version}/"
@@ -55,6 +62,8 @@ def verify(directory, version, commit=None):
                "start-demo.ps1", "start-demo.sh", "README.txt", "LICENSE"}
     if has_agent:
         allowed.add(f"sdk/{agent_name}")
+    if number >= (0, 10, 0):
+        allowed.add("OBSERVATIONS.md")
     if number >= (0, 3, 0):
         allowed |= {"lib/ticket-service.jar", "lib/assignment-service.jar", "SOURCE_DEMO.md", "projects/ticket-service/pom.xml", "projects/ticket-service/src/main/resources/application.yml"}
         allowed |= {f"projects/ticket-service/src/main/java/example/helpdesk/{name}.java" for name in
@@ -77,6 +86,16 @@ def verify(directory, version, commit=None):
             with archive.open(prefix + name) as source:
                 if stream_digest(source) != expected:
                     raise ValueError(f"Embedded checksum mismatch: {name}")
+        if number >= (0, 10, 0):
+            modules = {"agent-triage": ("io.github.mochiuaena", "agent-triage"),
+                "order-service": ("io.github.mochiuaena", "triage-sample-service"),
+                "inventory-service": ("io.github.mochiuaena", "triage-inventory-service"),
+                "database-service": ("io.github.mochiuaena", "triage-database-service"),
+                "catalog-service": ("io.github.mochiuaena", "triage-catalog-service"),
+                "ticket-service": ("example.helpdesk", "ticket-service"), "assignment-service": ("example.helpdesk", "assignment-service")}
+            for alias, (group, artifact) in modules.items():
+                with zipfile.ZipFile(io.BytesIO(archive.read(prefix + f"lib/{alias}.jar"))) as jar:
+                    verify_jar_coordinates(jar, group, artifact, version)
         if number >= (0, 3, 0):
             if manifest.get("registeredServices") != ["order-service", "account-service", "catalog-service", "catalog-db-service", "ticket-service"] \
                     or manifest.get("portOffsets") != {"agent":0,"order":2,"inventory":4,"database":6,"catalog":8,"catalogDatabase":9,"ticket":10,"assignment":12}:
@@ -107,6 +126,12 @@ def verify(directory, version, commit=None):
         if "io/github/mochiuaena/triage/sdk/TriageObservationAutoConfiguration.class" not in starter.namelist() \
                 or any(name.startswith("BOOT-INF/") for name in starter.namelist()):
             raise ValueError("Starter must be a plain library JAR with its auto-configuration")
+        if number >= (0, 10, 0):
+            verify_jar_coordinates(starter, "io.github.mochiuaena", "triage-spring-boot-starter", version)
+            if not {"io/github/mochiuaena/triage/sdk/TriageObservationContext.class",
+                "io/github/mochiuaena/triage/sdk/TriageObservationContext$Snapshot.class",
+                "io/github/mochiuaena/triage/sdk/TriageCallableContext.class"} <= set(starter.namelist()):
+                raise ValueError("Starter is missing the v0.10 context propagation classes")
     if has_agent:
         with zipfile.ZipFile(directory / agent_name) as runtime_agent:
             classes = [name for name in runtime_agent.namelist() if name.endswith(".class")]
