@@ -26,6 +26,9 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 - 通过服务白名单登记多个本地应用，在页面选择服务；接入接口与示例见[接入说明](docs/SERVICE_INTEGRATION.md)。
 - 在[项目源码页](docs/SOURCE_INTEGRATION.md)登记、修改或解绑本机 Java 项目，按类、方法或接口检索；排查结果展示带行号的代码引用和静态调用关系，按观测类型提示核查位置，模型读取需要单独授权。
 - 开启 [MVC 接口观测](docs/STARTER.md)后可按接口分别排查，依据实际匹配的处理方法关联源码入口；正常接口与超时接口的窗口统计分别计算。
+- HTTP V3 可选显示响应状态分类，针对 404/5xx 只给出已有分布和证据边界；未采集时保持未采集。
+- 在工作任务中显式包装观测上下文，或可选开启 MVC Callable / WebAsyncTask 传播；并发调用可累计，响应完成后不再接受迟到结果。
+- 本机服务可使用普通上下文路径，Starter 观测接口可选配置令牌并重叠轮换。
 - 提供 [Spring Boot Starter](docs/STARTER.md) 复用只读观测接口，独立[商品应用](catalog-service/README.md)验证 HTTP 与 JDBC 接入。
 - 用 HikariCP 与 H2 实际触发[数据库连接池耗尽](docs/DATABASE_POOL.md)，区分获取连接超时与 SQL 查询失败，并验证释放后的恢复。
 - SQL 执行失败单独判断阶段与证据，不据此猜测锁等待、语法或数据库内部原因。
@@ -35,7 +38,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 - 开启本机源码检索后，可将 HTTP V3 的错误位置关联到方法和源码行，区分候选、行号不符及索引外位置。
 - 通过构建源码摘要核对代码版本；普通业务异常中属于已选 MVC 处理类的帧可核对该类摘要，可选 Java Agent 还能核对唯一加载的其他业务类。摘要不同时保留运行诊断，停止采用不一致版本的源码。
 - 在项目源码页检查服务接入，核对观测、请求窗口、源码绑定、入口与构建摘要，并查看下一步操作。
-- 提供[官方 Spring Petclinic 接入示例](docs/PETCLINIC.md)，验证原有页面请求、业务异常和源码位置，保留 JPA 与普通异常摘要的未覆盖范围。
+- 提供[官方 Spring Petclinic 接入示例](docs/PETCLINIC.md)，验证 MVC、JPA 阶段、错误位置与构建摘要；[Petclinic REST 验收](docs/validation/2026-10-01-cross-thread-observations.md)另核对上下文路径、响应分类和异步辅助入口。
 - 概览、证据、执行记录分开查看，支持搜索历史记录。
 - 在[完整历史页面](docs/WORKSPACE.md)分页查找更早的记录，按服务、接口、状态、模式和日期筛选，查看执行统计，确认后删除已结束记录。
 - 在工作区查看执行结果分布、耗时、模型调用与已知 Token 用量，以及各服务的观测接口状态。
@@ -46,11 +49,11 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 
 ## 快速启动
 
-免构建的演示包在 [v0.6.0 预览发布](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0) 中提供，包含订单、库存、数据库、Starter、可选 Java Agent 和工单源码示例。需要 JDK 21，完整解压后运行：
+免构建演示包的版本为 [v0.10.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.10.0)，包含订单、库存、数据库、Starter、可选 Java Agent 和工单源码示例。需要 JDK 21，完整解压后运行：
 
-包内登记五个服务，统一启动八个进程。端口、源码演示与升级方法见 [v0.6.0 说明](docs/releases/v0.6.0.md)；包内 `SOURCE_DEMO.md` 可以逐步操作。[v0.5.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.5.0) 及更早版本的附件保持原样。
+包内登记五个服务，统一启动八个进程。端口、源码演示与升级方法见 [v0.10.0 说明](docs/releases/v0.10.0.md)；包内 `SOURCE_DEMO.md` 可以逐步操作。[v0.6.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0) 及更早版本的附件保持原样。
 
-v0.6.0 将 SQL 执行阶段失败与连接池耗尽分开判断，并增加默认不自动执行的历史清理入口。独立 Java Agent 仍为可选；[JPA 数据库观测](docs/STARTER.md#jpa-数据库观测)需业务应用显式接入，[官方 Petclinic 验收](docs/PETCLINIC.md)覆盖实际请求。
+v0.10.0 增加上下文路径、观测令牌、响应分类和跨线程包装。新增开关默认关闭，接入说明在包内 `OBSERVATIONS.md`。独立 Java Agent 仍为可选；[JPA 数据库观测](docs/STARTER.md#jpa-数据库观测)需业务应用显式接入，[官方 Petclinic 验收](docs/PETCLINIC.md)覆盖实际请求。
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1

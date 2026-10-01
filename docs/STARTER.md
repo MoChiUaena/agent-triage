@@ -2,7 +2,7 @@
 
 `triage-spring-boot-starter` 为 Spring MVC 应用提供 `/triage/observations`，复用 Agent 已有的 HTTP V1 和数据库 V2 契约。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
 
-源码和待发布预览包使用 0.10.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。最近已发布的 [v0.6.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0) 保留旧附件；下文的上下文包装、观测令牌和响应分类需新版 Starter。源码安装命令见下文，新版附件发布后可在其所在目录安装：
+源码和预览包使用 0.10.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。[v0.10.0 附件入口](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.10.0)提供独立 Starter JAR/POM 与可选 Agent JAR，[v0.6.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0) 保留旧附件。在附件所在目录安装：
 
 ```powershell
 mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.10.0.jar' '-DpomFile=triage-spring-boot-starter-0.10.0.pom'

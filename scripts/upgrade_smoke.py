@@ -120,12 +120,12 @@ def main():
     configuration_digest = hashlib.sha256(configuration.read_bytes()).hexdigest()
     processes = []
 
-    def request(path, body=None, settings=False):
+    def request(path, body=None, settings=False, method=None):
         headers = {"Content-Type": "application/json"}
         if settings:
             headers["X-Triage-Settings"] = "1"
         data = json.dumps(body).encode("utf-8") if body is not None else None
-        with urllib.request.urlopen(urllib.request.Request(base + path, data=data, headers=headers), timeout=15) as response:
+        with urllib.request.urlopen(urllib.request.Request(base + path, data=data, headers=headers, method=method), timeout=15) as response:
             return json.load(response)
 
     def start(jar, label):
@@ -143,7 +143,7 @@ def main():
                     raise RuntimeError(f"{label} exited during startup; see {output / (label + '.log')}")
                 try:
                     config = request("/api/config?service=upgrade-service")
-                    if config["mode"] == "DEMO" and config["observationAvailable"]:
+                    if config["mode"] in ("DEMO", "MODEL") and config["observationAvailable"]:
                         return child, log
                 except (OSError, ValueError, KeyError):
                     pass
@@ -188,9 +188,10 @@ def main():
                 "temperature": 0.2, "timeoutSeconds": 4, "maxRounds": 4, "maxTokens": 1600, "version": 0}, settings=True)
             assert provider["keyConfigured"] is True and key_file.is_file()
             key_digest = hashlib.sha256(key_file.read_bytes()).hexdigest()
-            original_settings = request("/api/settings")
-            assert FIXTURE_KEY not in json.dumps(original_settings)
             assert request(f"/api/settings/providers/{provider['id']}/test?version=1", {}, settings=True)["success"]
+            request("/api/settings/selection", {"mode": "MODEL", "providerId": provider["id"]}, settings=True, method="PUT")
+            original_settings = request("/api/settings")
+            assert original_settings["selection"]["mode"] == "MODEL" and FIXTURE_KEY not in json.dumps(original_settings)
         finally:
             stop(old, old_log)
 
@@ -203,14 +204,16 @@ def main():
             assert hashlib.sha256(key_file.read_bytes()).hexdigest() == key_digest
             assert hashlib.sha256(configuration.read_bytes()).hexdigest() == configuration_digest
             assert request("/api/config?service=upgrade-service")["services"] == services
+            assert request("/api/config?service=upgrade-service")["mode"] == "MODEL"
             assert request(f"/api/settings/providers/{provider['id']}/test?version=1", {}, settings=True)["success"]
             assert fixture.probe_calls == 2, "Both versions must decrypt and use the saved fixture key"
+            request("/api/settings/selection", {"mode": "DEMO"}, settings=True, method="PUT")
             newer = run()
             metrics = next(item["data"] for item in newer["evidence"] if item["source"] == "read_service_metrics")
             assert "responseStatuses" not in metrics and metrics["requestDetails"].get("responseStatuses") is None
             listed = {item["id"] for item in request("/api/runs?limit=50")}
             assert {original["id"], newer["id"]} <= listed
-            assert settings["selection"]["mode"] == "DEMO"
+            assert request("/api/settings")["selection"]["mode"] == "DEMO"
             assert request("/api/history/retention?days=30")["eligibleCount"] == 0
         finally:
             stop(upgraded, upgraded_log)
@@ -224,7 +227,7 @@ def main():
     with socket.socket() as probe:
         probe.settimeout(1)
         assert probe.connect_ex(("127.0.0.1", args.port)) != 0, "Upgrade smoke process did not stop"
-    print("Upgrade passed: unchanged V3 history and service config, saved key decrypts for both local probes, current run; no automatic cleanup or real model calls")
+    print("Upgrade passed: unchanged V3 history and service config, active model selection and saved key restored, both local probes and current run; no real model calls")
     print(f"Isolated data and logs: {output}")
 
 

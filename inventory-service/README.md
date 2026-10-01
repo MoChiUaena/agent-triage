@@ -4,7 +4,7 @@
 
 ```powershell
 .\mvnw.cmd -f inventory-service/pom.xml verify
-java -jar inventory-service/target/triage-inventory-service-0.3.0.jar
+java -jar inventory-service/target/triage-inventory-service-0.10.0.jar
 ```
 
 `GET /actuator/metrics/sample.inventory.duration` 可查看 Micrometer 记录的处理时间。实验页面通过订单服务切换库存场景；也可直接使用 `POST /lab/scenario`。此服务默认仅监听本机地址。

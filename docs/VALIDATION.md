@@ -187,6 +187,6 @@ Spring AI 1.1.8 将服务端 `finish_reason=length` 转为大写 `LENGTH`。只�
 
 ## Windows 打包时提示无法重命名 JAR
 
-用 `java -jar target/agent-triage-0.4.0.jar` 启动后，如果再次执行 package，Spring Boot repackage 可能报错：无法将 JAR 重命名为 `.jar.original`。
+用 `java -jar target/agent-triage-0.10.0.jar` 启动后，如果再次执行 package，Spring Boot repackage 可能报错：无法将 JAR 重命名为 `.jar.original`。
 
 原因是运行中的 Java 进程占用了该文件。停止进程后重新打包即可。开发时建议使用 `mvnw.cmd spring-boot:run`；需要同时运行和重新打包时，可从 JAR 副本启动。

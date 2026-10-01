@@ -59,7 +59,7 @@ v1 留出集已经使用，后续修改不能再用它证明独立效果。公�
 建议单独启动实例，避免在日常演示的历史记录中加入评测数据。先构建 JAR，再在一个终端运行：
 
 ```powershell
-java -jar target/agent-triage-0.3.0.jar --server.port=18081 '--spring.datasource.url=jdbc:h2:mem:evaluation;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/evaluation-key --triage.mode=DEMO
+java -jar target/agent-triage-0.10.0.jar --server.port=18081 '--spring.datasource.url=jdbc:h2:mem:evaluation;DB_CLOSE_DELAY=-1' --triage.settings.key-file=target/evaluation-key --triage.mode=DEMO
 ```
 
 另一个终端执行：

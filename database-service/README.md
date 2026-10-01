@@ -4,7 +4,7 @@
 
 ```powershell
 .\mvnw.cmd -f database-service/pom.xml verify
-java -jar database-service/target/triage-database-service-0.3.0.jar
+java -jar database-service/target/triage-database-service-0.10.0.jar
 ```
 
 默认监听 `127.0.0.1:18096`，连接池上限为 2，获取连接超时为 350ms。请求耗时和获取连接耗时来自实际请求，池使用数与等待数每 50ms 从 HikariCP 读取。`/actuator/metrics` 可查看连接池指标；错误事件写入忽略的 `data/database-errors.jsonl`。
