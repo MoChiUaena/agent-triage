@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpServer;
 import io.github.mochiuaena.triage.domain.TriageModel.Scenario;
 import org.junit.jupiter.api.*;
+import org.springframework.mock.env.MockEnvironment;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -82,6 +83,42 @@ class LiveObservationClientTest {
         context = new ToolContext("checkout-service", 5, Scenario.OBSERVED, end, registry.defaultTarget());
         assertThat(client.snapshot(context).requestCount()).isEqualTo(5);
         assertThat(accesses).hasValue(1);
+    }
+    @Test void registeredTokenIsSentOnlyToTheConfiguredObservationService() throws Exception {
+        String token = "agent_token_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC";
+        var authorization = new AtomicReference<String>();
+        var plainAuthorization = new AtomicReference<String>();
+        server.removeContext("/triage/observations");
+        server.createContext("/triage/observations", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("X-Triage-Observation-Token"));
+            byte[] body = response.get();
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) { out.write(body); }
+        });
+        server.createContext("/plain/triage/observations", exchange -> {
+            plainAuthorization.set(exchange.getRequestHeaders().getFirst("X-Triage-Observation-Token"));
+            byte[] body = json.writeValueAsBytes(valid().put("service", "plain-service"));
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) { out.write(body); }
+        });
+        String origin = "http://127.0.0.1:" + server.getAddress().getPort();
+        var env = new MockEnvironment().withProperty("triage.services[0].id", "checkout-service")
+            .withProperty("triage.services[0].downstream-id", "stock-service")
+            .withProperty("triage.services[0].base-url", origin)
+            .withProperty("triage.services[0].access-token", token)
+            .withProperty("triage.services[1].id", "plain-service")
+            .withProperty("triage.services[1].downstream-id", "stock-service")
+            .withProperty("triage.services[1].base-url", origin + "/plain");
+        registry = new ServiceRegistry(new ObservationSource("LIVE", origin), env);
+        client = new LiveObservationClient(registry, json);
+        context = new ToolContext("checkout-service", 5, Scenario.OBSERVED, end, registry.defaultTarget());
+        assertThat(client.snapshot(context).requestCount()).isEqualTo(5);
+        assertThat(authorization).hasValue(token);
+        var plain = new ToolContext("plain-service", 5, Scenario.OBSERVED, end, registry.require("plain-service"));
+        assertThat(client.snapshot(plain).requestCount()).isEqualTo(5);
+        assertThat(plainAuthorization).hasValue(null);
+        assertThat(registry.views().toString()).doesNotContain(token);
+        assertThat(registry.defaultTarget().toString()).doesNotContain(token);
     }
     @Test void databaseAliasReadsOnlyTheFixedLoopbackDatabaseEndpoint() throws Exception {
         var accesses = new AtomicInteger();

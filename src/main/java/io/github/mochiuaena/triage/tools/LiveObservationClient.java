@@ -269,7 +269,10 @@ public class LiveObservationClient {
 
     private byte[] get(ServiceRegistry.Target target, String path) {
         URI uri = URI.create(target.baseUrl().toString().replaceAll("/$", "") + path);
-        HttpRequest request = HttpRequest.newBuilder(uri).timeout(Duration.ofMillis(1200)).GET().build();
+        var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofMillis(1200)).GET();
+        String token = registry.accessToken(target);
+        if (token != null) builder.header("X-Triage-Observation-Token", token);
+        HttpRequest request = builder.build();
         try {
             HttpResponse<byte[]> response = http.send(request, info -> new BoundedBody());
             if (response.statusCode() != 200) throw switch (response.statusCode()) {

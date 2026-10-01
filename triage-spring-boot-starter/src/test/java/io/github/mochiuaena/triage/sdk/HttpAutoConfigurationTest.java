@@ -62,6 +62,34 @@ class HttpAutoConfigurationTest {
             assertThat(endpoint.observations(5, Instant.now(), request)).isInstanceOf(ObservationRecorder.HttpWindow.class);
         });
     }
+    @Test void optionalObservationTokensProtectAllReadOnlyRoutesDuringRotation() {
+        String current = "current_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        String previous = "previous_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+        enabled().withPropertyValues("triage.sdk.observation-access-token=" + current,
+            "triage.sdk.observation-previous-token=" + previous).run(context -> {
+            var endpoint = context.getBean(TriageObservationsEndpoint.class);
+            var request = new MockHttpServletRequest(); request.setRemoteAddr("127.0.0.1");
+            assertThatThrownBy(() -> endpoint.observations(5, Instant.now(), request)).hasMessageContaining("403");
+            assertThatThrownBy(() -> endpoint.database(5, Instant.now(), request)).hasMessageContaining("403");
+            request.addHeader("X-Triage-Observation-Token", "wrong_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC");
+            assertThatThrownBy(() -> endpoint.endpoints(5, Instant.now(), null, request)).hasMessageContaining("403");
+            for (String accepted : new String[]{current, previous}) {
+                var authorized = new MockHttpServletRequest(); authorized.setRemoteAddr("127.0.0.1");
+                authorized.addHeader("X-Triage-Observation-Token", accepted);
+                assertThat(endpoint.observations(5, Instant.now(), authorized)).isInstanceOf(ObservationRecorder.HttpWindow.class);
+                assertThatThrownBy(() -> endpoint.database(5, Instant.now(), authorized)).hasMessageContaining("404");
+            }
+            var remote = new MockHttpServletRequest(); remote.setRemoteAddr("192.0.2.10");
+            remote.addHeader("X-Triage-Observation-Token", current);
+            assertThatThrownBy(() -> endpoint.observations(5, Instant.now(), remote)).hasMessageContaining("403");
+        });
+    }
+    @Test void weakOrUnpairedObservationTokensFailAtStartup() {
+        enabled().withPropertyValues("triage.sdk.observation-access-token=short")
+            .run(context -> assertThat(context).hasFailed());
+        enabled().withPropertyValues("triage.sdk.observation-previous-token=previous_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+            .run(context -> assertThat(context).hasFailed());
+    }
     @Test void timeoutWhileReadingTheResponseBodyIsAlsoCounted() {
         enabled().run(context -> {
             var recorder = context.getBean(ObservationRecorder.class);

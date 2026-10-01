@@ -87,6 +87,7 @@ jobs:
           ./mvnw -B -ntp -DskipTests package
           ./mvnw -B -ntp -f integrations/pom.xml -DskipTests package
           python3 scripts/starter_smoke.py
+          python3 scripts/observation_auth_smoke.py
           java -jar inventory-service/target/triage-inventory-service-0.6.0.jar > inventory.log 2>&1 &
           java -jar sample-service/target/triage-sample-service-0.6.0.jar > sample.log 2>&1 &
           java -jar target/agent-triage-0.6.0.jar --server.port=18083 '--spring.datasource.url=jdbc:h2:mem:live;DB_CLOSE_DELAY=-1' --triage.observation.source=LIVE --triage.settings.key-file=target/ci-live-key > agent.log 2>&1 &

@@ -1,8 +1,8 @@
 # Spring Boot Starter 接入
 
-`triage-spring-boot-starter` 为同步 Spring MVC 应用提供 `/triage/observations`，复用 Agent 已有的 HTTP V1 和数据库 V2 契约。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
+`triage-spring-boot-starter` 为 Spring MVC 应用提供 `/triage/observations`，复用 Agent 已有的 HTTP V1 和数据库 V2 契约。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
 
-当前版本为 0.6.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。[v0.6.0 预览版](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0)提供独立 Starter JAR/POM 与可选 Agent JAR；在附件所在目录安装 Starter：
+最近的发布版本为 0.6.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。下文的异步请求记录和观测令牌属于当前 main 开发版，0.6.0 附件不包含。[v0.6.0 预览版](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0)提供独立 Starter JAR/POM 与可选 Agent JAR；在附件所在目录安装 Starter：
 
 ```powershell
 mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.6.0.jar' '-DpomFile=triage-spring-boot-starter-0.6.0.pom'
@@ -45,6 +45,12 @@ triage:
 每个窗口中的请求数包含匹配路径下已完成的同步和 Spring MVC 异步请求；下游 p95 是每条请求内指定下游调用累计耗时的 p95，没有该调用时记为零。一次请求有多个超时仍只计一次。组件不推断正常基线，`baselineRequestP95Ms` 为 `null`。
 
 商品请求响应中的 `X-Triage-Trace-Id` 对应 SDK 错误事件标识。SDK 不接收外部 traceId，也不会自动与业务日志已有链路关联。异步工作线程内的下游调用没有自动继承请求上下文，因此不计入该请求的下游耗时或超时；WebFlux、跨线程调用和多个下游也暂未支持。
+
+## 只读观测接口的访问令牌
+
+观测接口默认只接受回环地址的请求。需要限制同一机器上的其他进程时，业务应用可设置 `triage.sdk.observation-access-token`。令牌须为 32–128 位的字母、数字、`_` 或 `-`；例如用 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 生成。Agent 在对应的 `triage.services` 条目中设置同一个 `access-token`，请求时通过 `X-Triage-Observation-Token` 发送。未设置令牌的旧配置继续按回环地址规则工作；令牌不会进入服务列表或排查记录。
+
+轮换时，先让业务应用同时配置新的 `observation-access-token` 和旧的 `observation-previous-token`，重启应用；再将 Agent 的 `access-token` 改为新值并重启 Agent；最后移除旧令牌并重启业务应用。上一令牌不能单独配置。令牌应放在环境变量或被 Git 忽略的本地配置中，不要写入仓库。开启令牌不会开放非回环地址访问。
 
 ## 按接口观测
 

@@ -20,6 +20,8 @@ public class TriageObservationProperties {
     private boolean jpaObservations;
     private String jpaServiceId;
     private String jpaDatabaseId;
+    private String observationAccessToken;
+    private String observationPreviousToken;
     private java.util.List<String> applicationPackages = java.util.List.of();
 
     void validate() {
@@ -37,6 +39,10 @@ public class TriageObservationProperties {
         if (requestPathPrefix == null || !requestPathPrefix.matches("/(?:[a-zA-Z0-9_-]+/)+")
                 || requestPathPrefix.startsWith("/triage/"))
             throw new IllegalArgumentException("triage.sdk request-path-prefix must be an API path ending with /, outside /triage/");
+        if (observationAccessToken != null && !token(observationAccessToken)
+            || observationPreviousToken != null && (!token(observationPreviousToken) || observationAccessToken == null
+                || observationPreviousToken.equals(observationAccessToken)))
+            throw new IllegalArgumentException("triage.sdk observation tokens must be distinct 32..128 character base64url values");
         if (kind == Kind.HTTP && (downstreamBaseUrl == null
                 || !java.util.List.of("http", "https").contains(downstreamBaseUrl.getScheme())
                 || downstreamBaseUrl.getHost() == null || downstreamBaseUrl.getUserInfo() != null
@@ -45,6 +51,7 @@ public class TriageObservationProperties {
             throw new IllegalArgumentException("triage.sdk downstream-base-url must be an HTTP origin without credentials or paths");
     }
     private boolean identity(String value) { return value != null && value.matches("[a-z][a-z0-9-]{0,63}"); }
+    private boolean token(String value) { return value.matches("[A-Za-z0-9_-]{32,128}"); }
     boolean matches(URI uri) {
         return downstreamBaseUrl.getScheme().equalsIgnoreCase(uri.getScheme())
             && downstreamBaseUrl.getHost().equalsIgnoreCase(uri.getHost()) && port(downstreamBaseUrl) == port(uri);
@@ -77,6 +84,10 @@ public class TriageObservationProperties {
     public void setJpaServiceId(String value) { jpaServiceId = value; }
     public String getJpaDatabaseId() { return jpaDatabaseId; }
     public void setJpaDatabaseId(String value) { jpaDatabaseId = value; }
+    public String getObservationAccessToken() { return observationAccessToken; }
+    public void setObservationAccessToken(String value) { observationAccessToken = value; }
+    public String getObservationPreviousToken() { return observationPreviousToken; }
+    public void setObservationPreviousToken(String value) { observationPreviousToken = value; }
     public void setExceptionLocations(boolean value) { exceptionLocations = value; }
     public java.util.List<String> getApplicationPackages() { return applicationPackages; }
     public void setApplicationPackages(java.util.List<String> value) { applicationPackages = value == null ? null : java.util.List.copyOf(value); }

@@ -17,8 +17,9 @@ public class TriageObservationAutoConfiguration {
         return new ObservationRecorder(properties);
     }
     @Bean TriageObservationsEndpoint triageObservationsEndpoint(ObservationRecorder recorder,
-                                                                org.springframework.beans.factory.ObjectProvider<TriageJpaObserver> jpa) {
-        return new TriageObservationsEndpoint(recorder, jpa);
+                                                                org.springframework.beans.factory.ObjectProvider<TriageJpaObserver> jpa,
+                                                                TriageObservationProperties properties) {
+        return new TriageObservationsEndpoint(recorder, jpa, properties);
     }
     @Bean @ConditionalOnProperty(prefix = "triage.sdk", name = "kind", havingValue = "HTTP", matchIfMissing = true)
     FilterRegistrationBean<TriageRequestFilter> triageRequestFilter(ObservationRecorder recorder, TriageObservationProperties properties) {

@@ -14,13 +14,19 @@ import java.util.*;
 public final class ServiceRegistry {
     public enum Protocol { LAB, OBSERVATIONS_V1, DATABASE_V2, OBSERVATIONS_V3 }
     public record Config(String id, String name, String downstreamId, String downstreamName,
-                         String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled, Boolean databaseAlias) {
+                         String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled, Boolean databaseAlias,
+                         String accessToken) {
         @org.springframework.boot.context.properties.bind.ConstructorBinding
         public Config {}
         public Config(String id, String name, String downstreamId, String downstreamName,
                       String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled) {
-            this(id, name, downstreamId, downstreamName, baseUrl, protocol, maxWindowMinutes, labEnabled, null);
+            this(id, name, downstreamId, downstreamName, baseUrl, protocol, maxWindowMinutes, labEnabled, null, null);
         }
+        public Config(String id, String name, String downstreamId, String downstreamName,
+                      String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled, Boolean databaseAlias) {
+            this(id, name, downstreamId, downstreamName, baseUrl, protocol, maxWindowMinutes, labEnabled, databaseAlias, null);
+        }
+        @Override public String toString() { return "ServiceConfig[id=" + id + ",accessToken=redacted]"; }
     }
     public record Target(ServiceInfo info, URI baseUrl, Protocol protocol, int maxWindowMinutes, boolean labEnabled, boolean databaseAlias) {
         public Target(ServiceInfo info, URI baseUrl, Protocol protocol, int maxWindowMinutes, boolean labEnabled) {
@@ -30,6 +36,7 @@ public final class ServiceRegistry {
     public record View(String id, String name, String downstreamId, String downstreamName,
                        Protocol protocol, int maxWindowMinutes, boolean labEnabled) {}
     private final Map<String, Target> targets;
+    private final Map<String, String> accessTokens;
 
     @Autowired
     public ServiceRegistry(ObservationSource source, Environment environment) {
@@ -38,6 +45,7 @@ public final class ServiceRegistry {
 
     public ServiceRegistry(ObservationSource source, List<Config> configured) {
         var values = new LinkedHashMap<String, Target>();
+        var tokens = new HashMap<String, String>();
         if (configured.isEmpty()) {
             Target legacy = new Target(ServiceInfo.order(), source.baseUrl(), Protocol.LAB, 60, !source.synthetic());
             values.put(legacy.info().id(), legacy);
@@ -60,9 +68,15 @@ public final class ServiceRegistry {
                 Target target = new Target(new ServiceInfo(id, label(config.name(), id), downstream,
                     label(config.downstreamName(), downstream)), ObservationSource.registeredBase(config.baseUrl()), protocol, window, lab, databaseAlias);
                 if (values.putIfAbsent(id, target) != null) throw new IllegalArgumentException("Duplicate registered service");
+                if (config.accessToken() != null) {
+                    if (protocol == Protocol.LAB || !config.accessToken().matches("[A-Za-z0-9_-]{32,128}"))
+                        throw new IllegalArgumentException("Invalid observation access token");
+                    tokens.put(id, config.accessToken());
+                }
             }
         }
         targets = Collections.unmodifiableMap(values);
+        accessTokens = Map.copyOf(tokens);
     }
 
     private static String identifier(String value) {
@@ -82,6 +96,10 @@ public final class ServiceRegistry {
         return target;
     }
     public Target defaultTarget() { return targets.values().iterator().next(); }
+    String accessToken(Target target) {
+        if (!require(target.info().id()).equals(target)) throw new IllegalArgumentException("Unregistered observation target");
+        return accessTokens.get(target.info().id());
+    }
     public List<View> views() {
         return targets.values().stream().map(t -> new View(t.info().id(), t.info().name(), t.info().downstreamId(),
             t.info().downstreamName(), t.protocol(), t.maxWindowMinutes(), t.labEnabled())).toList();

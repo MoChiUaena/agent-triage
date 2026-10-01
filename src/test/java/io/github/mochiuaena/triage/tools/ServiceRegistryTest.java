@@ -58,6 +58,20 @@ class ServiceRegistryTest {
         assertThatThrownBy(() -> new ObservationSource("LIVE", "http://127.0.0.1:19092/petclinic"))
             .isInstanceOf(IllegalArgumentException.class);
     }
+    @Test void registeredObservationTokenMustHaveTheRequiredFormat() {
+        var env = new MockEnvironment().withProperty("triage.services[0].id", "checkout-service")
+            .withProperty("triage.services[0].downstream-id", "stock-service")
+            .withProperty("triage.services[0].base-url", "http://127.0.0.1:19092")
+            .withProperty("triage.services[0].access-token", "short");
+        assertThatThrownBy(() -> new ServiceRegistry(live, env)).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageNotContaining("short");
+    }
+    @Test void observationTokenCannotBeSentToLegacyLabRoutes() {
+        var lab = new ServiceRegistry.Config("order-service", "订单服务", "inventory-service", "库存服务",
+            "http://127.0.0.1:19092", ServiceRegistry.Protocol.LAB, 15, true, false,
+            "lab_token_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD");
+        assertThatThrownBy(() -> new ServiceRegistry(live, List.of(lab))).isInstanceOf(IllegalArgumentException.class);
+    }
     @Test void allowsOnlyDatabaseV2ToReadTheFixedSecondaryEndpoint() {
         var alias = new ServiceRegistry.Config("petclinic-db", "Petclinic DB", "petclinic-h2", "H2",
             "http://127.0.0.1:18461", ServiceRegistry.Protocol.DATABASE_V2, 15, false, true);

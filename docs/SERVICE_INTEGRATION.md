@@ -25,6 +25,7 @@ Agent 从启动配置读取服务白名单。页面选择服务后，只读工�
 | `id`、`name` | 服务标识和页面名称，标识须为小写字母、数字及连字符 |
 | `downstream-id`、`downstream-name` | 本次观测覆盖的下游 |
 | `base-url` | 带端口的本机 HTTP 地址，可有普通上下文路径，例如 `http://127.0.0.1:9966/petclinic`；不接受凭据、查询参数、编码路径或 `..` |
+| `access-token` | 可选；Starter 开启观测令牌时填写相同的随机值，只由 Agent 向该服务的固定观测路由发送 |
 | `protocol` | HTTP 窗口观测用 `OBSERVATIONS_V1`；需要按接口查询时用 `OBSERVATIONS_V3`；数据库观测用 `DATABASE_V2`；`LAB` 保留给原有订单演示 |
 | `max-window-minutes` | 允许查询的最长窗口，1–60，默认 60 |
 | `lab-enabled` | 默认关闭；`LAB` 和 `DATABASE_V2` 可显式开启样例流量控制 |
