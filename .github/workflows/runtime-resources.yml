@@ -1,0 +1,40 @@
+name: Runtime resource retention
+on:
+  push:
+    branches: [main, 'fix/**', 'feature/**']
+    paths:
+      - 'src/main/java/io/github/mochiuaena/triage/execution/**'
+      - 'src/test/java/io/github/mochiuaena/triage/execution/RunResourceLifecycleTest.java'
+      - 'triage-spring-boot-starter/**'
+      - '.github/workflows/runtime-resources.yml'
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: runtime-resources-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  retention:
+    name: Resources / ${{ matrix.component }} / ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        component: [agent, starter]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Five minutes of repeated active and queued cancellation
+        if: matrix.component == 'agent'
+        shell: bash
+        run: ./mvnw -B -ntp -Dtest=RunResourceLifecycleTest -Dtriage.resource.seconds=300 '-DargLine=-Xms96m -Xmx256m' test
+      - name: Five minutes of async context and JDBC lifecycle checks
+        if: matrix.component == 'starter'
+        shell: bash
+        run: ./mvnw -B -ntp -f triage-spring-boot-starter/pom.xml -Dtest=ResourceLifecycleTest -Dtriage.resource.seconds=300 '-DargLine=-Xms96m -Xmx256m' test
