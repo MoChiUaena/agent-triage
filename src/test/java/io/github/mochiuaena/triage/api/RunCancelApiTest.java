@@ -24,6 +24,7 @@ import static org.assertj.core.api.Assertions.*;
 })
 class RunCancelApiTest {
     @Autowired TestRestTemplate http;
+    @Autowired RunEventController events;
     @LocalServerPort int port;
     private static CountDownLatch entered, release;
     @BeforeEach void latches() { entered = new CountDownLatch(1); release = new CountDownLatch(1); }
@@ -77,6 +78,27 @@ class RunCancelApiTest {
         assertThat(http.postForEntity(path, cancelHeaders("https://example.com"), String.class).getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
         assertThat(http.getForObject("/api/runs/" + run.id(), Run.class).status()).isEqualTo(Status.RUNNING);
         assertThat(http.postForEntity(path, cancelHeaders(null), String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
+    }
+    @Test void repeatedCancelledEventStreamsReturnTheirConnectionPermitsAndScheduledTasks() throws Exception {
+        Run run = create();
+        var cancelled = http.postForEntity("/api/runs/" + run.id() + "/cancel", cancelHeaders(null), Run.class);
+        assertThat(cancelled.getStatusCode()).isEqualTo(HttpStatus.OK);
+        var scheduler = (ScheduledThreadPoolExecutor) org.springframework.test.util.ReflectionTestUtils.getField(events, "scheduler");
+        var permits = (Semaphore) org.springframework.test.util.ReflectionTestUtils.getField(events, "connections");
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(3)).until(() -> scheduler.getQueue().isEmpty());
+        int initialPermits = permits.availablePermits();
+        try (var client = HttpClient.newHttpClient()) {
+            for (int i = 0; i < 80; i++) {
+                var stream = client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/runs/" + run.id() + "/events"))
+                    .timeout(Duration.ofSeconds(3)).GET().build(), HttpResponse.BodyHandlers.ofString());
+                assertThat(stream.statusCode()).isEqualTo(200);
+                assertThat(stream.body()).contains("RUN_CANCELLED", "event:complete");
+            }
+        }
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(3)).untilAsserted(() -> {
+            assertThat(permits.availablePermits()).isEqualTo(initialPermits);
+            assertThat(scheduler.getQueue()).isEmpty();
+        });
     }
     @Test void unknownAndMalformedIdsReturnClearStatuses() {
         assertThat(http.postForEntity("/api/runs/" + UUID.randomUUID() + "/cancel", cancelHeaders(null), String.class).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
