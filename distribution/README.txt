@@ -43,6 +43,8 @@ The Agent JAR is not needed for this demo. For another application, pass its pat
 and use the same-build Starter dependency; see docs/STARTER.md in the source repository.
 The Starter is not published on Maven Central. Dependency setup is documented in the source repository.
 To upgrade from v0.6.0, stop the old launch and back up the database together with data/model-config.key.
+Finish in-flight work before stopping v0.6.0: its delayed H2 writes can lose the latest setting on an abrupt stop.
+The new default local H2 store uses synchronous writes; custom datasource URLs retain their configured behavior.
 Move the backed-up data directory to the new complete extraction, then start the new launcher.
 Review custom service ports and source-project directories; keep the original package and backup until the upgrade is checked.
 This bundle is for local single-instance use and has no multi-user login or production authentication.
