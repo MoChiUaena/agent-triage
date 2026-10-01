@@ -61,6 +61,8 @@ executor.execute(observation.wrap(() -> {
 
 多个任务可共享同一个请求快照。累计下游耗时是被观测调用耗时之和，可能大于并发请求的总耗时，不能当作关键路径；多个超时仍只将该请求计为一次超时，错误位置保留首次捕获的结果。
 
+主分支在响应完成时释放上下文中的 MVC 处理类、接口和故障位置引用，已经采集的窗口仍保留对应描述。即使应用继续持有已完成的快照，也不会通过这个处理类引用阻止业务类加载器回收。包装不负责调度或取消业务任务；应用仍需关闭自己的执行器，及时归还 JDBC 连接。关闭 JDBC/JPA 观测器会停止采样线程，连接池由应用管理。
+
 Spring MVC 的 Callable 和 WebAsyncTask 可显式开启 `triage.sdk.async-context-propagation: true`，同时需要 `endpoint-observations: true`。Starter 在 MVC 交接 Callable 时捕获上下文，在执行器线程处理任务前附上，并在任务返回或抛出异常后恢复。该开关默认关闭，也不会装饰应用的其他执行器。DeferredResult、CompletableFuture 或应用自行创建的任务仍需在请求线程捕获快照并显式包装。响应完成后，仍在运行的任务只能继续执行业务逻辑，不能继续向已完成请求添加观测。
 
 ## 只读观测接口的访问令牌

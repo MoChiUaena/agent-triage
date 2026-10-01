@@ -12,6 +12,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+资源留存增量：[取消与异步验收](validation/2026-10-01-runtime-resources.md)记录 Windows/Linux 各两个五分钟作业、实际堆采样和修复前失败。主项目增至 275 项、Starter 51 项；新增检查覆盖排队 Future 关闭、完成快照的类加载器回收、反复取消后的工作队列、JDBC 归还、采样线程停止，以及八十次取消后 SSE 回放。数天运行、原生内存和真实模型供应商的持续取消尚未验证。
+
 持续运行阶段的首批检查：[容量与窗口边界验收](validation/2026-10-01-observation-capacity.md)覆盖并发读写、HTTP/JDBC/V3 满容量与溢出、池采样丢失、时钟回拨，以及残缺窗口在固定规则和本地模型协议中的失败流程。Windows/Linux CI 均通过，Starter 增至 48 项；长期资源留存和吞吐基准尚未验证。
 
 v0.10.0 发布：同一演示包通过 Windows/Linux 的原生启动与停止检查，v0.6.0 的完整历史、已选模型和加密密钥通过升级回归；新版默认 H2 强制结束后的恢复也已验证。[发布验收](validation/2026-10-01-v010-preview.md)保留了发现的延迟写盘问题、失败检查和修复结果。
