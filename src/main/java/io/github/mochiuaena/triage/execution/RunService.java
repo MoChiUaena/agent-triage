@@ -225,9 +225,14 @@ public class RunService {
     }
 
     @PreDestroy public void close() {
-        coordinators.shutdownNow();
-        toolWorkers.shutdownNow();
-        modelWorkers.shutdownNow();
+        stopPool(coordinators);
+        stopPool(toolWorkers);
+        stopPool(modelWorkers);
+    }
+
+    private static void stopPool(ThreadPoolExecutor executor) {
+        for (Runnable task : executor.shutdownNow())
+            if (task instanceof Future<?> future) future.cancel(false);
     }
 
     public static class CapacityExceededException extends RuntimeException {}

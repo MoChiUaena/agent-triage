@@ -35,7 +35,11 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         synchronized Completed finish() {
             if (!active) return null;
             active = false;
-            return new Completed(downstreamMs, timeout, endpoint, failureLocation);
+            var completed = new Completed(downstreamMs, timeout, endpoint, failureLocation);
+            handlerClass = null;
+            endpoint = null;
+            failureLocation = null;
+            return completed;
         }
     }
     private final ObservationRecorder recorder;
