@@ -9,13 +9,34 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 final class TriageRequestFilter extends OncePerRequestFilter {
     static final ThreadLocal<Context> CURRENT = new ThreadLocal<>();
+    static final String CONTEXT_ATTRIBUTE = TriageRequestFilter.class.getName() + ".context";
     static final class Context {
         final String trace = UUID.randomUUID().toString();
-        double downstreamMs;
-        boolean timeout;
-        MvcEndpoint endpoint;
-        Class<?> handlerClass;
-        FailureLocations.Location failureLocation;
+        private double downstreamMs;
+        private boolean timeout;
+        volatile MvcEndpoint endpoint;
+        volatile Class<?> handlerClass;
+        private FailureLocations.Location failureLocation;
+        private boolean failureRecorded;
+        private boolean active = true;
+        record Completed(double downstreamMs, boolean timeout, MvcEndpoint endpoint, FailureLocations.Location failureLocation) {}
+        synchronized boolean isActive() { return active; }
+        synchronized void addDownstreamMillis(double elapsed) { if (active) downstreamMs += elapsed; }
+        synchronized void recordFailure(boolean timedOut, java.util.function.Supplier<FailureLocations.Location> capture) {
+            if (!active) return;
+            timeout |= timedOut;
+            if (!failureRecorded) {
+                failureRecorded = true;
+                try { failureLocation = capture.get(); }
+                catch (RuntimeException | LinkageError ignored) { /* Observation cannot change the business failure. */ }
+            }
+        }
+        synchronized void recordIfActive(Runnable observation) { if (active) observation.run(); }
+        synchronized Completed finish() {
+            if (!active) return null;
+            active = false;
+            return new Completed(downstreamMs, timeout, endpoint, failureLocation);
+        }
     }
     private final ObservationRecorder recorder;
     TriageRequestFilter(ObservationRecorder recorder) { this.recorder = recorder; }
@@ -30,41 +51,45 @@ final class TriageRequestFilter extends OncePerRequestFilter {
             this.context = context; this.response = response; this.start = start; this.failed = failed;
         }
         void record() {
-            if (recorded.compareAndSet(false, true)) recorder.recordHttp(ObservationRecorder.elapsed(start), context.downstreamMs,
-                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint, context.failureLocation,
-                failed && response.getStatus() < 400 ? 0 : response.getStatus());
+            if (recorded.compareAndSet(false, true)) complete(context, response, start, failed);
         }
         @Override public void onComplete(AsyncEvent event) { record(); }
         @Override public void onTimeout(AsyncEvent event) { failed = true; }
         @Override public void onError(AsyncEvent event) {
             failed = true;
-            if (context.failureLocation == null && event.getThrowable() != null)
-                context.failureLocation = recorder.requestFailure(event.getThrowable(), context.handlerClass);
+            if (event.getThrowable() != null) context.recordFailure(false, () -> recorder.requestFailure(event.getThrowable(), context.handlerClass));
         }
         @Override public void onStartAsync(AsyncEvent event) { event.getAsyncContext().addListener(this); }
     }
     @Override protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         Context context = new Context();
+        Context previous = CURRENT.get();
         CURRENT.set(context);
+        request.setAttribute(CONTEXT_ATTRIBUTE, context);
         response.setHeader("X-Triage-Trace-Id", context.trace);
         long start = System.nanoTime();
         boolean failed = false;
         try { chain.doFilter(request, response); }
         catch (ServletException | IOException | RuntimeException e) {
             failed = true;
-            if (context.failureLocation == null) context.failureLocation = recorder.requestFailure(e, context.handlerClass);
+            context.recordFailure(false, () -> recorder.requestFailure(e, context.handlerClass));
             throw e;
         }
         finally {
-            CURRENT.remove();
+            if (previous == null) CURRENT.remove(); else CURRENT.set(previous);
             if (request.isAsyncStarted()) {
                 var completion = new AsyncCompletion(context, response, start, failed);
                 try { request.getAsyncContext().addListener(completion); }
                 catch (IllegalStateException completed) { completion.record(); }
-            } else recorder.recordHttp(ObservationRecorder.elapsed(start), context.downstreamMs,
-                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint, context.failureLocation,
-                failed && response.getStatus() < 400 ? 0 : response.getStatus());
+            } else complete(context, response, start, failed);
         }
+    }
+    private void complete(Context context, HttpServletResponse response, long start, boolean failed) {
+        var completed = context.finish();
+        if (completed == null) return;
+        recorder.recordHttp(ObservationRecorder.elapsed(start), completed.downstreamMs(), completed.timeout(),
+            failed || response.getStatus() >= 500, context.trace, completed.endpoint(), completed.failureLocation(),
+            failed && response.getStatus() < 400 ? 0 : response.getStatus());
     }
 }

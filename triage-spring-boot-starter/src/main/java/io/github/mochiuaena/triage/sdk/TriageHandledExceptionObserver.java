@@ -20,9 +20,10 @@ final class TriageHandledExceptionObserver implements WebMvcConfigurer, HandlerE
     @Override public ModelAndView resolveException(HttpServletRequest request, HttpServletResponse response,
                                                     Object handler, Exception error) {
         var context = TriageRequestFilter.CURRENT.get();
-        if (context != null && context.failureLocation == null) {
-            try { context.failureLocation = recorder.requestFailure(error, context.handlerClass); }
-            catch (RuntimeException | LinkageError ignored) { /* Observation must not change exception handling. */ }
+        if (context == null && request.getAttribute(TriageRequestFilter.CONTEXT_ATTRIBUTE) instanceof TriageRequestFilter.Context observed) context = observed;
+        if (context != null) {
+            var selected = context;
+            selected.recordFailure(false, () -> recorder.requestFailure(error, selected.handlerClass));
         }
         return null;
     }

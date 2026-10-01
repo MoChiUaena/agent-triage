@@ -17,7 +17,7 @@ final class TriageRestClientCustomizer implements RestClientCustomizer {
     @Override public void customize(RestClient.Builder builder) {
         builder.requestInterceptor((request, body, execution) -> {
             var context = TriageRequestFilter.CURRENT.get();
-            if (context == null || !properties.matches(request.getURI())) return execution.execute(request, body);
+            if (context == null || !context.isActive() || !properties.matches(request.getURI())) return execution.execute(request, body);
             long start = System.nanoTime();
             try {
                 ClientHttpResponse response = execution.execute(request, body);
@@ -32,13 +32,13 @@ final class TriageRestClientCustomizer implements RestClientCustomizer {
                                 long readStart = System.nanoTime();
                                 try { return in.read(); }
                                 catch (IOException e) { markTimeout(context, e); throw e; }
-                                finally { context.downstreamMs += ObservationRecorder.elapsed(readStart); }
+                                finally { context.addDownstreamMillis(ObservationRecorder.elapsed(readStart)); }
                             }
                             @Override public int read(byte[] bytes, int offset, int length) throws IOException {
                                 long readStart = System.nanoTime();
                                 try { return in.read(bytes, offset, length); }
                                 catch (IOException e) { markTimeout(context, e); throw e; }
-                                finally { context.downstreamMs += ObservationRecorder.elapsed(readStart); }
+                                finally { context.addDownstreamMillis(ObservationRecorder.elapsed(readStart)); }
                             }
                         };
                     }
@@ -47,14 +47,15 @@ final class TriageRestClientCustomizer implements RestClientCustomizer {
             catch (IOException | RuntimeException e) {
                 markTimeout(context, e);
                 throw e;
-            } finally { context.downstreamMs += ObservationRecorder.elapsed(start); }
+            } finally { context.addDownstreamMillis(ObservationRecorder.elapsed(start)); }
         });
     }
     private void markTimeout(TriageRequestFilter.Context context, Throwable error) {
-        if (context.failureLocation == null) context.failureLocation = FailureLocations.capture(error, properties, "HTTP_CLIENT_FAILURE");
+        boolean timedOut = false;
         var seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Throwable, Boolean>());
         for (Throwable cause = error; cause != null && seen.add(cause); cause = cause.getCause()) {
-            if (cause instanceof SocketTimeoutException || cause instanceof HttpTimeoutException) { context.timeout = true; break; }
+            if (cause instanceof SocketTimeoutException || cause instanceof HttpTimeoutException) { timedOut = true; break; }
         }
+        context.recordFailure(timedOut, () -> FailureLocations.capture(error, properties, "HTTP_CLIENT_FAILURE"));
     }
 }

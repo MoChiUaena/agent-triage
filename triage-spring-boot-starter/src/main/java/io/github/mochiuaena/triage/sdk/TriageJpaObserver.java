@@ -49,8 +49,8 @@ public final class TriageJpaObserver implements AutoCloseable {
             Connection raw = connector.open();
             return proxy(raw, Connection.class, new ConnectionCalls(raw, this, request, ObservationRecorder.elapsed(start)));
         } catch (SQLException | RuntimeException e) {
-            if (request != null) recorder.recordDatabase(ObservationRecorder.elapsed(start), ObservationRecorder.elapsed(start), 0,
-                e instanceof SQLTransientConnectionException ? "DB_CONNECTION_ACQUIRE_TIMEOUT" : "DB_CONNECTION_ACQUIRE_FAILED", request.trace);
+            if (request != null) request.recordIfActive(() -> recorder.recordDatabase(ObservationRecorder.elapsed(start), ObservationRecorder.elapsed(start), 0,
+                e instanceof SQLTransientConnectionException ? "DB_CONNECTION_ACQUIRE_TIMEOUT" : "DB_CONNECTION_ACQUIRE_FAILED", request.trace));
             throw e;
         }
     }
@@ -112,13 +112,16 @@ public final class TriageJpaObserver implements AutoCloseable {
                 || "executeBatch".equals(method.getName()) || "executeLargeBatch".equals(method.getName())))
                 return TriageJpaObserver.invoke(raw, method, args);
             TriageRequestFilter.Context request = TriageRequestFilter.CURRENT.get();
-            if (request == null) return TriageJpaObserver.invoke(raw, method, args);
+            if (request == null || !request.isActive()) return TriageJpaObserver.invoke(raw, method, args);
             double acquisition = request == acquired && used.compareAndSet(false, true) ? acquisitionMs : 0;
             long start = System.nanoTime();
             String code = null;
             try { return TriageJpaObserver.invoke(raw, method, args); }
             catch (SQLException | RuntimeException e) { code = "SQL_QUERY_FAILED"; throw e; }
-            finally { observer.statement(acquisition, ObservationRecorder.elapsed(start), code, request.trace); }
+            finally {
+                String resultCode = code; double elapsed = ObservationRecorder.elapsed(start);
+                request.recordIfActive(() -> observer.statement(acquisition, elapsed, resultCode, request.trace));
+            }
         }
     }
 

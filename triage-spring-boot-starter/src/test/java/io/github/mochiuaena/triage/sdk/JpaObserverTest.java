@@ -57,4 +57,18 @@ class JpaObserverTest {
             }
         }
     }
+    @Test void completedRequestContextCannotAddLateDatabaseObservations() throws Exception {
+        try (var observer = new TriageJpaObserver(properties())) {
+            var pool = new HikariDataSource(); pool.setJdbcUrl("jdbc:h2:mem:jpa-late;DB_CLOSE_DELAY=-1");
+            try (var source = observer.wrap(pool)) {
+                var completed = new TriageRequestFilter.Context(); completed.finish();
+                TriageRequestFilter.CURRENT.set(completed);
+                try (var connection = source.getConnection(); var statement = connection.createStatement(); var result = statement.executeQuery("SELECT 42")) {
+                    assertThat(result.next()).isTrue(); assertThat(result.getInt(1)).isEqualTo(42);
+                } finally { TriageRequestFilter.CURRENT.remove(); }
+                var window = (ObservationRecorder.DatabaseWindow) observer.snapshot(5, Instant.now());
+                assertThat(window.requestCount()).isZero(); assertThat(window.databasePool().queryCount()).isZero();
+            }
+        }
+    }
 }

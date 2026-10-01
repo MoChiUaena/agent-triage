@@ -2,7 +2,7 @@
 
 `triage-spring-boot-starter` 为 Spring MVC 应用提供 `/triage/observations`，复用 Agent 已有的 HTTP V1 和数据库 V2 契约。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
 
-最近的发布版本为 0.6.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。下文的异步请求记录、观测令牌和响应分类属于当前 main 开发版，0.6.0 附件不包含。[v0.6.0 预览版](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0)提供独立 Starter JAR/POM 与可选 Agent JAR；在附件所在目录安装 Starter：
+最近的发布版本为 0.6.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。下文的异步请求记录、上下文包装、观测令牌和响应分类属于当前 main 开发版，0.6.0 附件不包含。[v0.6.0 预览版](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0)提供独立 Starter JAR/POM 与可选 Agent JAR；在附件所在目录安装 Starter：
 
 ```powershell
 mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.6.0.jar' '-DpomFile=triage-spring-boot-starter-0.6.0.pom'
@@ -44,7 +44,22 @@ triage:
 
 每个窗口中的请求数包含匹配路径下已完成的同步和 Spring MVC 异步请求；下游 p95 是每条请求内指定下游调用累计耗时的 p95，没有该调用时记为零。一次请求有多个超时仍只计一次。组件不推断正常基线，`baselineRequestP95Ms` 为 `null`。
 
-商品请求响应中的 `X-Triage-Trace-Id` 对应 SDK 错误事件标识。SDK 不接收外部 traceId，也不会自动与业务日志已有链路关联。异步工作线程内的下游调用没有自动继承请求上下文，因此不计入该请求的下游耗时或超时；WebFlux、跨线程调用和多个下游也暂未支持。
+商品请求响应中的 `X-Triage-Trace-Id` 对应 SDK 错误事件标识。SDK 不接收外部 traceId，也不会自动与业务日志已有链路关联。工作线程需要按下文显式包装任务；未包装的任务不会自动归属请求。WebFlux 和多个下游暂未支持。
+
+## 显式包装工作线程
+
+在仍处于请求线程时调用 `TriageObservationContext.capture()`，再用快照包装即将交给执行器的 Runnable 或 Callable。例如 DeferredResult 的生产任务：
+
+```java
+var observation = TriageObservationContext.capture();
+executor.execute(observation.wrap(() -> {
+    result.setResult(service.lookup());
+}));
+```
+
+包装只携带内部观测上下文，不复制请求参数、请求头或正文。任务在工作线程上执行时，注入的 `RestClient.Builder` 所创建客户端可将匹配的下游调用归属到原请求；任务正常结束或抛出异常后，线程原有上下文会恢复。空快照或已完成请求的快照仍会执行任务，但不附上请求上下文。已经运行的任务在请求完成后返回时，迟到的耗时、超时和错误位置不再写入该请求，已保存的窗口不会改变。
+
+多个任务可共享同一个请求快照。累计下游耗时是被观测调用耗时之和，可能大于并发请求的总耗时，不能当作关键路径；多个超时仍只将该请求计为一次超时，错误位置保留首次捕获的结果。
 
 ## 只读观测接口的访问令牌
 
