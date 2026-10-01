@@ -189,6 +189,45 @@ class LiveObservationClientTest {
         registry = new ServiceRegistry(new ObservationSource("LIVE", origin), List.of(new ServiceRegistry.Config("checkout-service", "结算服务", "stock-service", "商品服务", origin, ServiceRegistry.Protocol.OBSERVATIONS_V3, 15, false)));
         client = new LiveObservationClient(registry, json); context = new ToolContext("checkout-service", 5, Scenario.OBSERVED, end, registry.defaultTarget());
     }
+    private ObjectNode statusCounts() {
+        return json.createObjectNode().put("informational", 0).put("successful", 3).put("redirection", 0)
+            .put("clientError", 1).put("serverError", 1).put("unknown", 0);
+    }
+    private ObjectNode v3WithStatuses() throws Exception {
+        var value = v3(); value.set("responseStatuses", statusCounts());
+        ((ObjectNode) value.at("/endpoints/0")).set("responseStatuses", statusCounts());
+        return value;
+    }
+    @Test void responseStatusCountsReachEvidenceWithoutLeakingEndpointMetadataToTheModel() throws Exception {
+        endpointClient(); response.set(json.writeValueAsBytes(v3WithStatuses()));
+        var snapshot = client.snapshot(context);
+        assertThat(json.valueToTree(snapshot.requestDetails()).at("/responseStatuses/successful").asInt()).isEqualTo(3);
+        var evidence = new LiveMetricsTool(client).execute(context, "").getFirst();
+        assertThat(json.valueToTree(evidence.data()).at("/responseStatuses/clientError").asInt()).isEqualTo(1);
+        assertThat(evidence.summary()).contains("4xx", "5xx");
+        var projected = io.github.mochiuaena.triage.model.ModelEvidence.project(evidence);
+        assertThat(json.valueToTree(projected.data()).at("/responseStatuses/clientError").asInt()).isEqualTo(1);
+        assertThat(json.writeValueAsString(projected)).doesNotContain("example.OrderController", "/api/orders/{id}");
+    }
+    @Test void rejectsPartialInvalidAndInconsistentResponseStatusCounts() throws Exception {
+        endpointClient();
+        List<Consumer<ObjectNode>> mutations = List.of(
+            node -> ((ObjectNode) node.path("responseStatuses")).put("successful", -1),
+            node -> ((ObjectNode) node.path("responseStatuses")).putNull("unknown"),
+            node -> ((ObjectNode) node.path("responseStatuses")).remove("informational"),
+            node -> ((ObjectNode) node.path("responseStatuses")).put("clientError", "1"),
+            node -> ((ObjectNode) node.path("responseStatuses")).put("clientError", 1.5),
+            node -> ((ObjectNode) node.path("responseStatuses")).put("successful", 4),
+            node -> ((ObjectNode) node.path("responseStatuses")).put("unknown", Integer.MAX_VALUE),
+            node -> ((ObjectNode) node.at("/endpoints/0/responseStatuses")).put("successful", 2).put("clientError", 2),
+            node -> ((ObjectNode) node.at("/endpoints/0")).remove("responseStatuses"),
+            node -> node.remove("responseStatuses"));
+        for (var mutate : mutations) {
+            var value = v3WithStatuses(); mutate.accept(value); response.set(json.writeValueAsBytes(value));
+            assertThatThrownBy(() -> client.snapshot(context)).isInstanceOfSatisfying(ObservationFailure.class,
+                failure -> assertThat(failure.code()).isEqualTo("OBSERVATION_CONTRACT"));
+        }
+    }
     private ObjectNode located() throws Exception {
         var value = v3();
         var location = ((ObjectNode) value.at("/errors/0")).putObject("failureLocation").put("kind", "HTTP_CLIENT_FAILURE").put("truncated", false);

@@ -20,8 +20,19 @@ public final class TriageModel {
             this(id, httpMethod, routeTemplate, handlerClass, handlerMethod, parameterTypes, stage, null);
         }
     }
-    public record EndpointSummary(RequestEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms) {}
-    public record RequestDetails(RequestEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount) {}
+    public record ResponseStatusCounts(Integer informational, Integer successful, Integer redirection, Integer clientError, Integer serverError, Integer unknown) {}
+    public record EndpointSummary(RequestEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms,
+                                  ResponseStatusCounts responseStatuses) {
+        public EndpointSummary(RequestEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms) {
+            this(endpoint, requestCount, timeoutCount, requestP95Ms, downstreamP95Ms, null);
+        }
+    }
+    public record RequestDetails(RequestEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount,
+                                 ResponseStatusCounts responseStatuses) {
+        public RequestDetails(RequestEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount) {
+            this(endpoint, endpoints, unattributedRequestCount, otherEndpointRequestCount, null);
+        }
+    }
     public record FailureFrame(String className, String methodName, String fileName, Integer lineNumber, String sourceHash) {
         public FailureFrame(String className, String methodName, String fileName, Integer lineNumber) { this(className, methodName, fileName, lineNumber, null); }
     }

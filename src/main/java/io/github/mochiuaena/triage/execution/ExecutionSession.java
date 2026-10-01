@@ -98,6 +98,9 @@ public final class ExecutionSession {
     public void recordRuleGapGate() {
         publish("EVIDENCE_GATE", null, "当前观测缺少对应排障规则，应用返回证据不足。", List.of());
     }
+    public void recordResponseStatusGate() {
+        publish("EVIDENCE_GATE", null, "响应状态缺少根因证据，应用返回证据不足，跳过最终模型生成。", List.of());
+    }
 
     public void recordStructuredConclusion(String assessment, List<String> requestedNextChecks, List<String> nextChecks) {
         synchronized (state) {

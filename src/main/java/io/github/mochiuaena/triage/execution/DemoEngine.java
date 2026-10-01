@@ -18,6 +18,11 @@ public class DemoEngine implements TriageEngine {
                     "当前只覆盖请求延迟和下游超时，该问题没有可用证据。"));
         }
         for (String tool : session.toolNames()) session.callTool(tool, session.question());
+        Evidence metrics = session.evidence().stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElseThrow();
+        if (HttpResponseDiagnosis.requiresGate(session.question(), metrics)) {
+            Evidence logs = session.evidence().stream().filter(item -> item.source().equals("query_error_logs")).findFirst().orElseThrow();
+            return new Decision(Status.INSUFFICIENT_EVIDENCE, HttpResponseDiagnosis.incomplete(metrics, logs));
+        }
         Diagnosis diagnosis = reasoner.diagnose(session.evidence(), session.context().serviceInfo());
         return new Decision(diagnosis.possibleCauses().isEmpty() ? Status.INSUFFICIENT_EVIDENCE : Status.SUCCEEDED, diagnosis);
     }

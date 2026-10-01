@@ -143,6 +143,12 @@ public final class ModelEngine implements TriageEngine {
                 session.recordNoDataGate();
                 return noData;
             }
+            var metrics = session.evidence().stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElse(null);
+            var logs = session.evidence().stream().filter(item -> item.source().equals("query_error_logs")).findFirst().orElse(null);
+            if (logs != null && io.github.mochiuaena.triage.execution.HttpResponseDiagnosis.requiresGate(session.question(), metrics)) {
+                session.recordResponseStatusGate();
+                return new Decision(Status.INSUFFICIENT_EVIDENCE, io.github.mochiuaena.triage.execution.HttpResponseDiagnosis.incomplete(metrics, logs));
+            }
             Decision ruleGap = ruleGapDecision(session);
             if (ruleGap != null) {
                 session.recordRuleGapGate();

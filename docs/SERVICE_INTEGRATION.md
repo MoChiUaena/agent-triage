@@ -38,6 +38,8 @@ Agent 从启动配置读取服务白名单。页面选择服务后，只读工�
 
 V3 需要业务应用开启 Starter 的 `endpoint-observations`，查询路径为 `/triage/endpoint-observations`，窗口参数相同。可选 `endpointId` 必须来自已观测的接口列表，不能填写 URL 或原始业务 ID。V3 保留路径模板与 MVC 处理方法，按接口返回窗口指标及最多 3 条错误事件；未选择接口时返回服务窗口与最多 8 个接口摘要。方法匹配信息与完整执行轨迹有区别，范围见[Starter 说明](STARTER.md)。
 
+当前 main 可接受 V3 的可选 `responseStatuses`，六项固定非负整数的合计必须等于窗口请求数，接口摘要的分类也必须与窗口一致。Starter 默认关闭这项扩展，需要显式设置 `response-status-counts: true`。未采集时页面显示“未采集”；旧历史保持原值。分类计数进入指标证据，路由和处理方法仍按原规则保持本机使用。4xx、5xx 或未知响应不能仅凭“没有下游超时”完成判断；针对具体状态码的问题只展示已有分布和检查建议，根因需要额外证据。
+
 ## 只读接口
 
 接口固定为 `GET /triage/observations?windowMinutes=5&endTime=2026-09-28T00%3A00%3A00Z`，返回 `application/json`：

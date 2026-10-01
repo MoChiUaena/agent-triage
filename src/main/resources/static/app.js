@@ -44,10 +44,12 @@ async function loadEndpoints(preserve = false) {
     const all = element("option", "", "全部接口"); all.value = "";
     $("#endpoint").replaceChildren(all, ...endpointChoices.map(item => {
       const option = element("option", "", item.endpoint.httpMethod + " " + item.endpoint.routeTemplate + " · " + item.requestCount + " 次请求 · " + item.timeoutCount + " 次超时");
+      if (item.responseStatuses) option.textContent += " · 4xx " + item.responseStatuses.clientError + " / 5xx " + item.responseStatuses.serverError;
       option.value = item.endpoint.id; return option;
     }));
     $("#endpoint").value = endpointChoices.some(item => item.endpoint.id === selected) ? selected : "";
     $("#endpoint-note").textContent = endpointChoices.length ? "按 MVC 匹配的接口分别排查。处理方法匹配不等于完整执行轨迹。"
+      + (endpointChoices.some(item => item.responseStatuses) ? " 响应分类只说明窗口分布。" : " 响应状态分类未采集。")
       + (value.otherEndpointRequestCount ? " 部分接口超出列表上限。" : "") + (value.unattributedRequestCount ? " 有 " + value.unattributedRequestCount + " 次请求未关联处理方法。" : "") : "本窗口没有可选接口，请先访问业务接口。";
   } catch (error) {
     if (version !== endpointVersion || runtimeConfig !== config) return;
@@ -517,6 +519,12 @@ function renderMetrics(run) {
       data.downstreamTimeoutRate > 0,
     ],
   ];
+  if (data.responseStatuses) {
+    const counts = data.responseStatuses;
+    values.push(["2xx 响应", counts.successful, "次", "窗口内成功响应"],
+      ["4xx 响应", counts.clientError, "次", "具体状态码和业务条件待核实", counts.clientError > 0],
+      ["5xx 响应", counts.serverError, "次", "需要结合错误事件排查", counts.serverError > 0]);
+  }
   for (const [label, value, unit, caption, warning] of values) {
     const item = element("div", "metric" + (warning ? " warning" : ""));
     const number = element(
@@ -531,6 +539,12 @@ function renderMetrics(run) {
       element("div", "metric-caption", caption),
     );
     $("#metrics").append(item);
+  }
+  if (data.requestDetails) {
+    const counts = data.responseStatuses;
+    $("#metrics").append(element("p", "metrics-note", counts
+      ? "1xx " + counts.informational + " 次 · 3xx " + counts.redirection + " 次 · 状态未知 " + counts.unknown + " 次。响应分类只说明窗口分布，不能确定某个状态码的根因。"
+      : "响应状态分类未采集；已有请求数不能换算成成功或错误响应数。"));
   }
 }
 
@@ -748,6 +762,12 @@ function renderEvidence(run) {
           timeText(data.windowStart) + " – " + timeText(data.windowEnd),
         ],
       ];
+      if (data.observationType !== "DATABASE_POOL" && data.requestDetails) {
+        const counts = data.responseStatuses;
+        if (counts) rows.push(["响应 1xx / 2xx / 3xx", counts.informational + " / " + counts.successful + " / " + counts.redirection],
+          ["响应 4xx / 5xx / 未知", counts.clientError + " / " + counts.serverError + " / " + counts.unknown]);
+        else rows.push(["响应状态分类", "未采集"]);
+      }
       rows.forEach(([label, value]) => {
         const row = element("div");
         row.append(element("dt", "", label), element("dd", "", value));

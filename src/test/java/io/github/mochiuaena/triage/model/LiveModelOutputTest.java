@@ -66,6 +66,15 @@ class LiveModelOutputTest {
         assertThat(decision.diagnosis().possibleCauses().getFirst().text())
             .contains("本窗口未发现库存调用超时", "仍需补充观测").doesNotContain("服务运行正常", "服务健康");
     }
+    @Test void responseErrorsCannotBeAcceptedAsANoTimeoutConclusion() {
+        var inputs = new java.util.ArrayList<>(evidence(5, 0, false, "DOC-HEALTHY-BASELINE#v2"));
+        var metrics = inputs.get(1); var data = new java.util.LinkedHashMap<>(metrics.data());
+        data.put("responseStatuses", Map.of("informational", 0, "successful", 4, "redirection", 0,
+            "clientError", 1, "serverError", 0, "unknown", 0));
+        inputs.set(1, new Evidence(metrics.id(), metrics.source(), metrics.title(), metrics.summary(), data));
+        assertThatThrownBy(() -> output.parse(answer("NO_DOWNSTREAM_TIMEOUT_OBSERVED", inputs.getFirst().id()), inputs))
+            .isInstanceOfSatisfying(RunFailure.class, failure -> assertThat(failure.code()).isEqualTo("MODEL_ASSESSMENT_MISMATCH"));
+    }
 
     @Test void emptyWindowCannotBecomeAClaim() {
         var evidence = evidence(0, 0, false, "DOC-HEALTHY-BASELINE#v2");

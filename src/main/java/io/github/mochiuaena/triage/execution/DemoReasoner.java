@@ -25,6 +25,7 @@ public class DemoReasoner {
             return new Diagnosis(List.of(), List.of(), List.of("先让" + service + "处理一些请求，再重新排查相同时间窗口。"),
                 "该时间窗口没有服务请求，无法判断当前延迟和超时情况。");
         boolean timeout = ((Number) metrics.data().get("downstreamTimeoutRate")).doubleValue() > 0;
+        if (!timeout && EvidenceRules.responseStatusGap(metrics)) return HttpResponseDiagnosis.incomplete(metrics, logs);
         var observations = List.of(new Finding(metrics.summary(), List.of(metrics.id())), new Finding(logs.summary(), List.of(logs.id())));
         if (!timeout && ((Number) logs.data().get("returnedCount")).intValue() > 0)
             return new Diagnosis(observations, List.of(), List.of("先确认请求错误的类型与影响范围，再补充对应排障规则。"),

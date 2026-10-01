@@ -37,6 +37,9 @@ public class LiveMetricsTool implements ReadOnlyTool {
         boolean scoped = context.endpoint() != null;
         if (observation.requestDetails() != null) {
             data.put("requestDetails", observation.requestDetails()); data.put("endpointScoped", scoped);
+            var counts = observation.requestDetails().responseStatuses();
+            if (counts != null) data.put("responseStatuses", Map.of("informational", counts.informational(), "successful", counts.successful(),
+                "redirection", counts.redirection(), "clientError", counts.clientError(), "serverError", counts.serverError(), "unknown", counts.unknown()));
         }
         String summary = observation.requestCount() == 0
             ? "该时间窗口尚无" + context.serviceInfo().name() + "请求，不能判断延迟或超时。"
@@ -44,6 +47,11 @@ public class LiveMetricsTool implements ReadOnlyTool {
                 + observation.timeoutCount() + " 次；请求 p95 为 " + observation.orderP95Ms()
                 + "ms，下游调用 p95 为 " + observation.downstreamP95Ms() + "ms，本窗口超时率为 "
                 + Math.round(observation.downstreamTimeoutRate() * 1000) / 10.0 + "%。";
+        if (observation.requestDetails() != null && observation.requestDetails().responseStatuses() != null) {
+            var counts = observation.requestDetails().responseStatuses();
+            summary += " 响应分类：2xx " + counts.successful() + " 次、4xx " + counts.clientError() + " 次、5xx " + counts.serverError()
+                + " 次；1xx/3xx/未知为 " + counts.informational() + "/" + counts.redirection() + "/" + counts.unknown() + " 次。";
+        }
         return List.of(new Evidence("METRICS-LIVE-" + context.endTime().toEpochMilli(), name(),
             (scoped ? "所选接口" : context.serviceInfo().name()) + "窗口指标（实际请求）", summary, data));
     }

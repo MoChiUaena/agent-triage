@@ -13,6 +13,10 @@ public final class EvidenceRules {
         return metrics != null && metrics.data().get("databasePool") instanceof Map<?, ?> values ? values : Map.of();
     }
     public static long count(Map<?, ?> data, String key) { return data.get(key) instanceof Number number ? number.longValue() : -1; }
+    public static boolean responseStatusGap(Evidence metrics) {
+        return metrics != null && metrics.data().get("responseStatuses") instanceof Map<?, ?> values
+            && (count(values, "clientError") > 0 || count(values, "serverError") > 0 || count(values, "unknown") > 0);
+    }
     public static String required(Evidence metrics) {
         if (database(metrics)) {
             var values = pool(metrics);

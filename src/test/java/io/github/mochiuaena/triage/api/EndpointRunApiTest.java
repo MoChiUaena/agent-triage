@@ -41,7 +41,7 @@ class EndpointRunApiTest {
     }
     @BeforeEach void setup() throws Exception {
         jdbc.update("DELETE FROM source_projects"); jdbc.update("DELETE FROM model_selection"); jdbc.update("DELETE FROM model_providers");
-        STUB.requests.clear(); STUB.locations = false; STUB.requestError = false; STUB.sourceHash = null; STUB.handlerHash = null;
+        STUB.requests.clear(); STUB.locations = false; STUB.requestError = false; STUB.statusCounts = false; STUB.sourceHash = null; STUB.handlerHash = null;
         Files.writeString(root.resolve("PrivateRoutingController.java"), """
             package fixture;
             class PrivateRoutingController {
@@ -68,8 +68,11 @@ class EndpointRunApiTest {
         return run(endpoint, source, allowSourceModel, Status.SUCCEEDED);
     }
     private Run run(String endpoint, boolean source, boolean allowSourceModel, Status expectedStatus) {
+        return run(endpoint, source, allowSourceModel, expectedStatus, "服务请求为什么变慢？");
+    }
+    private Run run(String endpoint, boolean source, boolean allowSourceModel, Status expectedStatus, String question) {
         var headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); headers.set("X-Triage-Source", "1");
-        var body = new HashMap<String,Object>(Map.of("question", "服务请求为什么变慢？", "service", "ticket-service", "windowMinutes", 5, "includeSource", source));
+        var body = new HashMap<String,Object>(Map.of("question", question, "service", "ticket-service", "windowMinutes", 5, "includeSource", source));
         if (allowSourceModel) {
             body.put("allowSourceModel", true); body.put("expectedSelection", providers.current().selectionToken());
             var project = sources.bound("ticket-service"); body.put("expectedSourceRevision", project.revision()); body.put("expectedSourceProjectId", project.id());
@@ -91,6 +94,29 @@ class EndpointRunApiTest {
         assertThat(result.diagnosis().nextSteps()).allSatisfy(value -> assertThat(value).doesNotContain("下游请求错误"));
         assertThat(result.diagnosis().uncertainty()).contains("不能确认下游归因");
         assertThat(result.sourceAnalysis().graph().failureMatches().getFirst().kind()).isEqualTo("REQUEST_EXCEPTION");
+    }
+    @Test void statusErrorsWithoutDownstreamTimeoutRemainInsufficientInBothModes() {
+        STUB.statusCounts = true;
+        Run fixed = run(STUB.healthy.id(), false, false, Status.INSUFFICIENT_EVIDENCE);
+        assertThat(fixed.diagnosis().possibleCauses()).isEmpty();
+        assertThat(fixed.diagnosis().observations()).extracting(Finding::text).anyMatch(text -> text.contains("4xx"));
+        var provider = providers.create(new ProviderConfig.Input("响应分类协议验证", ProviderConfig.Protocol.OPENAI_COMPATIBLE,
+            STUB.url(), "endpoint-stub", "test-only-local", .2, 2, 4, 1600, 0));
+        providers.select("MODEL", provider.id());
+        Run modeled = run(STUB.healthy.id(), false, false, Status.INSUFFICIENT_EVIDENCE);
+        assertThat(modeled.diagnosis().possibleCauses()).isEmpty();
+        assertThat(modeled.events()).extracting(Event::type).contains("EVIDENCE_GATE");
+        assertThat(STUB.requests).hasSize(1);
+    }
+    @Test void responseStatusQuestionReadsEvidenceAndKeepsOldUncollectedCountsUnknown() {
+        STUB.statusCounts = true;
+        Run observed = run(STUB.healthy.id(), false, false, Status.INSUFFICIENT_EVIDENCE, "接口为什么返回 HTTP 404？");
+        assertThat(observed.evidence()).isNotEmpty();
+        assertThat(observed.diagnosis().possibleCauses()).isEmpty();
+        STUB.statusCounts = false;
+        Run legacy = run(STUB.healthy.id(), false, false, Status.INSUFFICIENT_EVIDENCE, "接口为什么返回 HTTP 404？");
+        assertThat(legacy.evidence()).isNotEmpty();
+        assertThat(legacy.diagnosis().uncertainty()).contains("未采集");
     }
     @Test void separatesHealthyAndTimeoutEndpointsAndUsesObservedHandlerToFindAnEntry() {
         Run healthy = run(STUB.healthy.id(), true);
@@ -218,6 +244,7 @@ class EndpointRunApiTest {
         final List<JsonNode> requests = new CopyOnWriteArrayList<>();
         volatile boolean locations;
         volatile boolean requestError;
+        volatile boolean statusCounts;
         volatile String sourceHash;
         volatile String handlerHash;
         final RequestEndpoint healthy = endpoint("/api/tickets/summary", List.of());
@@ -239,6 +266,11 @@ class EndpointRunApiTest {
                         RequestEndpoint currentHealthy = hashed(healthy), currentFailed = hashed(failed);
                         value.set("endpoint",JSON.valueToTree(all?null:bad?currentFailed:currentHealthy)); var endpoints=value.putArray("endpoints");
                         if (all||bad) add(endpoints,currentFailed,2,requestError?0:2); if (all||!bad) add(endpoints,currentHealthy,3,0);
+                        if (statusCounts) {
+                            value.set("responseStatuses", statuses(all || !bad ? 2 : 0, all || !bad ? 1 : 0, all || bad ? 2 : 0));
+                            for (var item : endpoints) ((ObjectNode) item).set("responseStatuses",
+                                item.path("endpoint").path("id").asText().equals(failed.id()) ? statuses(0, 0, 2) : statuses(2, 1, 0));
+                        }
                         var errors=value.putArray("errors");
                         if (timeouts>0 || requestError && (bad || all)) {
                             var error = errors.addObject().put("timestamp",end.minusSeconds(1).toString()).put("traceId","fixture-trace").put("level","ERROR").put("message",requestError ? "HTTP request failed" : "assignment-service request timeout");
@@ -277,6 +309,10 @@ class EndpointRunApiTest {
         RequestEndpoint hashed(RequestEndpoint endpoint) { return new RequestEndpoint(endpoint.id(), endpoint.httpMethod(), endpoint.routeTemplate(), endpoint.handlerClass(), endpoint.handlerMethod(), endpoint.parameterTypes(), endpoint.stage(), handlerHash); }
         static void add(ArrayNode values, RequestEndpoint endpoint, int count, int timeouts) {
             var item=values.addObject(); item.set("endpoint",JSON.valueToTree(endpoint)); item.put("requestCount",count).put("timeoutCount",timeouts).put("requestP95Ms",timeouts>0?300:20).put("downstreamP95Ms",timeouts>0?280:10);
+        }
+        static ObjectNode statuses(int successful, int clientError, int serverError) {
+            return JSON.createObjectNode().put("informational", 0).put("successful", successful).put("redirection", 0)
+                .put("clientError", clientError).put("serverError", serverError).put("unknown", 0);
         }
         static void respond(com.sun.net.httpserver.HttpExchange exchange, byte[] value) throws java.io.IOException { exchange.getResponseHeaders().set("Content-Type","application/json"); exchange.sendResponseHeaders(200,value.length); exchange.getResponseBody().write(value); }
         String url() { return "http://127.0.0.1:"+server.getAddress().getPort(); }

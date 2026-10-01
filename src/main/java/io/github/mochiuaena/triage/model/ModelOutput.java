@@ -212,7 +212,7 @@ final class ModelOutput {
             || !(logs.data().get("timeoutCount") instanceof Number timeouts)) throw new IllegalArgumentException();
         boolean timeout = assessment == Assessment.DOWNSTREAM_TIMEOUT_OBSERVED;
         if ((timeout && (rate <= 0 || timeouts.longValue() <= 0 || entries.isEmpty()))
-            || (!timeout && (rate != 0 || timeouts.longValue() != 0 || !entries.isEmpty())))
+            || (!timeout && (rate != 0 || timeouts.longValue() != 0 || !entries.isEmpty() || EvidenceRules.responseStatusGap(metrics))))
             throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "模型判断与本窗口指标或错误事件不符，已拒绝。");
         String rule = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
         if (selected.stream().noneMatch(item -> item.source().equals("search_runbooks") && item.id().startsWith(rule)))

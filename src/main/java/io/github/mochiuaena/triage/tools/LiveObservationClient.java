@@ -8,6 +8,7 @@ import io.github.mochiuaena.triage.domain.TriageModel.Scenario;
 import io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint;
 import io.github.mochiuaena.triage.domain.TriageModel.RequestDetails;
 import io.github.mochiuaena.triage.domain.TriageModel.EndpointSummary;
+import io.github.mochiuaena.triage.domain.TriageModel.ResponseStatusCounts;
 import io.github.mochiuaena.triage.domain.TriageModel.FailureLocation;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,8 +66,10 @@ public class LiveObservationClient {
     public record EndpointObservations(Integer schemaVersion, String kind, String service, String downstreamService, Instant windowStart, Instant windowEnd,
                                        Integer requestCount, Integer timeoutCount, Long recordedRequestCount, Double requestP95Ms,
                                        Double downstreamP95Ms, Double downstreamTimeoutRate, Double baselineRequestP95Ms, List<ErrorEntry> errors, Boolean synthetic,
-                                       RequestEndpoint endpoint, List<EndpointInput> endpoints, Integer unattributedRequestCount, Integer otherEndpointRequestCount) {}
-    public record EndpointInput(RequestEndpoint endpoint, Integer requestCount, Integer timeoutCount, Double requestP95Ms, Double downstreamP95Ms) {}
+                                       RequestEndpoint endpoint, List<EndpointInput> endpoints, Integer unattributedRequestCount, Integer otherEndpointRequestCount,
+                                       ResponseStatusCounts responseStatuses) {}
+    public record EndpointInput(RequestEndpoint endpoint, Integer requestCount, Integer timeoutCount, Double requestP95Ms, Double downstreamP95Ms,
+                                ResponseStatusCounts responseStatuses) {}
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(600))
         .followRedirects(HttpClient.Redirect.NEVER).build();
     private final ServiceRegistry registry;
@@ -165,6 +168,8 @@ public class LiveObservationClient {
         if (value.endpoints() == null || value.endpoints().size() > 8 || value.unattributedRequestCount() == null || value.otherEndpointRequestCount() == null
                 || value.unattributedRequestCount() < 0 || value.otherEndpointRequestCount() < 0 || !java.util.Objects.equals(value.endpoint(), context.endpoint())) throw unexpected();
         if (value.endpoint() != null) validateEndpoint(value.endpoint());
+        validateStatuses(value.responseStatuses(), value.requestCount());
+        long[] aggregateStatuses = new long[6];
         long requests = value.unattributedRequestCount().longValue() + value.otherEndpointRequestCount(); long timeouts = 0;
         var summaries = new java.util.ArrayList<EndpointSummary>();
         var seen = new java.util.HashSet<String>();
@@ -174,11 +179,36 @@ public class LiveObservationClient {
                     || !metric(summary.requestP95Ms()) || !metric(summary.downstreamP95Ms())) throw unexpected();
             requests += summary.requestCount(); timeouts += summary.timeoutCount();
             if (value.endpoint() != null && !summary.endpoint().equals(value.endpoint())) throw unexpected();
-            summaries.add(new EndpointSummary(summary.endpoint(), summary.requestCount(), summary.timeoutCount(), summary.requestP95Ms(), summary.downstreamP95Ms()));
+            if ((value.responseStatuses() == null) != (summary.responseStatuses() == null)) throw unexpected();
+            validateStatuses(summary.responseStatuses(), summary.requestCount());
+            if (summary.responseStatuses() != null) {
+                var counts = statusValues(summary.responseStatuses());
+                for (int i = 0; i < counts.length; i++) aggregateStatuses[i] += counts[i];
+            }
+            summaries.add(new EndpointSummary(summary.endpoint(), summary.requestCount(), summary.timeoutCount(), summary.requestP95Ms(), summary.downstreamP95Ms(), summary.responseStatuses()));
         }
         if (requests != value.requestCount() || timeouts > value.timeoutCount() || value.unattributedRequestCount() == 0 && value.otherEndpointRequestCount() == 0 && timeouts != value.timeoutCount()
             || value.endpoint() != null && (value.unattributedRequestCount() != 0 || value.otherEndpointRequestCount() != 0)) throw unexpected();
-        return new RequestDetails(value.endpoint(), List.copyOf(summaries), value.unattributedRequestCount(), value.otherEndpointRequestCount());
+        if (value.responseStatuses() != null) {
+            var counts = statusValues(value.responseStatuses());
+            for (int i = 0; i < counts.length; i++) {
+                if (aggregateStatuses[i] > counts[i] || value.unattributedRequestCount() == 0 && value.otherEndpointRequestCount() == 0
+                    && aggregateStatuses[i] != counts[i]) throw unexpected();
+            }
+        }
+        return new RequestDetails(value.endpoint(), List.copyOf(summaries), value.unattributedRequestCount(), value.otherEndpointRequestCount(), value.responseStatuses());
+    }
+    private Integer[] statusValues(ResponseStatusCounts counts) {
+        return new Integer[]{counts.informational(), counts.successful(), counts.redirection(), counts.clientError(), counts.serverError(), counts.unknown()};
+    }
+    private void validateStatuses(ResponseStatusCounts counts, int requests) {
+        if (counts == null) return;
+        long total = 0;
+        for (Integer count : statusValues(counts)) {
+            if (count == null || count < 0 || count > requests) throw unexpected();
+            total += count;
+        }
+        if (total != requests) throw unexpected();
     }
     private void validateEndpoint(RequestEndpoint value) {
         if (value == null || value.id() == null || !value.id().matches("EP-[a-f0-9]{32}") || !"MVC_SELECTED".equals(value.stage())
