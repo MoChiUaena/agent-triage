@@ -15,7 +15,7 @@ public final class ObservationRecorder {
                          FailureLocations.Location failureLocation) {}
     record DatabaseError(Instant timestamp, String traceId, String level, String message, String code) {}
     record HttpSample(Instant timestamp, double requestMs, double downstreamMs, boolean timeout, Error error, MvcEndpoint endpoint,
-                      FailureLocations.Location failureLocation) {}
+                      FailureLocations.Location failureLocation, int responseClass) {}
     record DatabaseSample(Instant timestamp, double requestMs, double acquisitionMs, double queryMs, String code,
                           DatabaseError error) {}
     record PoolSample(Instant timestamp, int active, int pending) {}
@@ -29,11 +29,16 @@ public final class ObservationRecorder {
     record DatabaseWindow(int schemaVersion, String kind, String service, String database, Instant windowStart,
                           Instant windowEnd, int requestCount, long recordedRequestCount, double requestP95Ms,
                           Double baselineRequestP95Ms, PoolWindow databasePool, List<DatabaseError> errors, boolean synthetic) {}
-    record EndpointSummary(MvcEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms) {}
+    record ResponseStatusCounts(int informational, int successful, int redirection, int clientError, int serverError, int unknown) {}
+    record EndpointSummary(MvcEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms,
+                           @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                           ResponseStatusCounts responseStatuses) {}
     record EndpointWindow(int schemaVersion, String kind, String service, String downstreamService, Instant windowStart, Instant windowEnd,
                           int requestCount, int timeoutCount, long recordedRequestCount, double requestP95Ms, double downstreamP95Ms,
                           double downstreamTimeoutRate, Double baselineRequestP95Ms, List<EndpointError> errors, boolean synthetic,
-                          MvcEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount) {}
+                          MvcEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount,
+                          @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                          ResponseStatusCounts responseStatuses) {}
     private final TriageObservationProperties properties;
     private final Clock clock;
     private final Deque<HttpSample> http = new ArrayDeque<>();
@@ -56,10 +61,15 @@ public final class ObservationRecorder {
     }
     synchronized void recordHttp(double requestMs, double downstreamMs, boolean timeout, boolean failed, String trace, MvcEndpoint endpoint,
                                  FailureLocations.Location location) {
+        recordHttp(requestMs, downstreamMs, timeout, failed, trace, endpoint, location, 0);
+    }
+    synchronized void recordHttp(double requestMs, double downstreamMs, boolean timeout, boolean failed, String trace, MvcEndpoint endpoint,
+                                 FailureLocations.Location location, int responseStatus) {
         Instant time = now();
         Error error = timeout ? new Error(time, trace, "ERROR", properties.getDownstreamId() + " request timeout")
             : failed ? new Error(time, trace, "ERROR", "HTTP request failed") : null;
-        http.addLast(new HttpSample(time, requestMs, downstreamMs, timeout, error, endpoint, location)); recorded++;
+        int responseClass = properties.isResponseStatusCounts() && responseStatus >= 100 && responseStatus <= 599 ? responseStatus / 100 : 0;
+        http.addLast(new HttpSample(time, requestMs, downstreamMs, timeout, error, endpoint, location, responseClass)); recorded++;
         trim(http, HttpSample::timestamp, properties.getCapacity());
     }
     synchronized void recordDatabase(double requestMs, double acquisitionMs, double queryMs, String code, String trace) {
@@ -123,7 +133,7 @@ public final class ObservationRecorder {
         matching.stream().filter(value -> value.endpoint() != null).forEach(value -> groups.computeIfAbsent(value.endpoint(), ignored -> new ArrayList<>()).add(value));
         var summaries = groups.entrySet().stream().map(value -> new EndpointSummary(value.getKey(), value.getValue().size(),
             (int) value.getValue().stream().filter(HttpSample::timeout).count(), p95(value.getValue().stream().map(HttpSample::requestMs).toList()),
-            p95(value.getValue().stream().map(HttpSample::downstreamMs).toList())))
+            p95(value.getValue().stream().map(HttpSample::downstreamMs).toList()), statuses(value.getValue())))
             .sorted(Comparator.comparingInt(EndpointSummary::timeoutCount).reversed().thenComparing(Comparator.comparingInt(EndpointSummary::requestCount).reversed()).thenComparing(value -> value.endpoint().id()))
             .limit(8).toList();
         int unattributed = (int) matching.stream().filter(value -> value.endpoint() == null).count();
@@ -134,7 +144,13 @@ public final class ObservationRecorder {
             matching.isEmpty() ? 0 : (double) timeouts / matching.size(), null,
             matching.stream().filter(v -> v.error() != null).sorted(Comparator.comparing(HttpSample::timestamp).reversed()).limit(3)
                 .map(v -> new EndpointError(v.error().timestamp(), v.error().traceId(), v.error().level(), v.error().message(), v.failureLocation())).toList(),
-            false, selected, summaries, unattributed, other);
+            false, selected, summaries, unattributed, other, statuses(matching));
+    }
+    private ResponseStatusCounts statuses(List<HttpSample> samples) {
+        if (!properties.isResponseStatusCounts()) return null;
+        int[] counts = new int[6];
+        for (var sample : samples) counts[sample.responseClass()]++;
+        return new ResponseStatusCounts(counts[1], counts[2], counts[3], counts[4], counts[5], counts[0]);
     }
     FailureLocations.Location requestFailure(Throwable error, Class<?> handlerClass) {
         return FailureLocations.capture(error, properties, "REQUEST_EXCEPTION", handlerClass);

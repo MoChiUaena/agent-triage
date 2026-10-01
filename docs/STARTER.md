@@ -58,6 +58,8 @@ HTTP 应用可额外设置 `triage.sdk.endpoint-observations: true`，Agent 对�
 
 V3 记录 HTTP 方法、Spring MVC 注册的路径模板、处理方法的类名、方法名与参数类型，不读取实际请求 URL、路径变量、查询参数、请求头或正文。例如请求 `/api/tickets/T-1` 只保留模板 `/api/tickets/{id}`。同一路径的不同 HTTP 方法分别统计，未匹配处理方法的请求计入未关联数量。
 
+当前 main 可额外设置 `triage.sdk.response-status-counts: true`。服务窗口、所选接口窗口和接口摘要会包含 `responseStatuses`：`informational`、`successful`、`redirection`、`clientError`、`serverError`、`unknown`，分别对应 1xx、2xx、3xx、4xx、5xx 和未取得最终状态的请求。六项合计等于该窗口请求数。异步响应完成后才计数；异常穿过过滤器而响应尚未定稿时记为未知。组件只保存类别，不保存具体状态码或响应正文。该开关默认关闭，需同时开启接口观测并升级 Agent；旧 Agent 会拒绝新增字段。
+
 记录来自 MVC 的处理方法选择阶段，不能证明方法体或后续调用执行过，也不跟踪完整转发、异步工作线程或分布式调用。异步接口会在请求完成后计入最初选择的 MVC 接口。超过 8 个参数或标识长度上限的处理方法不保留描述信息。列表最多展示 8 个接口，优先展示超时较多的接口；其他接口请求数单独保留。底层请求容量和窗口限制与 V1 相同。
 
 Agent 在本机用这些标识关联源码入口，默认模型请求会移除路由与处理方法描述，仅使用相应窗口的观测数值。源码片段读取仍需独立的项目授权和本次勾选，详见[源码接入](SOURCE_INTEGRATION.md)。

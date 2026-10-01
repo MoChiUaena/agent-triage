@@ -31,7 +31,8 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         }
         void record() {
             if (recorded.compareAndSet(false, true)) recorder.recordHttp(ObservationRecorder.elapsed(start), context.downstreamMs,
-                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint, context.failureLocation);
+                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint, context.failureLocation,
+                failed && response.getStatus() < 400 ? 0 : response.getStatus());
         }
         @Override public void onComplete(AsyncEvent event) { record(); }
         @Override public void onTimeout(AsyncEvent event) { failed = true; }
@@ -62,7 +63,8 @@ final class TriageRequestFilter extends OncePerRequestFilter {
                 try { request.getAsyncContext().addListener(completion); }
                 catch (IllegalStateException completed) { completion.record(); }
             } else recorder.recordHttp(ObservationRecorder.elapsed(start), context.downstreamMs,
-                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint, context.failureLocation);
+                context.timeout, failed || response.getStatus() >= 500, context.trace, context.endpoint, context.failureLocation,
+                failed && response.getStatus() < 400 ? 0 : response.getStatus());
         }
     }
 }

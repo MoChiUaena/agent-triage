@@ -3,6 +3,10 @@ package io.github.mochiuaena.triage.sdk;
 import java.time.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.mock.env.MockEnvironment;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.async.DeferredResult;
@@ -24,6 +28,36 @@ class MvcEndpointTest {
         }
         @PostMapping("/api/items/{id}") String update(@PathVariable String id) { return "private-response-body"; }
         @GetMapping("/api/failure/{id}") String fail(@PathVariable String id) { throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "private-exception"); }
+    }
+    @RestController static final class StatusController {
+        @GetMapping("/api/status/{code}") ResponseEntity<Void> statusCode(@PathVariable int code) { return ResponseEntity.status(code).build(); }
+        @GetMapping("/api/escape") String escape() { throw new IllegalStateException("private-failure"); }
+    }
+    @Test void optInStatusCountsDescribeFinalResponsesAndKeepUnfinishedExceptionsUnknown() throws Exception {
+        var properties = ObservationRecorderTest.properties(); properties.setEndpointObservations(true);
+        Binder.get(new MockEnvironment().withProperty("triage.sdk.response-status-counts", "true"))
+            .bind("triage.sdk", Bindable.ofInstance(properties));
+        var recorder = new ObservationRecorder(properties);
+        var mvc = MockMvcBuilders.standaloneSetup(new StatusController()).addInterceptors(new TriageMvcEndpoints(properties))
+            .addFilters(new TriageRequestFilter(recorder)).build();
+        for (int code : new int[]{200, 204, 301, 404, 503}) mvc.perform(get("/api/status/" + code)).andExpect(status().is(code));
+        assertThatThrownBy(() -> mvc.perform(get("/api/escape"))).hasRootCauseInstanceOf(IllegalStateException.class);
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        var window = (ObservationRecorder.EndpointWindow) recorder.endpointSnapshot(5, Instant.now(), null);
+        var counts = mapper.valueToTree(window).path("responseStatuses");
+        assertThat(counts.path("successful").asInt()).isEqualTo(2);
+        assertThat(counts.path("redirection").asInt()).isEqualTo(1);
+        assertThat(counts.path("clientError").asInt()).isEqualTo(1);
+        assertThat(counts.path("serverError").asInt()).isEqualTo(1);
+        assertThat(counts.path("unknown").asInt()).isEqualTo(1);
+        assertThat(counts.path("informational").asInt()).isZero();
+        var selected = window.endpoints().stream().filter(item -> item.endpoint().handlerMethod().equals("statusCode")).findFirst().orElseThrow();
+        var selectedJson = mapper.valueToTree(recorder.endpointSnapshot(5, window.windowEnd(), selected.endpoint().id()));
+        assertThat(selectedJson.at("/responseStatuses/unknown").asInt()).isZero();
+        assertThat(selectedJson.at("/responseStatuses/clientError").asInt()).isEqualTo(1);
+        assertThat(selectedJson.at("/endpoints/0/responseStatuses/successful").asInt()).isEqualTo(2);
+        assertThat(mapper.valueToTree(recorder.snapshot(5, window.windowEnd())).has("responseStatuses")).isFalse();
+        assertThat(mapper.writeValueAsString(window)).doesNotContain("private-failure", "/api/status/404");
     }
     @Test void actualMvcSelectionKeepsTemplatesAndSignaturesWithoutRetainingClientInputs() throws Exception {
         var properties = ObservationRecorderTest.properties(); properties.setEndpointObservations(true);
@@ -49,6 +83,8 @@ class MvcEndpointTest {
         var legacy = (ObservationRecorder.HttpWindow) recorder.snapshot(5, all.windowEnd());
         assertThat(legacy.requestCount()).isEqualTo(4); assertThat(legacy.schemaVersion()).isEqualTo(1);
         assertThat(legacy.toString()).doesNotContain("handlerClass", "/api/items/{id}");
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        assertThat(mapper.valueToTree(all).has("responseStatuses")).isFalse();
         assertThat(TriageRequestFilter.CURRENT.get()).isNull();
     }
     @Test void unmatchedRequestIsCountedWithoutAnInventedHandler() throws Exception {
@@ -62,6 +98,7 @@ class MvcEndpointTest {
     }
     @Test void asyncMvcRequestIsRecordedOnceAfterCompletionWithItsFinalStatus() throws Exception {
         var properties = ObservationRecorderTest.properties(); properties.setEndpointObservations(true);
+        properties.setResponseStatusCounts(true);
         var recorder = new ObservationRecorder(properties);
         var controller = new AsyncController();
         var mvc = MockMvcBuilders.standaloneSetup(controller).addInterceptors(new TriageMvcEndpoints(properties))
@@ -76,6 +113,8 @@ class MvcEndpointTest {
         assertThat(observed.recordedRequestCount()).isEqualTo(1);
         assertThat(observed.requestP95Ms()).isGreaterThanOrEqualTo(40);
         assertThat(observed.errors()).hasSize(1);
+        assertThat(observed.responseStatuses().serverError()).isEqualTo(1);
+        assertThat(observed.responseStatuses().successful()).isZero();
         assertThat(observed.endpoints()).singleElement().satisfies(endpoint ->
             assertThat(endpoint.endpoint().routeTemplate()).isEqualTo("/api/async/{id}"));
         assertThat(observed.toString()).doesNotContain("private-id", "private-error");

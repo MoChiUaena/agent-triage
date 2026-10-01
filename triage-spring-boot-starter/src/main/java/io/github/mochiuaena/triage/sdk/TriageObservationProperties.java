@@ -15,6 +15,7 @@ public class TriageObservationProperties {
     private int maxWindowMinutes = 15;
     private int capacity = 10_000;
     private boolean endpointObservations;
+    private boolean responseStatusCounts;
     private boolean exceptionLocations;
     private boolean sourceVersionChecks;
     private boolean jpaObservations;
@@ -28,6 +29,7 @@ public class TriageObservationProperties {
         if (kind == null || !identity(serviceId) || !identity(downstreamId))
             throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
         if (endpointObservations && kind != Kind.HTTP) throw new IllegalArgumentException("triage.sdk endpoint-observations requires HTTP kind");
+        if (responseStatusCounts && !endpointObservations) throw new IllegalArgumentException("triage.sdk response-status-counts requires endpoint-observations");
         if (sourceVersionChecks && !endpointObservations) throw new IllegalArgumentException("triage.sdk source-version-checks requires endpoint-observations");
         if (jpaObservations && (kind != Kind.HTTP || !identity(jpaServiceId) || !identity(jpaDatabaseId) || jpaServiceId.equals(serviceId)))
             throw new IllegalArgumentException("triage.sdk JPA observations require HTTP kind, a separate service-id and a database-id");
@@ -75,6 +77,8 @@ public class TriageObservationProperties {
     public void setCapacity(int value) { capacity = value; }
     public boolean isEndpointObservations() { return endpointObservations; }
     public void setEndpointObservations(boolean value) { endpointObservations = value; }
+    public boolean isResponseStatusCounts() { return responseStatusCounts; }
+    public void setResponseStatusCounts(boolean value) { responseStatusCounts = value; }
     public boolean isExceptionLocations() { return exceptionLocations; }
     public boolean isSourceVersionChecks() { return sourceVersionChecks; }
     public void setSourceVersionChecks(boolean value) { sourceVersionChecks = value; }
