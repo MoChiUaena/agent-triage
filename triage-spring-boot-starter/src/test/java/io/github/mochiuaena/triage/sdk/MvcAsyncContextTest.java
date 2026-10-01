@@ -14,6 +14,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.*;
 import org.springframework.web.context.request.async.DeferredResult;
+import org.springframework.web.context.request.async.WebAsyncTask;
 import static org.assertj.core.api.Assertions.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -28,6 +29,9 @@ class MvcAsyncContextTest {
             catch (ResourceAccessException expected) { return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).build(); }
         }
         @GetMapping("/api/callable") Callable<ResponseEntity<Void>> callable() { return this::lookup; }
+        @GetMapping("/api/web-task") WebAsyncTask<ResponseEntity<Void>> webTask() {
+            return new WebAsyncTask<>(3000L, new ConcurrentTaskExecutor(executor), this::lookup);
+        }
         @GetMapping("/api/deferred") DeferredResult<ResponseEntity<Void>> deferred() {
             var result = new DeferredResult<ResponseEntity<Void>>();
             executor.execute(TriageObservationContext.capture().wrap(() -> { result.setResult(lookup()); }));
@@ -93,6 +97,16 @@ class MvcAsyncContextTest {
             var window = fixture.window();
             assertThat(window.timeoutCount()).isEqualTo(1); assertThat(window.requestCount()).isEqualTo(1);
             assertThat(window.endpoints().getFirst().endpoint().routeTemplate()).isEqualTo("/api/deferred");
+            assertThat(fixture.workerCleared()).isTrue(); fixture.transport.verify();
+        }
+    }
+    @Test void optedInWebAsyncTaskAlsoPropagatesWithItsOwnExecutor() throws Exception {
+        try (var fixture = new Fixture(true)) {
+            fixture.expectTimeout();
+            var pending = fixture.mvc.perform(get("/api/web-task")).andExpect(request().asyncStarted()).andReturn();
+            fixture.mvc.perform(asyncDispatch(pending)).andExpect(status().isGatewayTimeout());
+            assertThat(fixture.window().timeoutCount()).isEqualTo(1);
+            assertThat(fixture.window().requestCount()).isEqualTo(1);
             assertThat(fixture.workerCleared()).isTrue(); fixture.transport.verify();
         }
     }
