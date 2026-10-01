@@ -12,6 +12,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+v0.10 开发增量：主项目 272 项、Starter 42 项通过跨平台 CI。[跨线程验收](validation/2026-10-01-cross-thread-observations.md)覆盖显式上下文包装、Callable / WebAsyncTask 可选传播、并发累计、线程恢复、完成截止，以及公开项目副本中的 DeferredResult 与迟到调用。
+
 v0.9 开发增量：主项目 272 项、Starter 30 项在跨平台 CI 中通过。[响应分类验收](validation/2026-10-01-http-response-classes.md)覆盖默认 V3 兼容、异步完成与未知状态、分类合计与接口一致性、固定规则和本地模型协议的证据门槛，以及公开项目的 404/5xx/下游超时区别。
 
 v0.8 开发增量：Starter 29 项、主项目 265 项测试通过，主项目有 1 项 Windows 符号链接权限测试跳过。[异步与观测访问验收](validation/2026-10-01-async-and-observation-access.md)记录了异步请求漏计的复现与修复、独立进程的令牌轮换和未覆盖的跨线程调用。[Petclinic REST 补充验收](validation/2026-09-30-petclinic-rest.md)核对原业务接口 404 的证据边界。

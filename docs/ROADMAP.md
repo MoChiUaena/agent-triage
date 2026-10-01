@@ -137,6 +137,12 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 
 ## v0.10 方向
 
-- [ ] 提供可选的 Runnable / Callable 观测上下文包装，任务结束后恢复线程原上下文，请求完成后忽略迟到观测。
-- [ ] 让并发下游调用的耗时、超时与首次异常记录可安全累计；保持请求只计一次。
-- [ ] 验证 Spring MVC Callable 和显式包装的 DeferredResult 场景，再决定执行器自动接入范围。
+- [x] 提供 Runnable / Callable 观测上下文快照和显式包装，任务结束后恢复线程原状态，响应完成后忽略迟到观测。
+- [x] 并发累计下游耗时、超时与首次异常，保持请求只计一次；已完成请求不接受迟到 JPA 操作。[验收记录](validation/2026-10-01-cross-thread-observations.md)
+- [x] 验证 MVC Callable、显式包装的 DeferredResult、并发与迟到结果；自动接入限定为显式开启的 MVC Callable / WebAsyncTask。[公开项目验收](validation/2026-10-01-cross-thread-observations.md)
+
+## 下一批：预览发布
+
+- [ ] 整理包含 v0.7–v0.10 功能的新预览包，统一模块版本、启动示例和校验清单。
+- [ ] 验证从 v0.6.0 升级后历史、模型配置和旧服务配置仍可使用，新增开关保持默认关闭。
+- [ ] 完成 Windows / Linux 包内验收后发布预览版，保留旧版附件与已记录的采集边界。
