@@ -49,6 +49,28 @@ public class RestTriageVerification {
         local(header, request);
         return lookup();
     }
+    @GetMapping("/api/triage-verification/plain-server-error")
+    public ResponseEntity<Void> plain(@RequestHeader(value = "X-Triage-Lab", required = false) String header, HttpServletRequest request) {
+        local(header, request);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+    }
+    @GetMapping("/api/triage-verification/recovery")
+    public ResponseEntity<Void> recovery(@RequestHeader(value = "X-Triage-Lab", required = false) String header,
+                                         @RequestHeader(value = "X-Triage-Fail", required = false) String fail, HttpServletRequest request) {
+        local(header, request);
+        if ("1".equals(fail)) ProbeFailure.fail();
+        return ResponseEntity.noContent().build();
+    }
+    @GetMapping("/api/triage-verification/callable-error")
+    public Callable<ResponseEntity<Void>> callableError(@RequestHeader(value = "X-Triage-Lab", required = false) String header, HttpServletRequest request) {
+        local(header, request);
+        return () -> { ProbeFailure.fail(); return ResponseEntity.noContent().build(); };
+    }
+    @GetMapping("/api/triage-verification/servlet-timeout")
+    public DeferredResult<ResponseEntity<Void>> servletTimeout(@RequestHeader(value = "X-Triage-Lab", required = false) String header, HttpServletRequest request) {
+        local(header, request);
+        return new DeferredResult<>(100L);
+    }
     private ResponseEntity<Void> lookup() {
         try { downstream.get().uri("/delay").retrieve().toBodilessEntity(); return ResponseEntity.noContent().build(); }
         catch (ResourceAccessException failure) { return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT).build(); }
