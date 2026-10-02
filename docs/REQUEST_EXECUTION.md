@@ -52,4 +52,4 @@ V4 窗口及接口摘要增加可选的 `requestFailures`。未开启或旧接�
 
 先用错误事件的 traceId 和时间对照应用记录，再检查本机异常位置、处理方法和业务错误处理。构建摘要不同仍停止采用不一致源码；静态调用关系不代表完整执行轨迹。
 
-公开项目脚本可在固定隔离副本中增加 `--inbound --request-failures`，与 `--jpa` 组合时数据库阶段继续独立检查。完整混合故障、更多客户端和长周期稳定性另行验收。
+Petclinic 脚本可在固定隔离副本中增加 `--inbound --request-failures`，与 `--jpa` 组合时数据库阶段继续独立检查。REST 脚本使用 `--classified-inbound`，同窗口对照请求异常、单纯响应、异步结果和恢复。[混合验收](validation/2026-10-02-mixed-public-diagnostics.md)保留结果与失败；更多客户端和长周期稳定性仍另行验证。
