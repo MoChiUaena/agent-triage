@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from package_release import ROOT
 from live_smoke import valid_citations
+from verify_release import version_number
 
 FIXTURE_KEY = "fixture-upgrade-token"
 ENDPOINT = {"httpMethod": "GET", "routeTemplate": "/api/upgrade/{id}", "handlerClass": "example.UpgradeController",
@@ -54,13 +55,19 @@ class UpgradeFixture(BaseHTTPRequestHandler):
             self.payload(409, {"error": "Unknown fixture endpoint"})
             return
         end, minutes = query["endTime"][0], int(query["windowMinutes"][0])
-        self.payload(200, {"schemaVersion": 3, "kind": "HTTP_ENDPOINTS", "service": "upgrade-service",
+        value = {"schemaVersion": 3, "kind": "HTTP_ENDPOINTS", "service": "upgrade-service",
             "downstreamService": "upgrade-downstream", "windowStart": window_start(end, minutes), "windowEnd": end,
             "requestCount": 3, "timeoutCount": 0, "recordedRequestCount": 3, "requestP95Ms": 25, "downstreamP95Ms": 10,
             "downstreamTimeoutRate": 0, "baselineRequestP95Ms": None, "errors": [], "synthetic": False,
             "endpoint": ENDPOINT if selected else None, "endpoints": [{"endpoint": ENDPOINT, "requestCount": 3,
                 "timeoutCount": 0, "requestP95Ms": 25, "downstreamP95Ms": 10}],
-            "unattributedRequestCount": 0, "otherEndpointRequestCount": 0})
+            "unattributedRequestCount": 0, "otherEndpointRequestCount": 0}
+        if self.server.classified:
+            statuses = {"informational": 0, "successful": 2, "redirection": 0,
+                "clientError": 1, "serverError": 0, "unknown": 0}
+            value["responseStatuses"] = statuses
+            value["endpoints"][0]["responseStatuses"] = statuses
+        self.payload(200, value)
 
     def do_POST(self):
         if self.path != "/chat/completions" or self.headers.get("Authorization") != "Bearer " + FIXTURE_KEY:
@@ -83,8 +90,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--old-jar", required=True, type=Path)
     parser.add_argument("--new-jar", required=True, type=Path)
+    parser.add_argument("--prior-version", default="0.6.0", help="Published baseline; v0.9+ also seeds response classifications")
     parser.add_argument("--port", type=int, default=18720)
     args = parser.parse_args()
+    prior_version = version_number(args.prior_version)
     old_jar, new_jar = args.old_jar.resolve(), args.new_jar.resolve()
     assert old_jar.is_file() and new_jar.is_file(), "Build or download both versions first"
     if not 1024 <= args.port <= 65535:
@@ -101,6 +110,7 @@ def main():
     fixture = ThreadingHTTPServer(("127.0.0.1", 0), UpgradeFixture)
     fixture.daemon_threads = True
     fixture.probe_calls = 0
+    fixture.classified = False
     fixture_thread = threading.Thread(target=fixture.serve_forever, daemon=True)
     fixture_thread.start()
     fixture_url = f"http://127.0.0.1:{fixture.server_port}"
@@ -187,6 +197,16 @@ def main():
         old, old_log = start(old_jar, "prior")
         try:
             original = run()
+            originals = [original]
+            if prior_version >= (0, 9, 0):
+                fixture.classified = True
+                classified = run()
+                metrics = next(item["data"] for item in classified["evidence"] if item["source"] == "read_service_metrics")
+                statuses = metrics["requestDetails"]["responseStatuses"]
+                assert statuses["successful"] == 2 and statuses["clientError"] == 1
+                assert metrics["requestDetails"].get("requestFailures") is None
+                originals.append(classified)
+                fixture.classified = False
             services = request("/api/config?service=upgrade-service")["services"]
             provider = request("/api/settings/providers", {"displayName": "升级测试", "protocol": "OPENAI_COMPATIBLE",
                 "baseUrl": fixture_url, "model": "upgrade-probe", "apiKey": FIXTURE_KEY,
@@ -202,8 +222,13 @@ def main():
 
         upgraded, upgraded_log = start(new_jar, "current")
         try:
-            saved = request("/api/runs/" + original["id"])
-            assert saved == original, "Saved execution changed during upgrade"
+            for prior_run in originals:
+                saved = request("/api/runs/" + prior_run["id"])
+                assert saved == prior_run, "Saved execution changed during upgrade"
+                details = next(item["data"]["requestDetails"] for item in saved["evidence"] if item["source"] == "read_service_metrics")
+                assert details.get("requestFailures") is None, "Upgrade invented request failures in V3 history"
+            old_details = next(item["data"]["requestDetails"] for item in originals[0]["evidence"] if item["source"] == "read_service_metrics")
+            assert old_details.get("responseStatuses") is None
             settings = request("/api/settings")
             assert settings == original_settings, {"providerFieldsUnchanged": settings["providers"] == original_settings["providers"],
                 "priorMode": original_settings["selection"]["mode"], "currentMode": settings["selection"]["mode"],
@@ -220,7 +245,8 @@ def main():
             metrics = next(item["data"] for item in newer["evidence"] if item["source"] == "read_service_metrics")
             assert "responseStatuses" not in metrics and metrics["requestDetails"].get("responseStatuses") is None
             listed = {item["id"] for item in request("/api/runs?limit=50")}
-            assert {original["id"], newer["id"]} <= listed
+            assert {item["id"] for item in originals} | {newer["id"]} <= listed
+            assert metrics["requestDetails"].get("requestFailures") is None
             assert request("/api/settings")["selection"]["mode"] == "DEMO"
             assert request("/api/history/retention?days=30")["eligibleCount"] == 0
         finally:
@@ -259,7 +285,7 @@ def main():
     with socket.socket() as probe:
         probe.settimeout(1)
         assert probe.connect_ex(("127.0.0.1", args.port)) != 0, "Upgrade smoke process did not stop"
-    print("Upgrade passed: unchanged V3 history/config and active model selection; new default H2 survives abrupt stop; local probes only")
+    print(f"Upgrade from {args.prior_version} passed: {len(originals)} unchanged V3 histories, classifications stay optional, config/key and active model selection retained; default H2 survives abrupt stop; local probes only")
     print(f"Isolated data and logs: {output}")
 
 

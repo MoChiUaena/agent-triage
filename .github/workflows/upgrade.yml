@@ -1,4 +1,4 @@
-name: Upgrade from v0.6.0
+name: Upgrade from prior previews
 on:
   workflow_dispatch:
 permissions:
@@ -8,6 +8,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest]
+        prior: ['0.6.0', '0.10.0']
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -17,19 +18,23 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Build v0.10.0
+      - name: Build v0.11.0
         shell: bash
         run: ./mvnw -B -ntp -DskipTests package
-      - name: Download and verify published v0.6.0 assets
+      - name: Download and verify prior published assets
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          PRIOR_VERSION: ${{ matrix.prior }}
         run: |
-          mkdir -p "$RUNNER_TEMP/triage-v06"
-          gh release download v0.6.0 --repo MoChiUaena/agent-triage --pattern agent-triage-0.6.0-demo.zip --pattern 'triage-spring-boot-starter-0.6.0*' --pattern SHA256SUMS.txt --dir "$RUNNER_TEMP/triage-v06"
-          prior_commit=$(gh api repos/MoChiUaena/agent-triage/commits/v0.6.0 --jq .sha)
-          python scripts/verify_release.py --directory "$RUNNER_TEMP/triage-v06" --version 0.6.0 --source-commit "$prior_commit"
-          python -c "import pathlib,zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); pathlib.Path(sys.argv[2]).write_bytes(z.read('agent-triage-0.6.0/lib/agent-triage.jar'))" "$RUNNER_TEMP/triage-v06/agent-triage-0.6.0-demo.zip" "$RUNNER_TEMP/triage-v06/agent-triage.jar"
+          prior_dir="$RUNNER_TEMP/triage-prior"
+          mkdir -p "$prior_dir"
+          gh release download "v$PRIOR_VERSION" --repo MoChiUaena/agent-triage --pattern "agent-triage-$PRIOR_VERSION-demo.zip" --pattern "triage-spring-boot-starter-$PRIOR_VERSION*" --pattern SHA256SUMS.txt --dir "$prior_dir"
+          prior_commit=$(gh api "repos/MoChiUaena/agent-triage/commits/v$PRIOR_VERSION" --jq .sha)
+          python scripts/verify_release.py --directory "$prior_dir" --version "$PRIOR_VERSION" --source-commit "$prior_commit"
+          python -c "import pathlib,zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); pathlib.Path(sys.argv[2]).write_bytes(z.read('agent-triage-'+sys.argv[3]+'/lib/agent-triage.jar'))" "$prior_dir/agent-triage-$PRIOR_VERSION-demo.zip" "$prior_dir/agent-triage.jar" "$PRIOR_VERSION"
       - name: Verify saved history and model settings after upgrade
         shell: bash
-        run: python scripts/upgrade_smoke.py --old-jar "$RUNNER_TEMP/triage-v06/agent-triage.jar" --new-jar target/agent-triage-0.10.0.jar
+        env:
+          PRIOR_VERSION: ${{ matrix.prior }}
+        run: python scripts/upgrade_smoke.py --old-jar "$RUNNER_TEMP/triage-prior/agent-triage.jar" --prior-version "$PRIOR_VERSION" --new-jar target/agent-triage-0.11.0.jar

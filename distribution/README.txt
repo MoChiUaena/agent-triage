@@ -19,7 +19,7 @@ The ticket service runs on 18090; /api/tickets/summary is healthy and /api/ticke
 Its separate assignment dependency delays actual HTTP responses on 18092. Register the bundled
 projects/ticket-service directory in the source page, then use the integration check and code references.
 Follow SOURCE_DEMO.md to compare endpoints, inspect error positions and test build source differences.
-OBSERVATIONS.md explains the 0.10.0 Starter's optional response classes, observation tokens and async context wrappers.
+OBSERVATIONS.md explains inbound HTTP V4, optional request failure counts, response classes, observation tokens and async context wrappers.
 These new switches stay disabled in the bundled demo; they can be enabled explicitly when integrating another application.
 Ctrl+C stops all eight processes started by the launcher.
 

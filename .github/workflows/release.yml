@@ -34,10 +34,10 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: |
-            target/release/agent-triage-0.10.0-demo.zip
-            target/release/triage-spring-boot-starter-0.10.0.jar
-            target/release/triage-spring-boot-starter-0.10.0.pom
-            target/release/triage-spring-boot-starter-0.10.0-agent.jar
+            target/release/agent-triage-0.11.0-demo.zip
+            target/release/triage-spring-boot-starter-0.11.0.jar
+            target/release/triage-spring-boot-starter-0.11.0.pom
+            target/release/triage-spring-boot-starter-0.11.0-agent.jar
             target/release/SHA256SUMS.txt
   package:
     needs: build
@@ -60,6 +60,6 @@ jobs:
         shell: bash
         run: |
           python scripts/verify_release.py --source-commit "$(git rev-parse HEAD)"
-          python -c "import zipfile; zipfile.ZipFile('target/release/agent-triage-0.10.0-demo.zip').extractall('target/release-bundle')"
+          python -c "import zipfile; zipfile.ZipFile('target/release/agent-triage-0.11.0-demo.zip').extractall('target/release-bundle')"
       - name: Exercise the native launcher and package contents
-        run: python scripts/bundle_launch_smoke.py --bundle-directory target/release-bundle/agent-triage-0.10.0
+        run: python scripts/bundle_launch_smoke.py --bundle-directory target/release-bundle/agent-triage-0.11.0

@@ -6,7 +6,7 @@
 
 ```powershell
 .\mvnw.cmd -f sample-service/pom.xml verify
-java -jar sample-service/target/triage-sample-service-0.10.0.jar
+java -jar sample-service/target/triage-sample-service-0.11.0.jar
 ```
 
 在另一个终端产生流量：

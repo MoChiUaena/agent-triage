@@ -2,7 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
-  <groupId>io.github.mochiuaena</groupId><artifactId>triage-integrations</artifactId><version>0.10.0</version>
+  <groupId>io.github.mochiuaena</groupId><artifactId>triage-integrations</artifactId><version>0.11.0</version>
   <packaging>pom</packaging>
   <modules><module>../triage-spring-boot-starter</module><module>../catalog-service</module><module>../verification/ticket-service</module><module>../verification/assignment-service</module></modules>
 </project>
