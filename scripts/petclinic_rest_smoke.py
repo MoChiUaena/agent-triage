@@ -290,7 +290,7 @@ def check_classified_inbound(application, agent, output, binding, business, inve
         if category != "executionFailures": assert data["requestFailures"]["executionFailures"] == 0
         if expected == "SUCCEEDED":
             assert "请求执行" in run["diagnosis"]["possibleCauses"][0]["text"]
-            assert "内部根因" in run["diagnosis"]["uncertainty"]
+            assert "未确认内部根因" in run["diagnosis"]["possibleCauses"][0]["text"]
         else: assert not run["diagnosis"]["possibleCauses"]
         if label == "异常后成功恢复":
             assert data["requestCount"] == 2 and data["responseStatuses"]["successful"] == 1 and data["responseStatuses"]["serverError"] == 1
