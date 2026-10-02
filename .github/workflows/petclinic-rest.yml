@@ -27,9 +27,11 @@ jobs:
           ./mvnw -B -ntp -f "$public_dir/pom.xml" -DskipTests package
       - name: Verify async attribution, response classes and source versions
         run: python3 scripts/petclinic_rest_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic-rest"
+      - name: Compare classified request failures and mixed responses
+        run: python3 scripts/petclinic_rest_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic-rest" --classified-inbound --base-port 18660
       - name: Confirm verification processes stopped
         run: |
-          for endpoint in 18640/api/config 18641/petclinic/actuator/health 18642/delay; do
+          for endpoint in 18640/api/config 18641/petclinic/actuator/health 18642/delay 18660/api/config 18661/petclinic/actuator/health 18662/delay; do
             if curl -fsS --max-time 2 "http://127.0.0.1:$endpoint" >/dev/null; then
               echo "Verification process at $endpoint did not stop" >&2
               exit 1

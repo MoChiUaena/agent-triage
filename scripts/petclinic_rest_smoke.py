@@ -42,6 +42,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-directory", required=True, type=Path)
     parser.add_argument("--base-port", type=int, default=18640)
+    parser.add_argument("--classified-inbound", action="store_true", help="Compare classified V4 request failures with handled responses and async results")
     args = parser.parse_args()
     public = args.project_directory.resolve()
     assert subprocess.check_output(["git", "-C", str(public), "rev-parse", "HEAD"], text=True).strip() == REVISION
@@ -60,16 +61,16 @@ def main():
     output = ROOT / "target/petclinic-rest-smoke" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output.mkdir(parents=True)
     services = output / "services.yml"
+    downstream_config = "" if args.classified_inbound else "      downstream-id: verification-downstream\n      downstream-name: 验收 HTTP 下游\n"
+    protocol = "HTTP_REQUESTS_V4" if args.classified_inbound else "OBSERVATIONS_V3"
     services.write_text(f"""triage:
   observation:
     source: LIVE
   services:
     - id: petclinic-rest-service
       name: Spring Petclinic REST
-      downstream-id: verification-downstream
-      downstream-name: 验收 HTTP 下游
-      base-url: {application}/petclinic
-      protocol: OBSERVATIONS_V3
+{downstream_config}      base-url: {application}/petclinic
+      protocol: {protocol}
       max-window-minutes: 15
 """, encoding="utf-8")
     java = str(Path(os.environ["JAVA_HOME"]) / "bin" / ("java.exe" if os.name == "nt" else "java")) if os.environ.get("JAVA_HOME") else "java"
@@ -99,7 +100,7 @@ def main():
         except urllib.error.HTTPError as error:
             status = error.code
             error.read()
-        assert status == expected, (path, status)
+        assert status in (expected if isinstance(expected, tuple) else (expected,)), (path, status)
 
     headers = {"X-Triage-Source": "1"}
 
@@ -125,10 +126,11 @@ def main():
         delayed.daemon_threads = True
         delayed_thread = threading.Thread(target=delayed.serve_forever, daemon=True)
         delayed_thread.start()
+        sdk_options = ["--triage.sdk.kind=HTTP_REQUESTS", "--triage.sdk.request-failure-counts=true"] if args.classified_inbound else [
+            "--triage.sdk.downstream-id=verification-downstream", f"--triage.sdk.downstream-base-url={downstream}"]
         start("petclinic-rest", public / "target/spring-petclinic-rest-3.4.0.jar", [
             f"--server.port={args.base_port + 1}", "--server.address=127.0.0.1", "--triage.sdk.enabled=true",
-            "--triage.sdk.service-id=petclinic-rest-service", "--triage.sdk.downstream-id=verification-downstream",
-            f"--triage.sdk.downstream-base-url={downstream}", "--triage.sdk.request-path-prefix=/api/",
+            "--triage.sdk.service-id=petclinic-rest-service", *sdk_options, "--triage.sdk.request-path-prefix=/api/",
             "--triage.sdk.endpoint-observations=true", "--triage.sdk.response-status-counts=true", "--triage.sdk.async-context-propagation=true", "--triage.sdk.exception-locations=true",
             "--triage.sdk.source-version-checks=true",
             "--triage.sdk.application-packages=org.springframework.samples.petclinic",
@@ -155,6 +157,9 @@ def main():
         status, binding = request(agent, "/api/source-projects", {"name": "Petclinic REST 源码",
             "service": "petclinic-rest-service", "directory": str(public)}, headers)
         assert status == 200 and binding["files"] > 20 and binding["parseFailures"] == 0 and not binding["modelSharing"]
+        if args.classified_inbound:
+            check_classified_inbound(application, agent, output, binding, business, investigate)
+            return
         for _ in range(2):
             business("/api/owners/1", 200)
             business("/api/owners", 200)
@@ -250,6 +255,49 @@ def main():
             delayed.server_close()
         if delayed_thread is not None:
             delayed_thread.join(timeout=2)
+
+
+def check_classified_inbound(application, agent, output, binding, business, investigate):
+    marker = {"X-Triage-Lab": "1"}
+    for _ in range(2): business("/api/owners/1", 200)
+    business("/api/owners/999999", 404)
+    for route, status in [("error", 500), ("plain-server-error", 503), ("timeout", 504), ("callable-error", 500),
+                          ("servlet-timeout", (500, 503)), ("late-timeout", 204)]:
+        business("/api/triage-verification/" + route, status, marker)
+    business("/api/triage-verification/recovery", 500, {**marker, "X-Triage-Fail": "1"})
+    business("/api/triage-verification/recovery", 204, marker)
+    deadline = time.monotonic() + 5
+    while request(application, "/petclinic/triage-verification/late-finished", headers=marker)[1]["completed"] < 1:
+        assert time.monotonic() < deadline, "Late verification call did not finish"
+        time.sleep(.05)
+    _, catalogue = request(agent, "/api/services/petclinic-rest-service/endpoints?windowMinutes=5")
+    endpoints = {item["endpoint"]["routeTemplate"]: item["endpoint"] for item in catalogue["endpoints"]}
+    cases = [("/api/owners/{ownerId}", "原接口404", "INSUFFICIENT_EVIDENCE", "executionFailures", 0),
+        ("/api/triage-verification/error", "同步执行异常", "SUCCEEDED", "executionFailures", 1),
+        ("/api/triage-verification/plain-server-error", "单纯503", "INSUFFICIENT_EVIDENCE", "serverErrorResponses", 1),
+        ("/api/triage-verification/timeout", "捕获下游超时后的504", "INSUFFICIENT_EVIDENCE", "serverErrorResponses", 1),
+        ("/api/triage-verification/callable-error", "Callable执行异常", "SUCCEEDED", "executionFailures", 1),
+        ("/api/triage-verification/servlet-timeout", "Servlet异步超时", "INSUFFICIENT_EVIDENCE", "asyncTimeouts", 1),
+        ("/api/triage-verification/late-timeout", "响应完成后的迟到调用", "INSUFFICIENT_EVIDENCE", "executionFailures", 0),
+        ("/api/triage-verification/recovery", "异常后成功恢复", "SUCCEEDED", "executionFailures", 1)]
+    report = []
+    for route, label, expected, category, count in cases:
+        run = investigate(binding, endpoints[route], "混合对照 " + label)
+        data = evidence(run, "read_service_metrics")["data"]
+        assert run["status"] == expected, (label, run["status"], run.get("failure"))
+        assert data["requestFailures"][category] == count, (label, data["requestFailures"])
+        assert not {"timeoutCount", "downstreamTimeoutRate", "downstreamP95Ms"} & data.keys()
+        if category != "executionFailures": assert data["requestFailures"]["executionFailures"] == 0
+        if expected == "SUCCEEDED":
+            assert "请求执行" in run["diagnosis"]["possibleCauses"][0]["text"]
+            assert "内部根因" in run["diagnosis"]["uncertainty"]
+        else: assert not run["diagnosis"]["possibleCauses"]
+        if label == "异常后成功恢复":
+            assert data["requestCount"] == 2 and data["responseStatuses"]["successful"] == 1 and data["responseStatuses"]["serverError"] == 1
+        assert request(agent, "/api/runs/" + run["id"])[1]["diagnosis"] == run["diagnosis"]
+        report.append({"case": label, "status": run["status"], "requestFailures": data["requestFailures"], "responseStatuses": data["responseStatuses"]})
+    (output / "mixed-summary.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("Petclinic REST mixed V4 passed: original 404, execution exceptions, plain 5xx, caught downstream timeout, Callable, Servlet timeout, late result and recovery; zero model calls")
 
 
 if __name__ == "__main__":
