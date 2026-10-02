@@ -28,7 +28,9 @@ def parse_native_memory(text, pid):
     heap = re.search(r"Java Heap \(reserved=(\d+)KB, committed=(\d+)KB\)", text)
     threads = re.search(r"\(thread #(\d+)\)", text)
     if not all((total, heap, threads)):
-        raise ValueError("Missing NMT summary, Java heap or thread count")
+        details = "; ".join(line.strip() for line in text.splitlines()
+            if "Total:" in line or "Java Heap" in line or "Thread" in line or "thread" in line)
+        raise ValueError("Missing NMT summary, Java heap or thread count: " + details[:1500])
     reserved, committed, heap_committed = int(total[1]) * 1024, int(total[2]) * 1024, int(heap[2]) * 1024
     if not reserved >= committed >= heap_committed > 0:
         raise ValueError("Inconsistent NMT totals")
@@ -179,6 +181,7 @@ def main():
                             print(f"RESOURCE_SAMPLE {args.component} phase={phase} elapsed={elapsed:.1f}s heap={value['heapUsedBytes']} native={value['nativeNonHeapCommittedBytes']} rss={value['rssBytes']}", flush=True)
                 time.sleep(.2)
             if child.returncode != 0:
+                print((output / "maven.log").read_text(encoding="utf-8", errors="replace")[-5000:], flush=True)
                 raise RuntimeError(f"Maven workload failed with exit {child.returncode}; see {output / 'maven.log'}")
         summary = summarize(samples, args.seconds, warmup, interval)
         summary.update(component=args.component, operatingSystem="windows" if windows else "linux",
