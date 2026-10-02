@@ -65,6 +65,44 @@ class RestTemplateSocketObservationTest {
                     });
         }
     }
+
+    @ParameterizedTest @CsvSource({"POST,slow-headers", "PUT,slow-headers", "POST,header-timeout", "PUT,header-timeout"})
+    void requestBodiesDoNotHideLazyHeaderDurationOrTimeout(String method, String scenario) throws Exception {
+        try (var downstream = new Downstream()) {
+            new WebApplicationContextRunner().withConfiguration(AutoConfigurations.of(RestTemplateAutoConfiguration.class,
+                TriageObservationAutoConfiguration.class)).withPropertyValues("triage.sdk.enabled=true",
+                    "triage.sdk.service-id=catalog-service", "triage.sdk.downstream-id=inventory-service",
+                    "triage.sdk.downstream-base-url=" + downstream.origin(), "triage.sdk.endpoint-observations=true",
+                    "triage.sdk.exception-locations=true", "triage.sdk.application-packages=io.github.mochiuaena.triage.sdk").run(context -> {
+                        var recorder = context.getBean(ObservationRecorder.class);
+                        var client = context.getBean(RestTemplateBuilder.class).requestFactory(SimpleClientHttpRequestFactory::new)
+                            .connectTimeout(Duration.ofSeconds(1))
+                            .readTimeout(Duration.ofMillis(scenario.contains("timeout") ? 250 : 2000)).build();
+                        new TriageRequestFilter(recorder).doFilter(new MockHttpServletRequest(method, "/api/products/private-id"),
+                            new MockHttpServletResponse(), (request, response) -> {
+                                var entity = new org.springframework.http.HttpEntity<>("private-request-body");
+                                String url = downstream.origin() + "/" + scenario;
+                                var verb = org.springframework.http.HttpMethod.valueOf(method);
+                                if (scenario.contains("timeout")) {
+                                    assertThatThrownBy(() -> client.exchange(url, verb, entity, String.class))
+                                        .isInstanceOf(ResourceAccessException.class).hasCauseInstanceOf(java.net.SocketTimeoutException.class);
+                                } else assertThat(client.exchange(url, verb, entity, String.class).getBody()).isEqualTo("ok");
+                            });
+                        var window = (ObservationRecorder.HttpWindow) recorder.snapshot(5, Instant.now());
+                        assertThat(window.requestCount()).isEqualTo(1);
+                        assertThat(window.timeoutCount()).isEqualTo(scenario.contains("timeout") ? 1 : 0);
+                        if (scenario.contains("timeout")) {
+                            var endpointWindow = (ObservationRecorder.EndpointWindow) recorder.endpointSnapshot(5, Instant.now(), null);
+                            assertThat(endpointWindow.errors()).singleElement().satisfies(error -> {
+                                assertThat(error.failureLocation().kind()).isEqualTo("HTTP_CLIENT_FAILURE");
+                                assertThat(error.failureLocation().frames()).isNotEmpty();
+                            });
+                        }
+                        assertThat(window.downstreamP95Ms()).isGreaterThanOrEqualTo(scenario.contains("timeout") ? 150 : 90);
+                        assertThat(window.toString()).doesNotContain("private-id", "private-request-body", downstream.origin());
+                    });
+        }
+    }
     private static java.util.List<String> causeTypes(Throwable error) {
         var types = new java.util.ArrayList<String>();
         for (Throwable cause = error; cause != null; cause = cause.getCause()) types.add(cause.getClass().getName());
@@ -78,6 +116,7 @@ class RestTemplateSocketObservationTest {
             server.setExecutor(workers);
             server.createContext("/", exchange -> {
                 try {
+                    exchange.getRequestBody().readAllBytes();
                     String path = exchange.getRequestURI().getPath();
                     if (path.contains("slow-headers")) pause(120);
                     if (path.contains("header-timeout")) pause(1000);

@@ -22,9 +22,24 @@ final class TriageHttpClientInterceptor implements ClientHttpRequestInterceptor 
         try {
             ClientHttpResponse response = execution.execute(request, body);
             return new ClientHttpResponse() {
-                @Override public HttpStatusCode getStatusCode() throws IOException { return response.getStatusCode(); }
-                @Override public String getStatusText() throws IOException { return response.getStatusText(); }
-                @Override public HttpHeaders getHeaders() { return response.getHeaders(); }
+                @Override public HttpStatusCode getStatusCode() throws IOException {
+                    long statusStart = System.nanoTime();
+                    try { return response.getStatusCode(); }
+                    catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
+                    finally { context.addDownstreamMillis(ObservationRecorder.elapsed(statusStart)); }
+                }
+                @Override public String getStatusText() throws IOException {
+                    long textStart = System.nanoTime();
+                    try { return response.getStatusText(); }
+                    catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
+                    finally { context.addDownstreamMillis(ObservationRecorder.elapsed(textStart)); }
+                }
+                @Override public HttpHeaders getHeaders() {
+                    long headersStart = System.nanoTime();
+                    try { return response.getHeaders(); }
+                    catch (RuntimeException e) { markTimeout(context, e); throw e; }
+                    finally { context.addDownstreamMillis(ObservationRecorder.elapsed(headersStart)); }
+                }
                 @Override public void close() { response.close(); }
                 @Override public InputStream getBody() throws IOException {
                     InputStream input;
