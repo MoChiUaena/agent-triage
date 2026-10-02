@@ -12,6 +12,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+请求执行判断：[2026-10-02 验收](validation/2026-10-02-request-execution.md)覆盖可选分类、异常与响应区别、异步和迟到信号、计数及事件一致性、固定规则／模型共用门槛和历史回读。主项目 289 项、Starter 62 项通过 Windows/Linux CI；Petclinic 原有异常支持阶段判断，旧协议、JPA 和 REST 的原验收保持通过。新分类的完整混合故障对照继续推进。
+
 入站观测增量：[V4 验收](validation/2026-10-02-inbound-http.md)覆盖无下游配置、请求与接口窗口、JPA、访问令牌、容量、未知状态、模型门槛及历史回读。主项目增至 284 项、Starter 58 项，Windows/Linux CI 通过；固定 Petclinic 验证新旧模式，REST 保留旧 V3 兼容检查。请求执行阶段失败判断尚未加入。
 
 真实应用接入核对：[2026-10-02 复验](validation/2026-10-02-application-adoption.md)在当前应用代码上重跑固定 Petclinic 与 Petclinic REST，原接口、JPA 阶段、响应分类、异步、源码版本和停止检查通过。[接入说明](APPLICATION_ADOPTION.md)区分必要改动、辅助故障配置和未测量的运行成本；本轮只更新文档，不改变运行行为。

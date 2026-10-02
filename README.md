@@ -30,6 +30,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 - 开启 [MVC 接口观测](docs/STARTER.md)后可按接口分别排查，依据实际匹配的处理方法关联源码入口；正常接口与超时接口的窗口统计分别计算。
 - HTTP V3 可选显示响应状态分类，针对 404/5xx 只给出已有分布和证据边界；未采集时保持未采集。
 - 主分支支持[入站请求模式](docs/INBOUND_HTTP.md)，没有 HTTP 下游时无需填写占位地址；下游指标明确显示未采集，旧记录中的零超时仍保留原值。
+- 可选[请求失败分类](docs/REQUEST_EXECUTION.md)，区分执行异常、单纯 5xx、异步超时／错误和已处理异常；固定规则与模型共用证据门槛，只确认异常阶段。
 - 在工作任务中显式包装观测上下文，或可选开启 MVC Callable / WebAsyncTask 传播；并发调用可累计，响应完成后不再接受迟到结果。
 - 本机服务可使用普通上下文路径，Starter 观测接口可选配置令牌并重叠轮换。
 - 提供 [Spring Boot Starter](docs/STARTER.md) 复用只读观测接口，独立[商品应用](catalog-service/README.md)验证 HTTP 与 JDBC 接入。
