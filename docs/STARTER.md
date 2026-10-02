@@ -42,11 +42,31 @@ triage:
     capacity: 10000
 ```
 
-配置开启后，过滤器记录 `/api/` 下请求的完成时间、耗时和生成的 traceId。Spring MVC 异步请求会等到 Servlet 完成回调后记录一次，耗时包含异步等待；最终 5xx 状态记为请求错误。`RestClientCustomizer` 记录有效请求上下文中、目标 origin 匹配的下游调用，工作线程的接入见下文。业务代码必须注入 Spring 提供的 `RestClient.Builder`，自行创建 `RestClient` 或使用其他 HTTP 客户端不会被采集。HTTP 状态码错误不会被当作下游超时，只有超时异常链才增加下游超时计数。
+配置开启后，过滤器记录 `/api/` 下请求的完成时间、耗时和生成的 traceId。Spring MVC 异步请求会等到 Servlet 完成回调后记录一次，耗时包含异步等待；最终 5xx 状态记为请求错误。业务代码可注入 Boot 提供的 `RestClient.Builder` 或 `RestTemplateBuilder`，两者共用下游拦截器，只记录有效请求上下文中、目标 origin 匹配的调用。自行创建的客户端、WebClient 和 Feign 不会自动接入。HTTP 状态码错误不会被当作下游超时，只有超时异常链才增加下游超时计数。
 
 每个窗口中的请求数包含匹配路径下已完成的同步和 Spring MVC 异步请求；下游 p95 是每条请求内指定下游调用累计耗时的 p95，没有该调用时记为零。一次请求有多个超时仍只计一次。组件不推断正常基线，`baselineRequestP95Ms` 为 `null`。
 
 商品请求响应中的 `X-Triage-Trace-Id` 对应 SDK 错误事件标识。SDK 不接收外部 traceId，也不会自动与业务日志已有链路关联。工作线程需要按下文显式包装任务；未包装的任务不会自动归属请求。WebFlux 和多个下游暂未支持。
+
+### 使用 RestTemplateBuilder
+
+这项接入需从当前源码构建；已发布的 v0.11.0 附件不包含它。注入 Boot 的 builder 创建客户端，例如：
+
+```java
+@Bean
+RestTemplate inventoryClient(RestTemplateBuilder builder,
+                             @Value("${triage.sdk.downstream-base-url}") String origin) {
+    return builder.rootUri(origin)
+        .requestFactory(SimpleClientHttpRequestFactory::new)
+        .connectTimeout(Duration.ofSeconds(1))
+        .readTimeout(Duration.ofMillis(300))
+        .build();
+}
+```
+
+Starter 追加观测拦截器，保留应用的超时、拦截器和错误处理器，不更换请求工厂。上例显式选用 `SimpleClientHttpRequestFactory`，其正文 socket 超时可通过 `SocketTimeoutException` 识别。Boot 默认选择的 JDK 工厂也能观测调用与正文读取耗时、识别响应头阶段超时；但 Spring 6.2.19 可能在正文超时到期后仅关闭输入流，留下普通 `IOException`。这种情况不会根据错误消息猜测为下游超时。连接超时目前验证了异常分类，未模拟真实网络中的连接黑洞。
+
+响应正文只有在应用读取时才累计耗时，组件不会预读或缓存正文。读取失败保持 Spring 原来的异常包装；正文转换阶段可能抛出 `RestClientException`，不一定是 `ResourceAccessException`。普通 4xx/5xx 仍由应用错误处理器处理。`HTTP_REQUESTS` 模式不安装下游拦截器。
 
 ## 显式包装工作线程
 
@@ -59,7 +79,7 @@ executor.execute(observation.wrap(() -> {
 }));
 ```
 
-包装只携带内部观测上下文，不复制请求参数、请求头或正文。任务在工作线程上执行时，注入的 `RestClient.Builder` 所创建客户端可将匹配的下游调用归属到原请求；任务正常结束或抛出异常后，线程原有上下文会恢复。空快照或已完成请求的快照仍会执行任务，但不附上请求上下文。已经运行的任务在请求完成后返回时，迟到的耗时、超时和错误位置不再写入该请求，已保存的窗口不会改变。
+包装只携带内部观测上下文，不复制请求参数、请求头或正文。任务在工作线程上执行时，注入的 `RestClient.Builder` 或 `RestTemplateBuilder` 所创建客户端可将匹配的下游调用归属到原请求；任务正常结束或抛出异常后，线程原有上下文会恢复。空快照或已完成请求的快照仍会执行任务，但不附上请求上下文。已经运行的任务在请求完成后返回时，迟到的耗时、超时和错误位置不再写入该请求，已保存的窗口不会改变。
 
 多个任务可共享同一个请求快照。累计下游耗时是被观测调用耗时之和，可能大于并发请求的总耗时，不能当作关键路径；多个超时仍只将该请求计为一次超时，错误位置保留首次捕获的结果。
 

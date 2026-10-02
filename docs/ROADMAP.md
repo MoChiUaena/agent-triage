@@ -169,5 +169,5 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 - [x] Windows/Linux 的 Agent 与 Starter 四条受控流程各连续运行一小时，记录取消、异步请求、JDBC、容量窗口拒绝、线程及清理结果；尚未验证真实 HTTP 服务吞吐。[验收记录](validation/2026-10-02-hourly-resources.md)
 - [x] 定时采集同一 JVM 的 NMT、堆和进程 RSS，Windows 另记录私有提交量；排除 120 秒预热，将关闭样本纳入门槛，保存 CSV、摘要和曲线。[运行与复核](RUNTIME_RESOURCES.md)
 - [x] 修正验收工具的关闭采样、GC 峰值、Windows 进程清理及 PID 文件竞态。本次受控组件没有出现留存门槛超限；Linux Agent RSS 仍有台阶增长，分配来源和数天运行继续核对。
-- [ ] 补充 Spring Boot `RestTemplateBuilder` 接入，复用同步 HTTP 的耗时、超时、响应读取与上下文规则；WebClient、Feign、自行创建的客户端分别评估。
+- [x] 接入 Spring Boot `RestTemplateBuilder`，复用同步 HTTP 的耗时、超时、正文读取及上下文规则，验证真实 socket 与独立应用。JDK 工厂的无类型正文断流保留计数边界；WebClient、Feign、自行创建的客户端仍需分别评估。[接入配置](STARTER.md) / [验收记录](validation/2026-10-02-rest-template-observations.md)
 - [ ] 在真实 HTTP 服务中继续验证数天运行、业务历史增长及资源成本，保留原生内存分项和分配来源。
