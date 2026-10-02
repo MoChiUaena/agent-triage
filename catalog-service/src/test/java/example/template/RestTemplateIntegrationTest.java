@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(classes = RestTemplateIntegrationTest.Application.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {"spring.datasource.url=jdbc:h2:mem:template-integration;DB_CLOSE_DELAY=-1", "spring.sql.init.mode=never"})
@@ -69,11 +70,14 @@ class RestTemplateIntegrationTest {
         var body = http.getForEntity("/api/template/body-timeout", String.class);
         assertThat(headers.getStatusCode().value()).isEqualTo(504);
         assertThat(body.getStatusCode().value()).isEqualTo(504);
+        // Receiving the reply does not guarantee that the servlet filter has recorded its completion yet.
+        await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(20)).untilAsserted(() -> {
+            var observed = http.getForEntity("/triage/observations?windowMinutes=5&endTime={end}", Map.class, Instant.now().toString());
+            assertThat(observed.getStatusCode().value()).isEqualTo(200);
+            assertThat(observed.getBody()).containsEntry("service", "template-service").containsEntry("requestCount", 3)
+                .containsEntry("timeoutCount", 2).containsEntry("synthetic", false);
+        });
         String end = Instant.now().toString();
-        var observed = http.getForEntity("/triage/observations?windowMinutes=5&endTime={end}", Map.class, end);
-        assertThat(observed.getStatusCode().value()).isEqualTo(200);
-        assertThat(observed.getBody()).containsEntry("service", "template-service").containsEntry("requestCount", 3)
-            .containsEntry("timeoutCount", 2).containsEntry("synthetic", false);
         var endpoints = http.getForEntity("/triage/endpoint-observations?windowMinutes=5&endTime={end}", String.class, end);
         assertThat(endpoints.getStatusCode().value()).isEqualTo(200);
         assertThat(endpoints.getBody()).contains("HTTP_CLIENT_FAILURE", "example.template", "/api/template/{mode}",
