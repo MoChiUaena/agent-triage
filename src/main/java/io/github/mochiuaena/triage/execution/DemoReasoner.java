@@ -20,7 +20,8 @@ public class DemoReasoner {
         String downstream = info.downstreamName();
         Evidence metrics = evidence.stream().filter(e -> e.source().equals("read_service_metrics")).findFirst().orElseThrow();
         Evidence logs = evidence.stream().filter(e -> e.source().equals("query_error_logs")).findFirst().orElseThrow();
-        if (EvidenceRules.inbound(metrics)) return HttpResponseDiagnosis.incomplete(metrics, logs);
+        if (EvidenceRules.inbound(metrics)) return RequestExecutionDiagnosis.supported(evidence)
+            ? RequestExecutionDiagnosis.evaluate(evidence, info) : HttpResponseDiagnosis.incomplete(metrics, logs);
         if (EvidenceRules.database(metrics)) return DatabaseDiagnosis.evaluate(evidence, info);
         if (((Number) metrics.data().get("requestCount")).intValue() == 0)
             return new Diagnosis(List.of(), List.of(), List.of("先让" + service + "处理一些请求，再重新排查相同时间窗口。"),

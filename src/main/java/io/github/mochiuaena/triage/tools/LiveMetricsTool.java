@@ -62,14 +62,22 @@ public class LiveMetricsTool implements ReadOnlyTool {
         data.put("baselineRequestP95Ms", value.baselineOrderP95Ms()); data.put("recordedRequestCount", value.recordedRequestCount());
         data.put("requestDetails", value.requestDetails()); data.put("endpointScoped", context.endpoint() != null); data.put("synthetic", false);
         var counts = value.requestDetails().responseStatuses();
+        var failures = value.requestDetails().requestFailures();
+        if (failures != null) data.put("requestFailures", failureData(failures));
         if (counts != null) data.put("responseStatuses", Map.of("informational", counts.informational(), "successful", counts.successful(),
             "redirection", counts.redirection(), "clientError", counts.clientError(), "serverError", counts.serverError(), "unknown", counts.unknown()));
         String summary = "本窗口记录 " + value.requestCount() + " 个" + context.serviceInfo().name() + "入站请求，请求 p95 为 "
             + value.orderP95Ms() + "ms；未采集下游调用，不能将缺少下游指标解释为零超时。";
         if (counts != null) summary += " 响应分类：2xx " + counts.successful() + "、4xx " + counts.clientError() + "、5xx " + counts.serverError()
             + " 次；未知 " + counts.unknown() + " 次。";
+        if (failures != null) summary += " 请求执行异常 " + failures.executionFailures() + " 次，仅返回 5xx " + failures.serverErrorResponses()
+            + " 次，异步超时/错误 " + failures.asyncTimeouts() + "/" + failures.asyncErrors() + " 次，已处理异常 " + failures.handledExceptions() + " 次。";
         return List.of(new Evidence("METRICS-REQUESTS-" + context.endTime().toEpochMilli(), name(),
             (context.endpoint() == null ? context.serviceInfo().name() : "所选接口") + "入站请求窗口", summary, data));
+    }
+    static Map<String, Integer> failureData(io.github.mochiuaena.triage.domain.TriageModel.RequestFailureCounts value) {
+        return Map.of("executionFailures", value.executionFailures(), "serverErrorResponses", value.serverErrorResponses(), "asyncTimeouts", value.asyncTimeouts(),
+            "asyncErrors", value.asyncErrors(), "handledExceptions", value.handledExceptions());
     }
 
     private List<Evidence> database(ToolContext context, LiveObservationClient.Snapshot value, Map<String, Object> data) {

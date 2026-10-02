@@ -21,8 +21,8 @@ class InboundModelOutputTest {
     }
     @Test void schemaAndInsufficientOutputDoNotRequireOrInventADownstream() throws Exception {
         var schema = json.readTree(output.inboundFormat());
-        assertThat(schema.at("/properties/assessment/enum")).hasSize(1);
-        assertThat(schema.at("/properties/assessment/enum/0").asText()).isEqualTo("INSUFFICIENT_EVIDENCE");
+        assertThat(schema.at("/properties/assessment/enum")).hasSize(2);
+        assertThat(schema.at("/properties/assessment/enum").toString()).contains("REQUEST_EXECUTION_FAILURE_OBSERVED", "INSUFFICIENT_EVIDENCE").doesNotContain("DOWNSTREAM_TIMEOUT");
         String answer = "{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[],\"nextChecks\":[\"COLLECT_RESOURCE_METRICS\"]}";
         var parsed = output.parse(answer, List.of(), new ServiceInfo("inbound", "入站", null, null));
         assertThat(parsed.decision().status()).isEqualTo(Status.INSUFFICIENT_EVIDENCE);

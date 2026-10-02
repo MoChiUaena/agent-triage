@@ -9,6 +9,7 @@ import io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint;
 import io.github.mochiuaena.triage.domain.TriageModel.RequestDetails;
 import io.github.mochiuaena.triage.domain.TriageModel.EndpointSummary;
 import io.github.mochiuaena.triage.domain.TriageModel.ResponseStatusCounts;
+import io.github.mochiuaena.triage.domain.TriageModel.RequestFailureCounts;
 import io.github.mochiuaena.triage.domain.TriageModel.FailureLocation;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,7 +32,10 @@ import java.util.concurrent.Flow;
 /** Reads only startup-registered loopback origins. Redirects and oversized bodies are rejected. */
 @Component
 public class LiveObservationClient {
-    public record ErrorEntry(Instant timestamp, String traceId, String level, String message, String code, FailureLocation failureLocation) {
+    public record ErrorEntry(Instant timestamp, String traceId, String level, String message, String code, FailureLocation failureLocation, Integer responseClass) {
+        public ErrorEntry(Instant timestamp, String traceId, String level, String message, String code, FailureLocation failureLocation) {
+            this(timestamp, traceId, level, message, code, failureLocation, null);
+        }
         public ErrorEntry(Instant timestamp, String traceId, String level, String message, String code) { this(timestamp, traceId, level, message, code, null); }
         public ErrorEntry(Instant timestamp, String traceId, String level, String message) { this(timestamp, traceId, level, message, null); }
     }
@@ -73,8 +77,8 @@ public class LiveObservationClient {
     public record RequestObservations(Integer schemaVersion, String kind, String service, Instant windowStart, Instant windowEnd,
                                       Integer requestCount, Long recordedRequestCount, Double requestP95Ms, Double baselineRequestP95Ms,
                                       List<ErrorEntry> errors, Boolean synthetic, RequestEndpoint endpoint, List<RequestInput> endpoints,
-                                      Integer unattributedRequestCount, Integer otherEndpointRequestCount, ResponseStatusCounts responseStatuses) {}
-    public record RequestInput(RequestEndpoint endpoint, Integer requestCount, Double requestP95Ms, ResponseStatusCounts responseStatuses) {}
+                                      Integer unattributedRequestCount, Integer otherEndpointRequestCount, ResponseStatusCounts responseStatuses, RequestFailureCounts requestFailures) {}
+    public record RequestInput(RequestEndpoint endpoint, Integer requestCount, Double requestP95Ms, ResponseStatusCounts responseStatuses, RequestFailureCounts requestFailures) {}
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(600))
         .followRedirects(HttpClient.Redirect.NEVER).build();
     private final ServiceRegistry registry;
@@ -132,9 +136,10 @@ public class LiveObservationClient {
                     value.requestCount(), 0, value.recordedRequestCount(), value.requestP95Ms(), 0.0, 0.0, value.baselineRequestP95Ms(), value.errors(), false,
                     value.endpoint(), inputs, value.unattributedRequestCount(), value.otherEndpointRequestCount(), value.responseStatuses());
                 var checked = validateEndpoints(normalized, context);
-                var summaries = checked.endpoints().stream().map(input -> new EndpointSummary(input.endpoint(), input.requestCount(), null,
-                    input.requestP95Ms(), null, input.responseStatuses())).toList();
-                var details = new RequestDetails(checked.endpoint(), summaries, checked.unattributedRequestCount(), checked.otherEndpointRequestCount(), checked.responseStatuses());
+                validateRequestFailures(value);
+                var summaries = value.endpoints().stream().map(input -> new EndpointSummary(input.endpoint(), input.requestCount(), null,
+                    input.requestP95Ms(), null, input.responseStatuses(), input.requestFailures())).toList();
+                var details = new RequestDetails(checked.endpoint(), summaries, checked.unattributedRequestCount(), checked.otherEndpointRequestCount(), checked.responseStatuses(), value.requestFailures());
                 snapshot = new Snapshot(value.service(), Scenario.OBSERVED, value.windowStart(), value.windowEnd(), value.requestCount(), 0, 0,
                     value.recordedRequestCount(), value.requestP95Ms(), 0, 0, value.baselineRequestP95Ms(), value.errors(), false, null, details);
             } else if (target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V1) {
@@ -225,6 +230,46 @@ public class LiveObservationClient {
     }
     private Integer[] statusValues(ResponseStatusCounts counts) {
         return new Integer[]{counts.informational(), counts.successful(), counts.redirection(), counts.clientError(), counts.serverError(), counts.unknown()};
+    }
+    private void validateRequestFailures(RequestObservations value) {
+        validateCounts(value.requestFailures(), value.responseStatuses(), value.requestCount());
+        long[] sum = new long[5];
+        for (var input : value.endpoints()) {
+            if ((input.requestFailures() == null) != (value.requestFailures() == null)) throw unexpected();
+            validateCounts(input.requestFailures(), input.responseStatuses(), input.requestCount());
+            if (input.requestFailures() != null) for (int i = 0; i < 5; i++) sum[i] += input.requestFailures().values().get(i);
+        }
+        if (value.requestFailures() != null) for (int i = 0; i < 5; i++) {
+            int total = value.requestFailures().values().get(i);
+            if (sum[i] > total || value.unattributedRequestCount() == 0 && value.otherEndpointRequestCount() == 0 && sum[i] != total) throw unexpected();
+        }
+        long[] errors = new long[5];
+        long[] responses = new long[6];
+        if (value.errors() == null) throw unexpected();
+        for (var error : value.errors()) {
+            if (error == null) throw unexpected();
+            if (value.requestFailures() == null) { if (error.code() != null || error.responseClass() != null) throw unexpected(); continue; }
+            if (error.code() == null || error.responseClass() == null || error.responseClass() < 0 || error.responseClass() > 5) throw unexpected();
+            int category = switch (error.code()) {
+                case "REQUEST_EXECUTION_FAILED" -> 0; case "HTTP_SERVER_ERROR_RESPONSE" -> 1; case "ASYNC_REQUEST_TIMEOUT" -> 2;
+                case "ASYNC_REQUEST_ERROR" -> 3; case "REQUEST_EXCEPTION_HANDLED" -> 4; default -> throw unexpected();
+            };
+            int status = error.responseClass();
+            if (category == 0 && status != 0 && status != 5 || category == 1 && status != 5 || category == 4 && (status == 0 || status == 5)) throw unexpected();
+            if (!matchingErrorLevel(category, error.level())) throw unexpected();
+            if (++errors[category] > value.requestFailures().values().get(category)) throw unexpected();
+            int available = status == 0 ? value.responseStatuses().unknown() : statusValues(value.responseStatuses())[status - 1];
+            if (++responses[status] > available) throw unexpected();
+        }
+    }
+    private boolean matchingErrorLevel(int category, String level) { return (category == 4 ? "WARN" : "ERROR").equals(level); }
+    private void validateCounts(RequestFailureCounts counts, ResponseStatusCounts statuses, int requests) {
+        if (counts == null) return;
+        if (statuses == null || counts.values().stream().anyMatch(count -> count == null || count < 0 || count > requests)) throw unexpected();
+        long total = counts.values().stream().mapToLong(Integer::longValue).sum();
+        if (total > requests || (long) counts.executionFailures() + counts.serverErrorResponses() > (long) statuses.serverError() + statuses.unknown()
+            || counts.serverErrorResponses() > statuses.serverError()
+            || counts.handledExceptions() > (long) statuses.informational() + statuses.successful() + statuses.redirection() + statuses.clientError()) throw unexpected();
     }
     private void validateStatuses(ResponseStatusCounts counts, int requests) {
         if (counts == null) return;

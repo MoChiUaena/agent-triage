@@ -21,17 +21,28 @@ public final class TriageModel {
         }
     }
     public record ResponseStatusCounts(Integer informational, Integer successful, Integer redirection, Integer clientError, Integer serverError, Integer unknown) {}
+    public record RequestFailureCounts(Integer executionFailures, Integer serverErrorResponses, Integer asyncTimeouts, Integer asyncErrors, Integer handledExceptions) {
+        public List<Integer> values() { return java.util.Arrays.asList(executionFailures, serverErrorResponses, asyncTimeouts, asyncErrors, handledExceptions); }
+    }
     public record EndpointSummary(RequestEndpoint endpoint, int requestCount,
                                   @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Integer timeoutCount,
                                   double requestP95Ms,
                                   @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Double downstreamP95Ms,
-                                  ResponseStatusCounts responseStatuses) {
+                                  ResponseStatusCounts responseStatuses,
+                                  @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) RequestFailureCounts requestFailures) {
+        public EndpointSummary(RequestEndpoint endpoint, int requestCount, Integer timeoutCount, double requestP95Ms, Double downstreamP95Ms, ResponseStatusCounts responseStatuses) {
+            this(endpoint, requestCount, timeoutCount, requestP95Ms, downstreamP95Ms, responseStatuses, null);
+        }
         public EndpointSummary(RequestEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms) {
             this(endpoint, requestCount, timeoutCount, requestP95Ms, downstreamP95Ms, null);
         }
     }
     public record RequestDetails(RequestEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount,
-                                 ResponseStatusCounts responseStatuses) {
+                                 ResponseStatusCounts responseStatuses,
+                                 @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) RequestFailureCounts requestFailures) {
+        public RequestDetails(RequestEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount, ResponseStatusCounts responseStatuses) {
+            this(endpoint, endpoints, unattributedRequestCount, otherEndpointRequestCount, responseStatuses, null);
+        }
         public RequestDetails(RequestEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount) {
             this(endpoint, endpoints, unattributedRequestCount, otherEndpointRequestCount, null);
         }

@@ -19,6 +19,8 @@ public class DemoEngine implements TriageEngine {
         }
         for (String tool : session.toolNames()) session.callTool(tool, session.question());
         Evidence metrics = session.evidence().stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElseThrow();
+        if (RequestExecutionDiagnosis.supported(session.evidence()))
+            return new Decision(Status.SUCCEEDED, RequestExecutionDiagnosis.evaluate(session.evidence(), session.context().serviceInfo()));
         if (HttpResponseDiagnosis.requiresGate(session.question(), metrics)) {
             Evidence logs = session.evidence().stream().filter(item -> item.source().equals("query_error_logs")).findFirst().orElseThrow();
             return new Decision(Status.INSUFFICIENT_EVIDENCE, HttpResponseDiagnosis.incomplete(metrics, logs));

@@ -44,6 +44,10 @@ for (const selector of ["#metrics", "#evidence-list"]) {
   assert.match(text, /未采集/);
   assert.doesNotMatch(text, /undefined|NaN|null|下游超时率0%|下游调用 p950 ms/);
 }
+run.evidence[0].data.requestFailures = { executionFailures: 1, serverErrorResponses: 0, asyncTimeouts: 0, asyncErrors: 0, handledExceptions: 0 };
+vm.runInContext("renderMetrics(fixture); renderEvidence(fixture);", context);
+assert.match(presentation(document.querySelector("#metrics")), /请求执行异常1/);
+assert.match(presentation(document.querySelector("#evidence-list")), /请求失败分类已采集/);
 run.serviceInfo.downstreamId = "inventory-service"; run.serviceInfo.downstreamName = "库存服务";
 run.evidence[0].data.observationType = undefined;
 run.evidence[0].data.downstreamP95Ms = 10; run.evidence[0].data.downstreamTimeoutRate = 0;

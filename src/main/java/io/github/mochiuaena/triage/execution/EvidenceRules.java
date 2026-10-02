@@ -7,6 +7,7 @@ public final class EvidenceRules {
     public static final String DB_TIMEOUT = "DOC-DB-POOL-EXHAUSTION#";
     public static final String DB_BASELINE = "DOC-DB-POOL-BASELINE#";
     public static final String DB_SQL_FAILURE = "DOC-DB-SQL-EXECUTION-FAILURE#";
+    public static final String REQUEST_EXECUTION = "DOC-REQUEST-EXECUTION-FAILURE#";
     private EvidenceRules() {}
     public static boolean database(Evidence metrics) { return metrics != null && "DATABASE_POOL".equals(metrics.data().get("observationType")); }
     public static boolean inbound(Evidence metrics) { return metrics != null && "HTTP_REQUESTS".equals(metrics.data().get("observationType")); }
@@ -19,7 +20,7 @@ public final class EvidenceRules {
             && (count(values, "clientError") > 0 || count(values, "serverError") > 0 || count(values, "unknown") > 0);
     }
     public static String required(Evidence metrics) {
-        if (inbound(metrics)) return "DOC-HTTP-REQUESTS-BOUNDARY#";
+        if (inbound(metrics)) return count(requestFailures(metrics), "executionFailures") > 0 ? REQUEST_EXECUTION : "DOC-HTTP-REQUESTS-BOUNDARY#";
         if (database(metrics)) {
             var values = pool(metrics);
             return count(values, "acquisitionTimeoutCount") > 0 ? DB_TIMEOUT
@@ -27,6 +28,33 @@ public final class EvidenceRules {
         }
         return metrics != null && metrics.data().get("downstreamTimeoutRate") instanceof Number rate
             ? rate.doubleValue() > 0 ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#" : null;
+    }
+    public static Map<?, ?> requestFailures(Evidence evidence) {
+        return evidence != null && evidence.data().get("requestFailures") instanceof Map<?, ?> values ? values : Map.of();
+    }
+    public static boolean requestExecutionFailed(Evidence metrics, Evidence logs) {
+        if (!inbound(metrics) || !inbound(logs) || count(metrics.data(), "requestCount") < 1
+            || count(logs.data(), "requestCount") != count(metrics.data(), "requestCount")) return false;
+        for (String key : List.of("service", "windowStart", "windowEnd"))
+            if (metrics.data().get(key) == null || !Objects.equals(metrics.data().get(key), logs.data().get(key))) return false;
+        var failures = requestFailures(metrics);
+        if (count(failures, "executionFailures") < 1 || count(failures, "executionFailures") > count(metrics.data(), "requestCount")) return false;
+        for (String key : List.of("executionFailures", "serverErrorResponses", "asyncTimeouts", "asyncErrors", "handledExceptions"))
+            if (count(failures, key) < 0 || count(failures, key) != count(requestFailures(logs), key)) return false;
+        if (!(metrics.data().get("responseStatuses") instanceof Map<?, ?> statuses)
+            || count(statuses, "serverError") < 0 || count(statuses, "unknown") < 0
+            || count(failures, "executionFailures") > count(statuses, "serverError") + count(statuses, "unknown")) return false;
+        if (!(logs.data().get("entries") instanceof List<?> entries) || count(logs.data(), "returnedCount") != entries.size()) return false;
+        return entries.stream().anyMatch(item -> item instanceof Map<?, ?> entry && "REQUEST_EXECUTION_FAILED".equals(entry.get("code"))
+            && "ERROR".equals(entry.get("level")) && (count(entry, "responseClass") == 0 || count(entry, "responseClass") == 5)
+            && eventInWindow(entry, metrics));
+    }
+    private static boolean eventInWindow(Map<?, ?> entry, Evidence metrics) {
+        try {
+            var time = java.time.Instant.parse(String.valueOf(entry.get("timestamp")));
+            return !time.isBefore(java.time.Instant.parse(String.valueOf(metrics.data().get("windowStart"))))
+                && !time.isAfter(java.time.Instant.parse(String.valueOf(metrics.data().get("windowEnd"))));
+        } catch (RuntimeException invalid) { return false; }
     }
     public static boolean exhausted(Evidence metrics, Evidence logs) {
         var pool = pool(metrics);

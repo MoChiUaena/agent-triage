@@ -531,6 +531,12 @@ function renderMetrics(run) {
       ["4xx 响应", counts.clientError, "次", "具体状态码和业务条件待核实", counts.clientError > 0],
       ["5xx 响应", counts.serverError, "次", "需要结合错误事件排查", counts.serverError > 0]);
   }
+  if (inbound && data.requestFailures) {
+    const failure = data.requestFailures;
+    values.push(["请求执行异常", failure.executionFailures, "次", "异常阶段不等于内部根因", failure.executionFailures > 0],
+      ["仅返回 5xx", failure.serverErrorResponses, "次", "没有确认执行异常"],
+      ["异步超时 / 错误", failure.asyncTimeouts + " / " + failure.asyncErrors, "", "与执行异常分别记录"]);
+  }
   for (const [label, value, unit, caption, warning] of values) {
     const item = element("div", "metric" + (warning ? " warning" : ""));
     const number = element(
@@ -778,6 +784,12 @@ function renderEvidence(run) {
           ["响应 4xx / 5xx / 未知", counts.clientError + " / " + counts.serverError + " / " + counts.unknown]);
         else rows.push(["响应状态分类", "未采集"]);
       }
+      if (data.observationType === "HTTP_REQUESTS") {
+        const failure = data.requestFailures;
+        rows.push(["请求失败分类", failure ? "已采集" : "未采集"]);
+        if (failure) rows.push(["请求执行异常 / 仅返回 5xx", failure.executionFailures + " / " + failure.serverErrorResponses],
+          ["异步超时 / 错误", failure.asyncTimeouts + " / " + failure.asyncErrors], ["已处理异常", failure.handledExceptions]);
+      }
       rows.forEach(([label, value]) => {
         const row = element("div");
         row.append(element("dt", "", label), element("dd", "", value));
@@ -871,6 +883,7 @@ function renderRun(run) {
           DB_POOL_EXHAUSTION_OBSERVED: "发现连接池耗尽的超时证据",
           NO_DB_POOL_EXHAUSTION_OBSERVED: "未发现连接池耗尽的超时证据",
           DB_SQL_EXECUTION_FAILURE_OBSERVED: "发现 SQL 执行阶段失败",
+          REQUEST_EXECUTION_FAILURE_OBSERVED: "观察到请求执行阶段异常",
         }[model.assessment] || "证据不足",
       ]);
     if (run.events.some((event) => event.type === "CONCLUSION_RENDERED"))

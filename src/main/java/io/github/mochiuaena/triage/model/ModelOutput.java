@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 final class ModelOutput {
     enum Assessment { DOWNSTREAM_TIMEOUT_OBSERVED, NO_DOWNSTREAM_TIMEOUT_OBSERVED,
         DB_POOL_EXHAUSTION_OBSERVED, NO_DB_POOL_EXHAUSTION_OBSERVED,
-        DB_SQL_EXECUTION_FAILURE_OBSERVED, INSUFFICIENT_EVIDENCE }
+        DB_SQL_EXECUTION_FAILURE_OBSERVED, REQUEST_EXECUTION_FAILURE_OBSERVED, INSUFFICIENT_EVIDENCE }
     enum Check {
         INSPECT_INVENTORY_LATENCY, CORRELATE_TRACE, VERIFY_REQUEST_TIMEOUT, COLLECT_RESOURCE_METRICS,
         FIND_SLOW_REQUEST, COLLECT_OBSERVATIONS, SEARCH_MATCHING_RULE,
@@ -61,7 +61,8 @@ final class ModelOutput {
         try {
             var schema = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(format);
             var assessments = ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("assessment")).putArray("enum");
-            Arrays.stream(Assessment.values()).filter(value -> value == Assessment.INSUFFICIENT_EVIDENCE || database == databaseAssessment(value))
+            Arrays.stream(Assessment.values()).filter(value -> value != Assessment.REQUEST_EXECUTION_FAILURE_OBSERVED
+                && (value == Assessment.INSUFFICIENT_EVIDENCE || database == databaseAssessment(value)))
                 .forEach(value -> assessments.add(value.name()));
             var checks = ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("nextChecks").path("items")).putArray("enum");
             Arrays.stream(Check.values()).filter(check -> database ? check != Check.INSPECT_INVENTORY_LATENCY && check != Check.VERIFY_REQUEST_TIMEOUT
@@ -72,7 +73,8 @@ final class ModelOutput {
     String inboundFormat() {
         try {
             var schema = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(format(false));
-            ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("assessment")).putArray("enum").add("INSUFFICIENT_EVIDENCE");
+            ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("assessment")).putArray("enum")
+                .add("REQUEST_EXECUTION_FAILURE_OBSERVED").add("INSUFFICIENT_EVIDENCE");
             var checks = ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("nextChecks").path("items")).putArray("enum");
             for (Check check : List.of(Check.COLLECT_OBSERVATIONS, Check.SEARCH_MATCHING_RULE, Check.CORRELATE_TRACE,
                 Check.FIND_SLOW_REQUEST, Check.COLLECT_RESOURCE_METRICS)) checks.add(check.name());
@@ -144,6 +146,7 @@ final class ModelOutput {
                 Check.VERIFY_DB_POOL_LIMITS, Check.INSPECT_DB_QUERIES, Check.COLLECT_RESOURCE_METRICS, Check.FIND_SLOW_REQUEST);
             case DB_SQL_EXECUTION_FAILURE_OBSERVED -> List.of(Check.CORRELATE_TRACE, Check.INSPECT_DB_QUERIES,
                 Check.COLLECT_RESOURCE_METRICS, Check.FIND_SLOW_REQUEST);
+            case REQUEST_EXECUTION_FAILURE_OBSERVED -> List.of(Check.CORRELATE_TRACE, Check.FIND_SLOW_REQUEST, Check.COLLECT_RESOURCE_METRICS);
             case NO_DB_POOL_EXHAUSTION_OBSERVED -> List.of(Check.INSPECT_DB_QUERIES, Check.COLLECT_RESOURCE_METRICS,
                 Check.FIND_SLOW_REQUEST, Check.VERIFY_DB_POOL_LIMITS);
             case INSUFFICIENT_EVIDENCE -> List.of(Check.COLLECT_OBSERVATIONS, Check.SEARCH_MATCHING_RULE,
@@ -157,6 +160,8 @@ final class ModelOutput {
         Evidence metrics = evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElse(null);
         Evidence logs = evidence.stream().filter(item -> item.source().equals("query_error_logs")).findFirst().orElse(null);
         boolean database = EvidenceRules.database(metrics);
+        if (assessment == Assessment.REQUEST_EXECUTION_FAILURE_OBSERVED && !EvidenceRules.inbound(metrics)) return Set.of();
+        if (EvidenceRules.inbound(metrics) && assessment != Assessment.REQUEST_EXECUTION_FAILURE_OBSERVED && assessment != Assessment.INSUFFICIENT_EVIDENCE) return Set.of();
         if (assessment != Assessment.INSUFFICIENT_EVIDENCE && database != databaseAssessment(assessment)) return Set.of();
         boolean hasRequests = metrics != null && metrics.data().get("requestCount") instanceof Number count && count.longValue() > 0;
         if (assessment != Assessment.INSUFFICIENT_EVIDENCE) {
@@ -164,7 +169,7 @@ final class ModelOutput {
                 checks.add(Check.INSPECT_DB_QUERIES);
                 if (assessment != Assessment.DB_SQL_EXECUTION_FAILURE_OBSERVED) checks.add(Check.VERIFY_DB_POOL_LIMITS);
                 if (assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED) checks.add(Check.INSPECT_DB_CONNECTION_HOLDERS);
-            } else {
+            } else if (!EvidenceRules.inbound(metrics)) {
                 checks.add(Check.INSPECT_INVENTORY_LATENCY);
                 if (assessment == Assessment.DOWNSTREAM_TIMEOUT_OBSERVED) checks.add(Check.VERIFY_REQUEST_TIMEOUT);
             }
@@ -187,9 +192,15 @@ final class ModelOutput {
 
     private void validateAssessment(Assessment assessment, List<Evidence> selected) {
         Evidence metrics = one(selected, "read_service_metrics");
-        if (EvidenceRules.inbound(metrics))
-            throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "本次只采集入站请求，不能选择下游或数据库成功判断。");
         Evidence logs = one(selected, "query_error_logs");
+        if (EvidenceRules.inbound(metrics)) {
+            if (assessment != Assessment.REQUEST_EXECUTION_FAILURE_OBSERVED || !EvidenceRules.requestExecutionFailed(metrics, logs))
+                throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "入站请求证据不支持该判断，缺少同窗口执行异常、响应分类或对应事件。");
+            if (selected.stream().noneMatch(value -> value.source().equals("search_runbooks") && value.id().startsWith(EvidenceRules.REQUEST_EXECUTION)))
+                throw new RunFailure("MODEL_MISSING_EVIDENCE", "模型没有选择请求执行阶段异常的对应规则。");
+            return;
+        }
+        if (assessment == Assessment.REQUEST_EXECUTION_FAILURE_OBSERVED) throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "当前观测类型不支持请求执行阶段判断。");
         if (!(metrics.data().get("requestCount") instanceof Number count) || count.longValue() <= 0)
             throw new RunFailure("MODEL_NO_OBSERVATIONS", "模型试图在无请求窗口生成成功判断，已拒绝。");
         if (EvidenceRules.database(metrics)) {
@@ -256,6 +267,8 @@ final class ModelOutput {
                 case COLLECT_RESOURCE_METRICS -> "补充本应用的 CPU、线程与数据库等资源指标。";
                 default -> checkText(check, service, service, service);
             }).toList();
+            if (response.assessment() == Assessment.REQUEST_EXECUTION_FAILURE_OBSERVED)
+                return RequestExecutionDiagnosis.render(selected, info, next);
             return new Diagnosis(observations, List.of(), next, "本次仅采集入站请求，未采集下游调用；现有观测不能确认下游状态或内部根因。");
         }
         if (selected.stream().anyMatch(EvidenceRules::database)) {

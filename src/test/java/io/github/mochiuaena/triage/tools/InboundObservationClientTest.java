@@ -93,4 +93,23 @@ class InboundObservationClientTest {
         assertThat(diagnosis.possibleCauses()).isEmpty(); assertThat(diagnosis.uncertainty()).contains("未采集下游");
         assertThat(io.github.mochiuaena.triage.execution.QuestionScope.supports("返回 404 是什么原因", context)).isTrue();
     }
+    @Test void failureClassificationMustMatchResponseTotalsEndpointCountsAndErrorCodes() throws Exception {
+        var original = valid();
+        var counts = json.createObjectNode().put("executionFailures", 1).put("serverErrorResponses", 0).put("asyncTimeouts", 0).put("asyncErrors", 0).put("handledExceptions", 0);
+        original.set("requestFailures", counts); ((ObjectNode) original.at("/endpoints/0")).set("requestFailures", counts.deepCopy());
+        ((ObjectNode) original.at("/errors/0")).put("code", "REQUEST_EXECUTION_FAILED").put("responseClass", 5);
+        body.set(json.writeValueAsBytes(original));
+        assertThat(new LiveMetricsTool(client).execute(context, "").getFirst().data()).containsKey("requestFailures");
+        for (java.util.function.Consumer<ObjectNode> change : List.<java.util.function.Consumer<ObjectNode>>of(
+            node -> ((ObjectNode) node.path("requestFailures")).put("executionFailures", -1),
+            node -> ((ObjectNode) node.path("requestFailures")).remove("handledExceptions"),
+            node -> ((ObjectNode) node.path("requestFailures")).put("executionFailures", 1.5),
+            node -> ((ObjectNode) node.at("/endpoints/0/requestFailures")).put("executionFailures", 0),
+            node -> ((ObjectNode) node.at("/errors/0")).put("code", "SQL_QUERY_FAILED"),
+            node -> ((ObjectNode) node.at("/errors/0")).put("responseClass", 2),
+            node -> ((ObjectNode) node.path("requestFailures")).put("serverErrorResponses", 1))) {
+            var value = original.deepCopy(); change.accept(value); body.set(json.writeValueAsBytes(value));
+            assertThatThrownBy(() -> client.snapshot(context)).isInstanceOf(ObservationFailure.class);
+        }
+    }
 }

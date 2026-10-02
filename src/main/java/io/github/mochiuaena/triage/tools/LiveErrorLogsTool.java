@@ -23,6 +23,7 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
             Map<String, Object> entry = new LinkedHashMap<>(Map.of("timestamp", error.timestamp().toString(), "traceId", error.traceId(),
                 "level", error.level(), "message", error.message()));
             if (error.code() != null) entry.put("code", error.code());
+            if (error.responseClass() != null) entry.put("responseClass", error.responseClass());
             return entry;
         }).toList();
         Map<String, Object> data = new LinkedHashMap<>();
@@ -40,6 +41,7 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
         if (observation.requestDetails() != null) data.put("endpointScoped", context.endpoint() != null);
         if (context.target() != null && context.target().protocol() == ServiceRegistry.Protocol.HTTP_REQUESTS_V4) {
             data.remove("timeoutCount"); data.put("observationType", "HTTP_REQUESTS"); data.put("requestCount", observation.requestCount());
+            if (observation.requestDetails().requestFailures() != null) data.put("requestFailures", LiveMetricsTool.failureData(observation.requestDetails().requestFailures()));
             return List.of(new Evidence("LOGS-REQUESTS-" + context.endTime().toEpochMilli(), name(), "入站请求错误事件（最多 3 条）",
                 (entries.isEmpty() ? "本窗口未记录入站请求错误事件。" : "展示本窗口最近 " + entries.size() + " 条入站请求错误事件。")
                     + " 未采集下游调用，不能据此判断下游超时或内部根因。", data));

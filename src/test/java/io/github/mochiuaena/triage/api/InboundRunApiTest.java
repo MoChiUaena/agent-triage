@@ -39,7 +39,7 @@ class InboundRunApiTest {
     }
     @BeforeEach void reset() throws Exception {
         jdbc.update("DELETE FROM source_projects"); jdbc.update("DELETE FROM model_selection"); jdbc.update("DELETE FROM model_providers");
-        STUB.requests.clear(); STUB.split = false;
+        STUB.requests.clear(); STUB.split = false; STUB.classification = false; STUB.execution = true;
         String source = "package fixture;\nclass EntranceController {\n@GetMapping(\"/api/entrance/{id}\") Object get(String id) { return null; }\n}\n";
         Files.writeString(root.resolve("EntranceController.java"), source);
         STUB.hash = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(source.getBytes(StandardCharsets.UTF_8)));
@@ -47,6 +47,9 @@ class InboundRunApiTest {
     }
     @AfterAll static void close() { STUB.server.stop(0); }
     private Run run(boolean source) {
+        return run(source, Status.INSUFFICIENT_EVIDENCE);
+    }
+    private Run run(boolean source, Status expected) {
         var headers = new HttpHeaders(); headers.setContentType(MediaType.APPLICATION_JSON); headers.set("X-Triage-Source", "1");
         var response = http.postForEntity("/api/runs", new HttpEntity<>(Map.of("question", "入口服务为什么返回 500？", "service", "entry-service",
             "windowMinutes", 1, "endpointId", STUB.endpoint.id(), "includeSource", source), headers), Run.class);
@@ -54,8 +57,10 @@ class InboundRunApiTest {
         UUID id = response.getBody().id();
         await().atMost(Duration.ofSeconds(8)).until(() -> http.getForObject("/api/runs/" + id, Run.class).status().terminal());
         var value = http.getForObject("/api/runs/" + id, Run.class);
-        assertThat(value.status()).isEqualTo(Status.INSUFFICIENT_EVIDENCE);
-        assertThat(value.diagnosis().possibleCauses()).isEmpty(); assertThat(value.diagnosis().uncertainty()).contains("未采集下游");
+        assertThat(value.status()).isEqualTo(expected);
+        if (expected == Status.INSUFFICIENT_EVIDENCE) {
+            assertThat(value.diagnosis().possibleCauses()).isEmpty(); assertThat(value.diagnosis().uncertainty()).contains("未采集下游");
+        } else assertThat(value.diagnosis().possibleCauses().getFirst().text()).contains("请求执行", "异常");
         var metrics = value.evidence().stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElseThrow();
         assertThat(metrics.data()).containsEntry("observationType", "HTTP_REQUESTS").doesNotContainKeys("timeoutCount", "downstreamTimeoutRate", "downstreamP95Ms");
         assertThat(value.serviceInfo().downstreamId()).isNull();
@@ -89,12 +94,26 @@ class InboundRunApiTest {
         assertThat(STUB.requests.get(1).path("messages").toString()).doesNotContain("DOWNSTREAM_TIMEOUT_OBSERVED_rule", "NO_DOWNSTREAM_TIMEOUT_OBSERVED_rule");
         assertThat(STUB.requests.get(1).path("messages").toString()).doesNotContain("fixture.EntranceController", "/api/entrance/{id}", "MVC_SELECTED", "requestDetails");
     }
+    @Test void classifiedExecutionFailureSucceedsInBothModesAndStoredHistoryKeepsItsEvidence() {
+        STUB.classification = true;
+        run(true, Status.SUCCEEDED);
+        model(); var modeled = run(false, Status.SUCCEEDED);
+        assertThat(modeled.modelExecution().assessment()).isEqualTo("REQUEST_EXECUTION_FAILURE_OBSERVED");
+        assertThat(STUB.requests).hasSize(2);
+        assertThat(modeled.events()).extracting(Event::type).contains("CONCLUSION_RENDERED").doesNotContain("INBOUND_OBSERVATION_GATE");
+    }
+    @Test void aPlainServerErrorStillRemainsInsufficientEvenWithClassificationEnabled() {
+        STUB.classification = true; STUB.execution = false;
+        run(false); model(); run(false);
+        assertThat(STUB.requests).hasSize(1);
+    }
     private static final class Stub {
         final HttpServer server;
         final List<JsonNode> requests = new CopyOnWriteArrayList<>();
         final RequestEndpoint endpoint;
         volatile String hash;
         volatile boolean split;
+        volatile boolean classification, execution = true;
         Stub() {
             try {
                 String identity = String.join("\0", "GET", "/api/entrance/{id}", "fixture.EntranceController", "get", "java.lang.String");
@@ -119,13 +138,31 @@ class InboundRunApiTest {
                         data.set("responseStatuses", statuses);
                         var summary = data.putArray("endpoints").addObject().put("requestCount", 2).put("requestP95Ms", 20);
                         summary.set("endpoint", JSON.valueToTree(observed)); summary.set("responseStatuses", statuses);
-                        data.putArray("errors").addObject().put("timestamp", end.toString()).put("traceId", "fixture").put("level", "ERROR").put("message", "HTTP request failed");
+                        var error = data.putArray("errors").addObject().put("timestamp", end.toString()).put("traceId", "fixture").put("level", "ERROR").put("message", "HTTP request failed");
+                        if (classification) {
+                            var counts = JSON.createObjectNode().put("executionFailures", execution ? 1 : 0).put("serverErrorResponses", execution ? 0 : 1)
+                                .put("asyncTimeouts", 0).put("asyncErrors", 0).put("handledExceptions", 0);
+                            data.set("requestFailures", counts); summary.set("requestFailures", counts.deepCopy());
+                            error.put("code", execution ? "REQUEST_EXECUTION_FAILED" : "HTTP_SERVER_ERROR_RESPONSE").put("responseClass", 5);
+                        }
                         send(exchange, data);
                     }
                 });
                 server.createContext("/chat/completions", exchange -> {
                     try (exchange) {
                         var input = JSON.readTree(exchange.getRequestBody()); requests.add(input);
+                        if (classification && execution && requests.size() > 1) {
+                            var ids = new ArrayList<String>();
+                            for (var message : input.path("messages")) if (message.path("role").asText().equals("tool"))
+                                for (var item : JSON.readTree(message.path("content").asText()))
+                                    if (item.path("source").asText().equals("read_service_metrics") || item.path("source").asText().equals("query_error_logs")
+                                        || item.path("id").asText().startsWith("DOC-REQUEST-EXECUTION-FAILURE#")) ids.add(item.path("id").asText());
+                            send(exchange, JSON.valueToTree(Map.of("id", "inbound-stub", "created", 1, "model", "inbound-stub",
+                                "choices", List.of(Map.of("index", 0, "finish_reason", "stop", "message", Map.of("role", "assistant", "content",
+                                    JSON.writeValueAsString(Map.of("assessment", "REQUEST_EXECUTION_FAILURE_OBSERVED", "evidenceIds", ids, "nextChecks", List.of("CORRELATE_TRACE")))))),
+                                "usage", Map.of("prompt_tokens", 10, "completion_tokens", 5, "total_tokens", 15))));
+                            return;
+                        }
                         List<String> names = split ? requests.size() == 1 ? List.of("search_runbooks") : List.of("read_service_metrics", "query_error_logs")
                             : List.of("read_service_metrics", "query_error_logs", "search_runbooks");
                         var calls = new ArrayList<Map<String, Object>>();

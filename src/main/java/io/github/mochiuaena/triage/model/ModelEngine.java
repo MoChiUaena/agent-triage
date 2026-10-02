@@ -145,11 +145,11 @@ public final class ModelEngine implements TriageEngine {
             }
             var metrics = session.evidence().stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElse(null);
             var logs = session.evidence().stream().filter(item -> item.source().equals("query_error_logs")).findFirst().orElse(null);
-            if (logs != null && EvidenceRules.inbound(metrics)) {
+            if (logs != null && EvidenceRules.inbound(metrics) && !EvidenceRules.requestExecutionFailed(metrics, logs)) {
                 session.recordInboundObservationGate();
                 return new Decision(Status.INSUFFICIENT_EVIDENCE, io.github.mochiuaena.triage.execution.HttpResponseDiagnosis.incomplete(metrics, logs));
             }
-            if (logs != null && io.github.mochiuaena.triage.execution.HttpResponseDiagnosis.requiresGate(session.question(), metrics)) {
+            if (logs != null && !EvidenceRules.inbound(metrics) && io.github.mochiuaena.triage.execution.HttpResponseDiagnosis.requiresGate(session.question(), metrics)) {
                 session.recordResponseStatusGate();
                 return new Decision(Status.INSUFFICIENT_EVIDENCE, io.github.mochiuaena.triage.execution.HttpResponseDiagnosis.incomplete(metrics, logs));
             }
@@ -180,7 +180,7 @@ public final class ModelEngine implements TriageEngine {
         if (evidence.stream().noneMatch(item -> item.source().equals("read_service_metrics"))) missing.add("read_service_metrics");
         if (evidence.stream().noneMatch(item -> item.source().equals("query_error_logs"))) missing.add("query_error_logs");
         Evidence metrics = evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElse(null);
-        String required = inbound(session) ? "DOC-HTTP-REQUESTS-BOUNDARY#" : EvidenceRules.required(metrics);
+        String required = metrics == null && inbound(session) ? "DOC-HTTP-REQUESTS-BOUNDARY#" : EvidenceRules.required(metrics);
         String timeoutRule = database(session) ? EvidenceRules.DB_TIMEOUT : "DOC-DOWNSTREAM-TIMEOUT#";
         String baselineRule = database(session) ? EvidenceRules.DB_BASELINE : "DOC-HEALTHY-BASELINE#";
         boolean matched = evidence.stream().anyMatch(item -> item.source().equals("search_runbooks")
@@ -238,6 +238,7 @@ public final class ModelEngine implements TriageEngine {
         if (inbound(session)) {
             candidates.remove("DOWNSTREAM_TIMEOUT_OBSERVED_rule"); candidates.remove("NO_DOWNSTREAM_TIMEOUT_OBSERVED_rule");
             candidates.put("HTTP_REQUESTS_boundary", session.evidence().stream().filter(item -> item.id().startsWith("DOC-HTTP-REQUESTS-BOUNDARY#")).map(Evidence::id).toList());
+            candidates.put("REQUEST_EXECUTION_FAILURE_OBSERVED_rule", session.evidence().stream().filter(item -> item.id().startsWith(EvidenceRules.REQUEST_EXECUTION)).map(Evidence::id).toList());
         }
         try {
             return "成功判断的 evidenceIds 必须同时包含一条 read_service_metrics ID、一条 query_error_logs ID，"
@@ -245,7 +246,9 @@ public final class ModelEngine implements TriageEngine {
                 + "仍缺少来源时请继续调用工具；nextChecks 须选 1–5 个不同检查项。以下仅列出已收集的可选 ID：\n"
                 + json.writeValueAsString(candidates) + "\n各判断类型当前允许的检查项："
                 + json.writeValueAsString(Arrays.stream(ModelOutput.Assessment.values())
-                    .filter(value -> value == ModelOutput.Assessment.INSUFFICIENT_EVIDENCE || !inbound(session) && database(session) == ModelOutput.databaseAssessment(value))
+                    .filter(value -> value == ModelOutput.Assessment.INSUFFICIENT_EVIDENCE || (inbound(session)
+                        ? value == ModelOutput.Assessment.REQUEST_EXECUTION_FAILURE_OBSERVED
+                        : value != ModelOutput.Assessment.REQUEST_EXECUTION_FAILURE_OBSERVED && database(session) == ModelOutput.databaseAssessment(value)))
                     .collect(java.util.stream.Collectors.toMap(
                     Enum::name, assessment -> ModelOutput.allowedChecks(assessment, session.evidence()).stream().map(Enum::name).toList())));
         } catch (Exception e) { throw new RunFailure("INVALID_TOOL_OUTPUT", "无法列出本次可选证据。"); }
@@ -262,8 +265,8 @@ public final class ModelEngine implements TriageEngine {
         boolean inbound = session.context().target() != null && session.context().target().protocol() == io.github.mochiuaena.triage.tools.ServiceRegistry.Protocol.HTTP_REQUESTS_V4;
         String assessmentRules = inbound ? """
             本次是 HTTP_REQUESTS 入站请求观测，没有采集下游耗时或超时。缺少这些字段不是零值。
-            当前只能选择 INSUFFICIENT_EVIDENCE，收集请求指标、错误事件与入站观测边界规则后，由应用展示已有证据。
-            不选择任何下游或数据库判断，不从普通请求异常或响应分类推断内部根因。
+            只有同窗口 requestFailures.executionFailures 大于零、配套5xx或未知响应、错误事件有 REQUEST_EXECUTION_FAILED，且指标/日志计数一致并选择对应请求执行规则时，才能选择 REQUEST_EXECUTION_FAILURE_OBSERVED。
+            缺少分类、事件或规则，或只有5xx、异步超时/错误、已处理异常时，选择 INSUFFICIENT_EVIDENCE。不选择任何下游或数据库判断，不推断内部根因。
             """ : database(session) ? """
             本次是 DATABASE_POOL 观测，只能选择数据库判断类型。先区分获取连接阶段和 SQL 执行阶段。
             有请求、获取连接超时数大于零、池采样存在满载与等待重叠且日志含 DB_CONNECTION_ACQUIRE_TIMEOUT 时，选择 DB_POOL_EXHAUSTION_OBSERVED。
