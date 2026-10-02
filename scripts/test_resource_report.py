@@ -11,7 +11,7 @@ class ResourceReportTest(unittest.TestCase):
             nativeCommittedBytes=143000000, javaHeapCommittedBytes=100000000, nativeNonHeapCommittedBytes=43000000,
             nativeThreadCount=25, heapUsedBytes=12000000, rssBytes=170000000, privateBytes=None)
             for elapsed in range(0, 61, 6)]
-        closed = dict(rows[-1], phase="closed", elapsedSeconds=75); rows.append(closed)
+        closed = dict(rows[-1], phase="closed", elapsedSeconds=65); rows.append(closed)
         meta = dict(status="passed", component="agent", operatingSystem="linux", sourceCommit="a" * 40, sourceTreeDirty=False,
             requestedSeconds=60, warmupSeconds=12, intervalSeconds=6, runningSamples=11, baseline=rows[2], closedSample=closed,
             postWarmupPeakNativeGrowthBytes=0, postWarmupPeakResidentGrowthBytes=0, peakNativeThreadCount=25, peakHeapUsedBytes=12000000,
@@ -27,7 +27,7 @@ class ResourceReportTest(unittest.TestCase):
             root = Path(directory); self.fixture(root)
             meta, rows = verify_dataset(root / "summary.json", "a" * 40, 60)
             self.assertEqual(meta["runningSamples"], 11)
-            self.assertEqual(rows[-1]["elapsedSeconds"], 75)
+            self.assertEqual(rows[-1]["elapsedSeconds"], 65)
 
     def test_rejects_summary_tampering_or_wrong_source_duration_and_dirty_tree(self):
         for key, changed in [("sourceCommit", "b" * 40), ("requestedSeconds", 3600), ("sourceTreeDirty", True),
@@ -64,6 +64,29 @@ class ResourceReportTest(unittest.TestCase):
                 (root / "summary.json").write_text(json.dumps(meta))
                 with self.assertRaises(ValueError):
                     verify_dataset(root / "summary.json", "a" * 40, 60)
+
+
+    def test_legacy_receipt_replays_original_summary_then_checks_closed_growth(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); meta = self.fixture(root)
+            with (root / "memory.csv").open(newline="") as source:
+                rows = list(csv.DictReader(source))
+            rows[-1].update(nativeCommittedBytes="153000000", nativeNonHeapCommittedBytes="53000000")
+            meta["closedSample"].update(nativeCommittedBytes=153000000, nativeNonHeapCommittedBytes=53000000)
+            with (root / "memory.csv").open("w", newline="") as output:
+                writer = csv.DictWriter(output, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
+            (root / "summary.json").write_text(json.dumps(meta))
+            verified, _ = verify_dataset(root / "summary.json", "a" * 40, 60)
+            self.assertIs(verified["growthIncludesClosed"], True)
+            self.assertEqual(verified["postWarmupPeakNativeGrowthBytes"], 10000000)
+            meta["growthIncludesClosed"] = True
+            meta["postWarmupPeakNativeGrowthBytes"] = 10000000
+            (root / "summary.json").write_text(json.dumps(meta))
+            self.assertEqual(verify_dataset(root / "summary.json", "a" * 40, 60)[0]["postWarmupPeakNativeGrowthBytes"], 10000000)
+            meta["postWarmupPeakNativeGrowthBytes"] = 0
+            (root / "summary.json").write_text(json.dumps(meta))
+            with self.assertRaises(ValueError):
+                verify_dataset(root / "summary.json", "a" * 40, 60)
 
     def matrix_fixture(self, root):
         summaries = []

@@ -62,7 +62,17 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
         raise ValueError("Unsupported component or operating system")
     rows = read_samples(summary_path.with_name("memory.csv"), meta["operatingSystem"])
     replay = summarize(rows, seconds, min(120, seconds / 5), min(30, seconds / 10))
-    for key, expected in replay.items():
+    recorded_replay = dict(replay)
+    if "growthIncludesClosed" not in meta:
+        # Legacy collectors reported running peaks only. Validate that receipt before
+        # returning the stronger replay, which always checks closing memory as well.
+        recorded_replay.pop("growthIncludesClosed")
+        steady = [row for row in rows if row["phase"] == "running" and row["elapsedSeconds"] >= replay["warmupSeconds"]]
+        recorded_replay["postWarmupPeakNativeGrowthBytes"] = max(row["nativeNonHeapCommittedBytes"] for row in steady) - replay["baseline"]["nativeNonHeapCommittedBytes"]
+        recorded_replay["postWarmupPeakResidentGrowthBytes"] = max(row["rssBytes"] for row in steady) - replay["baseline"]["rssBytes"]
+    elif meta["growthIncludesClosed"] is not True:
+        raise ValueError("Unsupported memory growth definition")
+    for key, expected in recorded_replay.items():
         if key not in meta or meta[key] != expected:
             raise ValueError("Summary does not match numeric replay: " + key)
     workload = meta.get("workload")
@@ -75,7 +85,7 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
         key + "=" + (str(value).lower() if isinstance(value, bool) else str(value)) for key, value in workload.items())
     if parse_workload_result(text, meta["component"], seconds) != workload:
         raise ValueError("Invalid workload or cleanup receipt")
-    return meta, rows
+    return {**meta, **replay}, rows
 
 
 def verify_matrix(summary_paths, source_commit, seconds):

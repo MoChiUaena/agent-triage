@@ -90,16 +90,18 @@ def summarize(samples, seconds, warmup, interval):
     steady = [item for item in running if item["elapsedSeconds"] >= warmup]
     if len(steady) < 3 or not closed or closed[0]["elapsedSeconds"] < seconds - 1:
         raise ValueError("Missing post-warmup samples, full duration or closed-phase sample")
-    if any(b["elapsedSeconds"] - a["elapsedSeconds"] > interval + 30 for a, b in zip(steady, steady[1:])):
+    if any(b["elapsedSeconds"] - a["elapsedSeconds"] > interval + 5 for a, b in zip(steady, steady[1:])):
         raise ValueError("Post-warmup sampling has a coverage gap")
-    if steady[0]["elapsedSeconds"] - warmup > interval + 30 or closed[0]["elapsedSeconds"] - steady[-1]["elapsedSeconds"] > interval + 30:
+    if steady[0]["elapsedSeconds"] - warmup > interval + 5 or closed[0]["elapsedSeconds"] - steady[-1]["elapsedSeconds"] > interval + 5:
         raise ValueError("Post-warmup sampling does not cover the start or closing boundary")
     baseline = steady[0]
-    native_growth = max(item["nativeNonHeapCommittedBytes"] for item in steady) - baseline["nativeNonHeapCommittedBytes"]
-    rss_growth = max(item["rssBytes"] for item in steady) - baseline["rssBytes"]
+    measured = steady + closed
+    native_growth = max(item["nativeNonHeapCommittedBytes"] for item in measured) - baseline["nativeNonHeapCommittedBytes"]
+    rss_growth = max(item["rssBytes"] for item in measured) - baseline["rssBytes"]
     if native_growth > 64 * MIB or rss_growth > 128 * MIB:
         raise ValueError(f"Post-warmup growth exceeds gate: native={native_growth}, resident={rss_growth}")
     return dict(status="passed", requestedSeconds=seconds, warmupSeconds=warmup, intervalSeconds=interval,
+        growthIncludesClosed=True,
         runningSamples=len(running), closedSample=closed[-1], baseline=baseline,
         postWarmupPeakNativeGrowthBytes=native_growth, postWarmupPeakResidentGrowthBytes=rss_growth,
         peakNativeThreadCount=max(item["nativeThreadCount"] for item in steady),
@@ -125,9 +127,24 @@ def parse_workload_result(text, component, seconds):
             raise ValueError("Agent workload or cleanup is incomplete")
     elif value["requests"] != cycles or value["jdbc"] != cycles * 2 or value["cancelled"] != cycles or value["workerContexts"] or value["samplerStopped"] is not True:
         raise ValueError("Starter workload or cleanup is incomplete")
-    if value["finalHeap"] > value["baselineHeap"] + 64 * MIB:
+    if max(value["peakHeap"], value["finalHeap"]) > value["baselineHeap"] + 64 * MIB:
         raise ValueError("Retained heap exceeds the workload gate")
     return value
+
+
+def stop_owned_processes(child):
+    if child is not None and child.poll() is None:
+        if os.name == "nt":
+            # The wrapper is a command shell. Stop its still-owned tree before
+            # terminating that root; otherwise its Maven/test JVMs can survive.
+            subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15,
+                check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        else:
+            os.killpg(child.pid, signal.SIGTERM)
+        try: child.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            child.kill(); child.wait(timeout=5)
 
 
 def main():
@@ -195,17 +212,7 @@ def main():
     except BaseException as error:
         (output / "summary.json").write_text(json.dumps({"status": "failed", "component": args.component,
             "error": str(error), "samples": len(samples)}, indent=2) + "\n", encoding="utf-8")
-        if child is not None and child.poll() is None:
-            if windows:
-                if pid is not None:
-                    try: os.kill(pid, signal.SIGTERM)
-                    except OSError: pass
-                child.terminate()
-            else:
-                os.killpg(child.pid, signal.SIGTERM)
-            try: child.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                child.kill(); child.wait(timeout=5)
+        stop_owned_processes(child)
         raise
 
 

@@ -59,6 +59,27 @@ class ResourceSoakTest(unittest.TestCase):
         self.assertEqual(result["runningSamples"], 4)
         self.assertEqual(result["postWarmupPeakNativeGrowthBytes"], 1303296)
 
+    def test_rejects_memory_growth_in_the_closed_phase(self):
+        for closed in (sample(200, "closed", native=120000000), sample(200, "closed", rss=400000000)):
+            closed["nativeReservedBytes"] = max(closed["nativeReservedBytes"], closed["nativeCommittedBytes"])
+            with self.subTest(closed=closed), self.assertRaises(ValueError):
+                summarize([sample(0), sample(120), sample(150), sample(180), closed], 180, 120, 30)
+
+    def test_rejects_gc_heap_peak_above_the_workload_gate(self):
+        line = "RESOURCE_RESULT agent seconds=60 cycles=20 cancelled=100 fresh=20 baselineHeap=12000000 peakHeap=80000000 finalHeap=12000000 registry=0 queues=0 connections=0"
+        with self.assertRaises(ValueError):
+            parse_workload_result(line, "agent", 60)
+
+    def test_rejects_a_missing_thirty_second_sample_at_each_steady_boundary(self):
+        cases = [
+            ([sample(0), sample(120), sample(150), sample(195), sample(220, "closed")], 210),
+            ([sample(0), sample(165), sample(195), sample(225), sample(245, "closed")], 240),
+            ([sample(0), sample(120), sample(150), sample(180), sample(225, "closed")], 220),
+        ]
+        for rows, seconds in cases:
+            with self.subTest(rows=rows), self.assertRaises(ValueError):
+                summarize(rows, seconds, 120, 30)
+
     def test_rejects_sampler_that_stops_long_before_the_workload_closes(self):
         samples = [sample(0), sample(120), sample(150), sample(180), sample(1000, "closed")]
         with self.assertRaises(ValueError):

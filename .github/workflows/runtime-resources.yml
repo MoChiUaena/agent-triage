@@ -10,6 +10,7 @@ on:
       - 'scripts/test_resource_soak.py'
       - 'scripts/resource_report.py'
       - 'scripts/test_resource_report.py'
+      - 'scripts/test_resource_cleanup.py'
       - '.github/workflows/runtime-resources.yml'
   pull_request:
   workflow_dispatch:
