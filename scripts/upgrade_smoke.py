@@ -183,14 +183,15 @@ def main():
         finally:
             log.close()
 
-    def run():
+    def run(expected_status="SUCCEEDED"):
         value = request("/api/runs", {"question": "升级服务请求为什么变慢了？", "service": "upgrade-service",
             "windowMinutes": 5, "endpointId": ENDPOINT["id"]})
         deadline = time.monotonic() + 20
         while value["status"] in ("QUEUED", "RUNNING") and time.monotonic() < deadline:
             time.sleep(.1)
             value = request("/api/runs/" + value["id"])
-        assert value["status"] == "SUCCEEDED" and value["mode"] == "DEMO" and value["synthetic"] is False and valid_citations(value)
+        assert value["status"] == expected_status, {"expectedStatus": expected_status, "status": value["status"], "failure": value.get("failure")}
+        assert value["mode"] == "DEMO" and value["synthetic"] is False and valid_citations(value)
         return value
 
     try:
@@ -200,7 +201,8 @@ def main():
             originals = [original]
             if prior_version >= (0, 9, 0):
                 fixture.classified = True
-                classified = run()
+                classified = run("INSUFFICIENT_EVIDENCE")
+                assert classified["diagnosis"]["possibleCauses"] == []
                 metrics = next(item["data"] for item in classified["evidence"] if item["source"] == "read_service_metrics")
                 statuses = metrics["requestDetails"]["responseStatuses"]
                 assert statuses["successful"] == 2 and statuses["clientError"] == 1
