@@ -18,8 +18,10 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         volatile Class<?> handlerClass;
         private FailureLocations.Location failureLocation;
         private boolean failureRecorded;
+        private boolean requestException, asyncTimeout, asyncError;
         private boolean active = true;
-        record Completed(double downstreamMs, boolean timeout, MvcEndpoint endpoint, FailureLocations.Location failureLocation) {}
+        record Completed(double downstreamMs, boolean timeout, MvcEndpoint endpoint, FailureLocations.Location failureLocation,
+                         boolean requestException, boolean asyncTimeout, boolean asyncError) {}
         synchronized boolean isActive() { return active; }
         synchronized void addDownstreamMillis(double elapsed) { if (active) downstreamMs += elapsed; }
         synchronized void recordFailure(boolean timedOut, java.util.function.Supplier<FailureLocations.Location> capture) {
@@ -32,10 +34,16 @@ final class TriageRequestFilter extends OncePerRequestFilter {
             }
         }
         synchronized void recordIfActive(Runnable observation) { if (active) observation.run(); }
+        synchronized void recordRequestException(java.util.function.Supplier<FailureLocations.Location> capture) {
+            if (!active) return;
+            requestException = true; recordFailure(false, capture);
+        }
+        synchronized void markAsyncTimeout() { if (active) asyncTimeout = true; }
+        synchronized void markAsyncError() { if (active) asyncError = true; }
         synchronized Completed finish() {
             if (!active) return null;
             active = false;
-            var completed = new Completed(downstreamMs, timeout, endpoint, failureLocation);
+            var completed = new Completed(downstreamMs, timeout, endpoint, failureLocation, requestException, asyncTimeout, asyncError);
             handlerClass = null;
             endpoint = null;
             failureLocation = null;
@@ -58,9 +66,10 @@ final class TriageRequestFilter extends OncePerRequestFilter {
             if (recorded.compareAndSet(false, true)) complete(context, response, start, failed);
         }
         @Override public void onComplete(AsyncEvent event) { record(); }
-        @Override public void onTimeout(AsyncEvent event) { failed = true; }
+        @Override public void onTimeout(AsyncEvent event) { failed = true; context.markAsyncTimeout(); }
         @Override public void onError(AsyncEvent event) {
             failed = true;
+            context.markAsyncError();
             if (event.getThrowable() != null) context.recordFailure(false, () -> recorder.requestFailure(event.getThrowable(), context.handlerClass));
         }
         @Override public void onStartAsync(AsyncEvent event) { event.getAsyncContext().addListener(this); }
@@ -77,7 +86,7 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         try { chain.doFilter(request, response); }
         catch (ServletException | IOException | RuntimeException e) {
             failed = true;
-            context.recordFailure(false, () -> recorder.requestFailure(e, context.handlerClass));
+            context.recordRequestException(() -> recorder.requestFailure(e, context.handlerClass));
             throw e;
         }
         finally {
@@ -95,6 +104,6 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         if (completed == null) return;
         recorder.recordHttp(elapsed, completed.downstreamMs(), completed.timeout(),
             failed || response.getStatus() >= 500, context.trace, completed.endpoint(), completed.failureLocation(),
-            failed && response.getStatus() < 400 ? 0 : response.getStatus());
+            failed && response.getStatus() < 400 ? 0 : response.getStatus(), completed.requestException(), completed.asyncTimeout(), completed.asyncError());
     }
 }

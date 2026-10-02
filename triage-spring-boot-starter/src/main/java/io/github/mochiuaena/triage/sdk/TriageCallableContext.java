@@ -18,7 +18,7 @@ final class TriageCallableContext implements CallableProcessingInterceptor {
         try {
             var context = TriageRequestFilter.CURRENT.get();
             if (context != null && result instanceof Throwable error)
-                context.recordFailure(false, () -> FailureLocations.capture(error, properties, "REQUEST_EXCEPTION", context.handlerClass));
+                context.recordRequestException(() -> FailureLocations.capture(error, properties, "REQUEST_EXCEPTION", context.handlerClass));
         } finally {
             var scope = worker.get(); worker.remove();
             if (scope != null) scope.close();

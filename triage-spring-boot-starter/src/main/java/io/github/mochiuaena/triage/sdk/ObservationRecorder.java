@@ -12,10 +12,16 @@ public final class ObservationRecorder {
     record Error(Instant timestamp, String traceId, String level, String message) {}
     record EndpointError(Instant timestamp, String traceId, String level, String message,
                          @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-                         FailureLocations.Location failureLocation) {}
+                         FailureLocations.Location failureLocation,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) String code,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Integer responseClass) {
+        EndpointError(Instant timestamp, String traceId, String level, String message, FailureLocations.Location failureLocation) {
+            this(timestamp, traceId, level, message, failureLocation, null, null);
+        }
+    }
     record DatabaseError(Instant timestamp, String traceId, String level, String message, String code) {}
     record HttpSample(Instant timestamp, double requestMs, double downstreamMs, boolean timeout, Error error, MvcEndpoint endpoint,
-                      FailureLocations.Location failureLocation, int responseClass) {}
+                      FailureLocations.Location failureLocation, int responseClass, String requestCode) {}
     record DatabaseSample(Instant timestamp, double requestMs, double acquisitionMs, double queryMs, String code,
                           DatabaseError error) {}
     record PoolSample(Instant timestamp, int active, int pending) {}
@@ -35,13 +41,18 @@ public final class ObservationRecorder {
                            ResponseStatusCounts responseStatuses) {}
     record RequestSummary(MvcEndpoint endpoint, int requestCount, double requestP95Ms,
                           @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-                          ResponseStatusCounts responseStatuses) {}
+                          ResponseStatusCounts responseStatuses,
+                          @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                          RequestFailureCounts requestFailures) {}
+    record RequestFailureCounts(int executionFailures, int serverErrorResponses, int asyncTimeouts, int asyncErrors, int handledExceptions) {}
     record RequestWindow(int schemaVersion, String kind, String service, Instant windowStart, Instant windowEnd,
                          int requestCount, long recordedRequestCount, double requestP95Ms, Double baselineRequestP95Ms,
                          List<EndpointError> errors, boolean synthetic, MvcEndpoint endpoint, List<RequestSummary> endpoints,
                          int unattributedRequestCount, int otherEndpointRequestCount,
                          @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-                         ResponseStatusCounts responseStatuses) {}
+                         ResponseStatusCounts responseStatuses,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                         RequestFailureCounts requestFailures) {}
     record EndpointWindow(int schemaVersion, String kind, String service, String downstreamService, Instant windowStart, Instant windowEnd,
                           int requestCount, int timeoutCount, long recordedRequestCount, double requestP95Ms, double downstreamP95Ms,
                           double downstreamTimeoutRate, Double baselineRequestP95Ms, List<EndpointError> errors, boolean synthetic,
@@ -74,11 +85,25 @@ public final class ObservationRecorder {
     }
     synchronized void recordHttp(double requestMs, double downstreamMs, boolean timeout, boolean failed, String trace, MvcEndpoint endpoint,
                                  FailureLocations.Location location, int responseStatus) {
+        recordHttp(requestMs, downstreamMs, timeout, failed, trace, endpoint, location, responseStatus, false, false, false);
+    }
+    synchronized void recordHttp(double requestMs, double downstreamMs, boolean timeout, boolean failed, String trace, MvcEndpoint endpoint,
+                                 FailureLocations.Location location, int responseStatus, boolean requestException, boolean asyncTimeout, boolean asyncError) {
         Instant time = now();
+        String code = !properties.isRequestFailureCounts() ? null : asyncTimeout ? "ASYNC_REQUEST_TIMEOUT" : asyncError ? "ASYNC_REQUEST_ERROR"
+            : requestException ? responseStatus == 0 || responseStatus >= 500 ? "REQUEST_EXECUTION_FAILED" : "REQUEST_EXCEPTION_HANDLED"
+            : responseStatus >= 500 ? "HTTP_SERVER_ERROR_RESPONSE" : null;
         Error error = timeout ? new Error(time, trace, "ERROR", properties.getDownstreamId() + " request timeout")
             : failed ? new Error(time, trace, "ERROR", "HTTP request failed") : null;
+        if (code != null) error = new Error(time, trace, "REQUEST_EXCEPTION_HANDLED".equals(code) ? "WARN" : "ERROR", switch (code) {
+            case "REQUEST_EXECUTION_FAILED" -> "Request processing raised an exception";
+            case "HTTP_SERVER_ERROR_RESPONSE" -> "Request returned a server error response";
+            case "ASYNC_REQUEST_TIMEOUT" -> "Async request timed out";
+            case "ASYNC_REQUEST_ERROR" -> "Async request reported an error";
+            default -> "Request exception was handled";
+        });
         int responseClass = properties.isResponseStatusCounts() && responseStatus >= 100 && responseStatus <= 599 ? responseStatus / 100 : 0;
-        http.addLast(new HttpSample(time, requestMs, downstreamMs, timeout, error, endpoint, location, responseClass)); recorded++;
+        http.addLast(new HttpSample(time, requestMs, downstreamMs, timeout, error, endpoint, location, responseClass, code)); recorded++;
         trim(http, HttpSample::timestamp, properties.getCapacity());
     }
     synchronized void recordDatabase(double requestMs, double acquisitionMs, double queryMs, String code, String trace) {
@@ -181,15 +206,22 @@ public final class ObservationRecorder {
         matching.stream().filter(value -> value.endpoint() != null)
             .forEach(value -> groups.computeIfAbsent(value.endpoint(), ignored -> new ArrayList<>()).add(value));
         var summaries = groups.entrySet().stream().map(value -> new RequestSummary(value.getKey(), value.getValue().size(),
-            p95(value.getValue().stream().map(HttpSample::requestMs).toList()), statuses(value.getValue())))
+            p95(value.getValue().stream().map(HttpSample::requestMs).toList()), statuses(value.getValue()), failureCounts(value.getValue())))
             .sorted(Comparator.comparingInt(RequestSummary::requestCount).reversed().thenComparing(value -> value.endpoint().id())).limit(8).toList();
         int unattributed = (int) matching.stream().filter(value -> value.endpoint() == null).count();
         int other = matching.size() - unattributed - summaries.stream().mapToInt(RequestSummary::requestCount).sum();
         var errors = matching.stream().filter(value -> value.error() != null).sorted(Comparator.comparing(HttpSample::timestamp).reversed()).limit(3)
-            .map(value -> new EndpointError(value.error().timestamp(), value.error().traceId(), value.error().level(), value.error().message(), value.failureLocation())).toList();
+            .map(value -> new EndpointError(value.error().timestamp(), value.error().traceId(), value.error().level(), value.error().message(), value.failureLocation(),
+                value.requestCode(), properties.isRequestFailureCounts() ? value.responseClass() : null)).toList();
         return new RequestWindow(4, "HTTP_REQUESTS", properties.getServiceId(), start, end, matching.size(), recorded,
-            p95(matching.stream().map(HttpSample::requestMs).toList()), null, errors, false, selected, summaries, unattributed, other, statuses(matching));
+            p95(matching.stream().map(HttpSample::requestMs).toList()), null, errors, false, selected, summaries, unattributed, other, statuses(matching), failureCounts(matching));
     }
+    private RequestFailureCounts failureCounts(List<HttpSample> samples) {
+        if (!properties.isRequestFailureCounts()) return null;
+        return new RequestFailureCounts(codeCount(samples, "REQUEST_EXECUTION_FAILED"), codeCount(samples, "HTTP_SERVER_ERROR_RESPONSE"),
+            codeCount(samples, "ASYNC_REQUEST_TIMEOUT"), codeCount(samples, "ASYNC_REQUEST_ERROR"), codeCount(samples, "REQUEST_EXCEPTION_HANDLED"));
+    }
+    private int codeCount(List<HttpSample> samples, String code) { return (int) samples.stream().filter(value -> code.equals(value.requestCode())).count(); }
     private ResponseStatusCounts statuses(List<HttpSample> samples) {
         if (!properties.isResponseStatusCounts()) return null;
         int[] counts = new int[6];

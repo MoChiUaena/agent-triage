@@ -34,7 +34,7 @@ public class TriageObservationAutoConfiguration {
     }
     @Bean @ConditionalOnProperty(prefix = "triage.sdk", name = "endpoint-observations", havingValue = "true")
     TriageMvcEndpoints triageMvcEndpoints(TriageObservationProperties properties) { return new TriageMvcEndpoints(properties); }
-    @Bean @ConditionalOnProperty(prefix = "triage.sdk", name = "exception-locations", havingValue = "true")
+    @Bean @org.springframework.context.annotation.Conditional(RequestFailureCapture.class)
     TriageHandledExceptionObserver triageHandledExceptionObserver(ObservationRecorder recorder) {
         return new TriageHandledExceptionObserver(recorder);
     }
@@ -52,6 +52,14 @@ public class TriageObservationAutoConfiguration {
             var kind = org.springframework.boot.context.properties.bind.Binder.get(context.getEnvironment())
                 .bind("triage.sdk.kind", TriageObservationProperties.Kind.class).orElse(TriageObservationProperties.Kind.HTTP);
             return kind != TriageObservationProperties.Kind.DATABASE;
+        }
+    }
+    static final class RequestFailureCapture implements org.springframework.context.annotation.Condition {
+        @Override public boolean matches(org.springframework.context.annotation.ConditionContext context,
+                                          org.springframework.core.type.AnnotatedTypeMetadata metadata) {
+            var binder = org.springframework.boot.context.properties.bind.Binder.get(context.getEnvironment());
+            return binder.bind("triage.sdk.exception-locations", Boolean.class).orElse(false)
+                || binder.bind("triage.sdk.request-failure-counts", Boolean.class).orElse(false);
         }
     }
 }

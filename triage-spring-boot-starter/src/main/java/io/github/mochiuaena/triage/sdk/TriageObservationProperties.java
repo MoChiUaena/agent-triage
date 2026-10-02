@@ -16,6 +16,7 @@ public class TriageObservationProperties {
     private int capacity = 10_000;
     private boolean endpointObservations;
     private boolean responseStatusCounts;
+    private boolean requestFailureCounts;
     private boolean asyncContextPropagation;
     private boolean exceptionLocations;
     private boolean sourceVersionChecks;
@@ -33,6 +34,8 @@ public class TriageObservationProperties {
             throw new IllegalArgumentException("triage.sdk HTTP_REQUESTS does not accept downstream configuration");
         if (endpointObservations && kind == Kind.DATABASE) throw new IllegalArgumentException("triage.sdk endpoint-observations requires an HTTP request kind");
         if (responseStatusCounts && !endpointObservations) throw new IllegalArgumentException("triage.sdk response-status-counts requires endpoint-observations");
+        if (requestFailureCounts && (kind != Kind.HTTP_REQUESTS || !responseStatusCounts))
+            throw new IllegalArgumentException("triage.sdk request-failure-counts requires HTTP_REQUESTS and response-status-counts");
         if (asyncContextPropagation && !endpointObservations) throw new IllegalArgumentException("triage.sdk async-context-propagation requires endpoint-observations");
         if (sourceVersionChecks && !endpointObservations) throw new IllegalArgumentException("triage.sdk source-version-checks requires endpoint-observations");
         if (jpaObservations && (kind == Kind.DATABASE || !identity(jpaServiceId) || !identity(jpaDatabaseId) || jpaServiceId.equals(serviceId)))
@@ -83,6 +86,8 @@ public class TriageObservationProperties {
     public void setEndpointObservations(boolean value) { endpointObservations = value; }
     public boolean isResponseStatusCounts() { return responseStatusCounts; }
     public void setResponseStatusCounts(boolean value) { responseStatusCounts = value; }
+    public boolean isRequestFailureCounts() { return requestFailureCounts; }
+    public void setRequestFailureCounts(boolean value) { requestFailureCounts = value; }
     public boolean isAsyncContextPropagation() { return asyncContextPropagation; }
     public void setAsyncContextPropagation(boolean value) { asyncContextPropagation = value; }
     public boolean isExceptionLocations() { return exceptionLocations; }

@@ -23,7 +23,7 @@ final class TriageHandledExceptionObserver implements WebMvcConfigurer, HandlerE
         if (context == null && request.getAttribute(TriageRequestFilter.CONTEXT_ATTRIBUTE) instanceof TriageRequestFilter.Context observed) context = observed;
         if (context != null) {
             var selected = context;
-            selected.recordFailure(false, () -> recorder.requestFailure(error, selected.handlerClass));
+            selected.recordRequestException(() -> recorder.requestFailure(error, selected.handlerClass));
         }
         return null;
     }
