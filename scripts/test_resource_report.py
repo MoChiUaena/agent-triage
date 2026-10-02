@@ -1,0 +1,102 @@
+import csv
+import json
+from pathlib import Path
+import tempfile
+import unittest
+from resource_report import verify_dataset, verify_matrix
+
+class ResourceReportTest(unittest.TestCase):
+    def fixture(self, root):
+        rows = [dict(phase="running", pid=1234, elapsedSeconds=elapsed, nativeReservedBytes=180000000,
+            nativeCommittedBytes=143000000, javaHeapCommittedBytes=100000000, nativeNonHeapCommittedBytes=43000000,
+            nativeThreadCount=25, heapUsedBytes=12000000, rssBytes=170000000, privateBytes=None)
+            for elapsed in range(0, 61, 6)]
+        closed = dict(rows[-1], phase="closed", elapsedSeconds=75); rows.append(closed)
+        meta = dict(status="passed", component="agent", operatingSystem="linux", sourceCommit="a" * 40, sourceTreeDirty=False,
+            requestedSeconds=60, warmupSeconds=12, intervalSeconds=6, runningSamples=11, baseline=rows[2], closedSample=closed,
+            postWarmupPeakNativeGrowthBytes=0, postWarmupPeakResidentGrowthBytes=0, peakNativeThreadCount=25, peakHeapUsedBytes=12000000,
+            nativeGrowthGateBytes=67108864, residentGrowthGateBytes=134217728, workload=dict(seconds=60, cycles=20, cancelled=100, fresh=20,
+                baselineHeap=12000000, peakHeap=13000000, finalHeap=12000000, registry=0, queues=0, connections=0))
+        with (root / "memory.csv").open("w", newline="", encoding="utf-8") as output:
+            writer = csv.DictWriter(output, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
+        (root / "summary.json").write_text(json.dumps(meta))
+        return meta
+
+    def test_replays_actual_numeric_rows_and_source_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.fixture(root)
+            meta, rows = verify_dataset(root / "summary.json", "a" * 40, 60)
+            self.assertEqual(meta["runningSamples"], 11)
+            self.assertEqual(rows[-1]["elapsedSeconds"], 75)
+
+    def test_rejects_summary_tampering_or_wrong_source_duration_and_dirty_tree(self):
+        for key, changed in [("sourceCommit", "b" * 40), ("requestedSeconds", 3600), ("sourceTreeDirty", True),
+            ("postWarmupPeakNativeGrowthBytes", 1), ("intervalSeconds", 300)]:
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); meta = self.fixture(root); meta[key] = changed
+                (root / "summary.json").write_text(json.dumps(meta))
+                with self.assertRaises(ValueError):
+                    verify_dataset(root / "summary.json", "a" * 40, 60)
+
+    def test_rejects_csv_rows_that_confuse_native_heap_or_missing_os_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.fixture(root)
+            text = (root / "memory.csv").read_text()
+            (root / "memory.csv").write_text(text.replace("143000000", "90000000"))
+            with self.assertRaises(ValueError):
+                verify_dataset(root / "summary.json", "a" * 40, 60)
+
+
+    def test_rejects_missing_platform_measurements_and_incomplete_workloads(self):
+        for edit in ("missing-rss", "windows-private", "negative-counter", "borrowed-connection", "missing-counter"):
+            with self.subTest(edit=edit), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); meta = self.fixture(root)
+                if edit == "missing-rss":
+                    (root / "memory.csv").write_text((root / "memory.csv").read_text().replace("170000000", ""))
+                elif edit == "windows-private":
+                    meta["operatingSystem"] = "windows"
+                elif edit == "negative-counter":
+                    meta["workload"]["peakHeap"] = -1
+                elif edit == "borrowed-connection":
+                    meta["workload"]["connections"] = 1
+                else:
+                    del meta["workload"]["cancelled"]
+                (root / "summary.json").write_text(json.dumps(meta))
+                with self.assertRaises(ValueError):
+                    verify_dataset(root / "summary.json", "a" * 40, 60)
+
+    def matrix_fixture(self, root):
+        summaries = []
+        for component in ("agent", "starter"):
+            for operating_system in ("linux", "windows"):
+                directory = root / (component + "-" + operating_system); directory.mkdir()
+                meta = self.fixture(directory)
+                meta.update(component=component, operatingSystem=operating_system)
+                if component == "starter":
+                    meta["workload"] = dict(seconds=60, cycles=20, cancelled=20, requests=20, jdbc=40,
+                        baselineHeap=12000000, peakHeap=13000000, finalHeap=12000000, connections=0,
+                        workerContexts=0, samplerStopped=True)
+                if operating_system == "windows":
+                    with (directory / "memory.csv").open(newline="") as source:
+                        rows = list(csv.DictReader(source))
+                    for row in rows: row["privateBytes"] = "150000000"
+                    with (directory / "memory.csv").open("w", newline="") as output:
+                        writer = csv.DictWriter(output, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
+                    meta["baseline"]["privateBytes"] = 150000000
+                    meta["closedSample"]["privateBytes"] = 150000000
+                summary = directory / "summary.json"; summary.write_text(json.dumps(meta)); summaries.append(summary)
+        return summaries
+
+    def test_matrix_requires_each_component_and_platform_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            summaries = self.matrix_fixture(Path(directory))
+            datasets = verify_matrix(summaries, "a" * 40, 60)
+            self.assertEqual(len(datasets), 4)
+            self.assertEqual({(meta["component"], meta["operatingSystem"]) for meta, rows in datasets},
+                {("agent", "linux"), ("agent", "windows"), ("starter", "linux"), ("starter", "windows")})
+            for invalid in (summaries[:-1], summaries + [summaries[0]], []):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    verify_matrix(invalid, "a" * 40, 60)
+
+if __name__ == "__main__":
+    unittest.main()
