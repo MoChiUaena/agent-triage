@@ -59,6 +59,11 @@ class ResourceSoakTest(unittest.TestCase):
         self.assertEqual(result["runningSamples"], 4)
         self.assertEqual(result["postWarmupPeakNativeGrowthBytes"], 1303296)
 
+    def test_rejects_sampler_that_stops_long_before_the_workload_closes(self):
+        samples = [sample(0), sample(120), sample(150), sample(180), sample(1000, "closed")]
+        with self.assertRaises(ValueError):
+            summarize(samples, 1000, 120, 30)
+
     def test_rejects_growth_and_missing_or_short_running_coverage(self):
         valid = [sample(0), sample(120), sample(150), sample(180), sample(200, "closed")]
         for samples in [valid[:-1], valid[:2] + [sample(60, "closed")],

@@ -92,6 +92,8 @@ def summarize(samples, seconds, warmup, interval):
         raise ValueError("Missing post-warmup samples, full duration or closed-phase sample")
     if any(b["elapsedSeconds"] - a["elapsedSeconds"] > interval + 30 for a, b in zip(steady, steady[1:])):
         raise ValueError("Post-warmup sampling has a coverage gap")
+    if steady[0]["elapsedSeconds"] - warmup > interval + 30 or closed[0]["elapsedSeconds"] - steady[-1]["elapsedSeconds"] > interval + 30:
+        raise ValueError("Post-warmup sampling does not cover the start or closing boundary")
     baseline = steady[0]
     native_growth = max(item["nativeNonHeapCommittedBytes"] for item in steady) - baseline["nativeNonHeapCommittedBytes"]
     rss_growth = max(item["rssBytes"] for item in steady) - baseline["rssBytes"]
