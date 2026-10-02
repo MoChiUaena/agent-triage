@@ -40,9 +40,13 @@ jobs:
         run: python3 scripts/petclinic_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic" --inbound --base-port 18480
       - name: Verify JPA with inbound HTTP observations
         run: python3 scripts/petclinic_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic" --inbound --jpa --base-port 18490
+      - name: Verify request execution failures against original application exceptions
+        run: python3 scripts/petclinic_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic" --inbound --request-failures --base-port 18500
+      - name: Verify request execution classification with independent JPA stages
+        run: python3 scripts/petclinic_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic" --inbound --jpa --request-failures --base-port 18510
       - name: Confirm both verification processes stopped
         run: |
-          for endpoint in 18460/api/config 18461/actuator/health 18470/api/config 18471/actuator/health 18480/api/config 18481/actuator/health 18490/api/config 18491/actuator/health; do
+          for endpoint in 18460/api/config 18461/actuator/health 18470/api/config 18471/actuator/health 18480/api/config 18481/actuator/health 18490/api/config 18491/actuator/health 18500/api/config 18501/actuator/health 18510/api/config 18511/actuator/health; do
             if curl -fsS --max-time 2 "http://127.0.0.1:$endpoint" >/dev/null; then
               echo "Verification process at $endpoint did not stop" >&2
               exit 1

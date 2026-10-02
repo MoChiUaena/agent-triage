@@ -26,7 +26,10 @@ def main():
     parser.add_argument("--keep-running", action="store_true", help="Keep this isolated preview after a successful check")
     parser.add_argument("--jpa", action="store_true", help="Verify opt-in JPA statement and pool observations")
     parser.add_argument("--inbound", action="store_true", help="Observe only inbound requests without a downstream placeholder")
+    parser.add_argument("--request-failures", action="store_true", help="Classify request failures in inbound V4")
     args = parser.parse_args()
+    if args.request_failures and not args.inbound:
+        parser.error("request-failures requires inbound mode")
     public = args.project_directory.resolve()
     revision = subprocess.check_output(["git", "-C", str(public), "rev-parse", "HEAD"], text=True).strip()
     assert revision == REVISION, "Use the documented upstream commit"
@@ -149,6 +152,7 @@ def main():
         assert class_agent.is_file(), "Build the observation class Agent first"
         http_options = ["--triage.sdk.kind=HTTP_REQUESTS", "--triage.sdk.response-status-counts=true"] if args.inbound else [
             "--triage.sdk.downstream-id=unobserved-http", "--triage.sdk.downstream-base-url=http://127.0.0.1:1"]
+        if args.request_failures: http_options.append("--triage.sdk.request-failure-counts=true")
         start("petclinic", public / "target/spring-petclinic-3.5.0-SNAPSHOT.jar", [f"--server.port={args.base_port + 1}", "--server.address=127.0.0.1",
             "--triage.sdk.enabled=true", "--triage.sdk.service-id=petclinic-service", *http_options, "--triage.sdk.request-path-prefix=/owners/",
             "--triage.sdk.endpoint-observations=true", "--triage.sdk.exception-locations=true", "--triage.sdk.source-version-checks=true",
@@ -190,8 +194,8 @@ def main():
         assert normal_metrics["requestCount"] == 2 and failed_metrics["requestCount"] == 4
         if args.inbound:
             for result in (normal, failed):
-                assert result["status"] == "INSUFFICIENT_EVIDENCE" and result["serviceInfo"]["downstreamId"] is None
-                assert "未采集下游" in result["diagnosis"]["uncertainty"]
+                assert result["status"] == ("SUCCEEDED" if args.request_failures and result is failed else "INSUFFICIENT_EVIDENCE")
+                assert result["serviceInfo"]["downstreamId"] is None
                 metrics = evidence(result, "read_service_metrics")["data"]
                 assert metrics["observationType"] == "HTTP_REQUESTS"
                 assert not {"timeoutCount", "downstreamP95Ms", "downstreamTimeoutRate"} & metrics.keys()
@@ -199,6 +203,11 @@ def main():
             assert normal_metrics["responseStatuses"]["successful"] == 2
             counts = failed_metrics["responseStatuses"]
             assert counts["successful"] == 2 and counts["serverError"] == 0 and counts["unknown"] == 2, counts
+            if args.request_failures:
+                assert normal_metrics["requestFailures"]["executionFailures"] == 0
+                assert failed_metrics["requestFailures"]["executionFailures"] == 2
+                assert failed["diagnosis"]["possibleCauses"] and "请求执行" in failed["diagnosis"]["possibleCauses"][0]["text"]
+                assert all(entry["code"] == "REQUEST_EXECUTION_FAILED" for entry in evidence(failed, "query_error_logs")["data"]["entries"])
             end = quote(datetime.now(timezone.utc).isoformat(), safe="")
             status, observed = request(application, "/triage/request-observations?windowMinutes=5&endTime=" + end)
             assert status == 200 and observed["schemaVersion"] == 4 and observed["requestCount"] == 6
@@ -207,7 +216,7 @@ def main():
             assert normal_metrics["timeoutCount"] == failed_metrics["timeoutCount"] == 0
         assert not evidence(normal, "query_error_logs")["data"]["entries"]
         assert len(evidence(failed, "query_error_logs")["data"]["entries"]) == 2
-        assert failed["status"] == "INSUFFICIENT_EVIDENCE"
+        assert failed["status"] == ("SUCCEEDED" if args.request_failures else "INSUFFICIENT_EVIDENCE")
         assert "下游请求错误" not in json.dumps(failed["diagnosis"], ensure_ascii=False)
         graph = failed["sourceAnalysis"]["graph"]
         assert graph["endpointMatches"][0]["version"]["state"] == "MATCHED"
@@ -308,6 +317,8 @@ def main():
             print("Petclinic passed: original MVC pages, actual application exceptions, local source lines, build mismatch, frozen history and zero model calls")
         if args.inbound:
             print("Petclinic inbound V4 passed: no downstream identity or origin, request/response evidence, unknown downstream counters, source versions and history")
+        if args.request_failures:
+            print("Petclinic request execution failure passed: original exception, matched counters/events/rule, normal stays insufficient, JPA and history remain independent")
         print(f"Saved isolated verification to {output}")
         if args.keep_running:
             retained = True
