@@ -33,6 +33,15 @@ public final class ObservationRecorder {
     record EndpointSummary(MvcEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms,
                            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
                            ResponseStatusCounts responseStatuses) {}
+    record RequestSummary(MvcEndpoint endpoint, int requestCount, double requestP95Ms,
+                          @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                          ResponseStatusCounts responseStatuses) {}
+    record RequestWindow(int schemaVersion, String kind, String service, Instant windowStart, Instant windowEnd,
+                         int requestCount, long recordedRequestCount, double requestP95Ms, Double baselineRequestP95Ms,
+                         List<EndpointError> errors, boolean synthetic, MvcEndpoint endpoint, List<RequestSummary> endpoints,
+                         int unattributedRequestCount, int otherEndpointRequestCount,
+                         @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                         ResponseStatusCounts responseStatuses) {}
     record EndpointWindow(int schemaVersion, String kind, String service, String downstreamService, Instant windowStart, Instant windowEnd,
                           int requestCount, int timeoutCount, long recordedRequestCount, double requestP95Ms, double downstreamP95Ms,
                           double downstreamTimeoutRate, Double baselineRequestP95Ms, List<EndpointError> errors, boolean synthetic,
@@ -104,6 +113,8 @@ public final class ObservationRecorder {
         if (droppedThrough == null || time.isAfter(droppedThrough)) droppedThrough = time;
     }
     public synchronized Object snapshot(int minutes, Instant end) {
+        if (properties.getKind() == TriageObservationProperties.Kind.HTTP_REQUESTS)
+            throw new ResponseStatusException(NOT_FOUND, "Use the inbound request observation route");
         Instant start = windowStart(minutes, end);
         if (properties.getKind() == TriageObservationProperties.Kind.DATABASE) return databaseWindow(start, end);
         var matching = http.stream().filter(v -> within(v.timestamp(), start, end)).toList();
@@ -152,6 +163,32 @@ public final class ObservationRecorder {
             matching.stream().filter(v -> v.error() != null).sorted(Comparator.comparing(HttpSample::timestamp).reversed()).limit(3)
                 .map(v -> new EndpointError(v.error().timestamp(), v.error().traceId(), v.error().level(), v.error().message(), v.failureLocation())).toList(),
             false, selected, summaries, unattributed, other, statuses(matching));
+    }
+    public synchronized RequestWindow requestSnapshot(int minutes, Instant end, String endpointId) {
+        if (properties.getKind() != TriageObservationProperties.Kind.HTTP_REQUESTS)
+            throw new ResponseStatusException(NOT_FOUND, "Inbound request observations are not enabled");
+        Instant start = windowStart(minutes, end);
+        MvcEndpoint selected = null;
+        if (endpointId != null) {
+            if (!endpointId.matches("EP-[a-f0-9]{32}")) throw new ResponseStatusException(BAD_REQUEST, "Invalid endpoint identity");
+            selected = http.stream().filter(value -> value.endpoint() != null && value.endpoint().id().equals(endpointId))
+                .map(HttpSample::endpoint).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(CONFLICT, "The selected endpoint is no longer observed; refresh the endpoint list"));
+        }
+        var matching = http.stream().filter(value -> within(value.timestamp(), start, end))
+            .filter(value -> endpointId == null || value.endpoint() != null && value.endpoint().id().equals(endpointId)).toList();
+        var groups = new LinkedHashMap<MvcEndpoint, List<HttpSample>>();
+        matching.stream().filter(value -> value.endpoint() != null)
+            .forEach(value -> groups.computeIfAbsent(value.endpoint(), ignored -> new ArrayList<>()).add(value));
+        var summaries = groups.entrySet().stream().map(value -> new RequestSummary(value.getKey(), value.getValue().size(),
+            p95(value.getValue().stream().map(HttpSample::requestMs).toList()), statuses(value.getValue())))
+            .sorted(Comparator.comparingInt(RequestSummary::requestCount).reversed().thenComparing(value -> value.endpoint().id())).limit(8).toList();
+        int unattributed = (int) matching.stream().filter(value -> value.endpoint() == null).count();
+        int other = matching.size() - unattributed - summaries.stream().mapToInt(RequestSummary::requestCount).sum();
+        var errors = matching.stream().filter(value -> value.error() != null).sorted(Comparator.comparing(HttpSample::timestamp).reversed()).limit(3)
+            .map(value -> new EndpointError(value.error().timestamp(), value.error().traceId(), value.error().level(), value.error().message(), value.failureLocation())).toList();
+        return new RequestWindow(4, "HTTP_REQUESTS", properties.getServiceId(), start, end, matching.size(), recorded,
+            p95(matching.stream().map(HttpSample::requestMs).toList()), null, errors, false, selected, summaries, unattributed, other, statuses(matching));
     }
     private ResponseStatusCounts statuses(List<HttpSample> samples) {
         if (!properties.isResponseStatusCounts()) return null;

@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties("triage.sdk")
 public class TriageObservationProperties {
-    public enum Kind { HTTP, DATABASE }
+    public enum Kind { HTTP, DATABASE, HTTP_REQUESTS }
     private boolean enabled;
     private Kind kind = Kind.HTTP;
     private String serviceId;
@@ -27,13 +27,15 @@ public class TriageObservationProperties {
     private java.util.List<String> applicationPackages = java.util.List.of();
 
     void validate() {
-        if (kind == null || !identity(serviceId) || !identity(downstreamId))
+        if (kind == null || !identity(serviceId) || kind != Kind.HTTP_REQUESTS && !identity(downstreamId))
             throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
-        if (endpointObservations && kind != Kind.HTTP) throw new IllegalArgumentException("triage.sdk endpoint-observations requires HTTP kind");
+        if (kind == Kind.HTTP_REQUESTS && (downstreamId != null || downstreamBaseUrl != null))
+            throw new IllegalArgumentException("triage.sdk HTTP_REQUESTS does not accept downstream configuration");
+        if (endpointObservations && kind == Kind.DATABASE) throw new IllegalArgumentException("triage.sdk endpoint-observations requires an HTTP request kind");
         if (responseStatusCounts && !endpointObservations) throw new IllegalArgumentException("triage.sdk response-status-counts requires endpoint-observations");
         if (asyncContextPropagation && !endpointObservations) throw new IllegalArgumentException("triage.sdk async-context-propagation requires endpoint-observations");
         if (sourceVersionChecks && !endpointObservations) throw new IllegalArgumentException("triage.sdk source-version-checks requires endpoint-observations");
-        if (jpaObservations && (kind != Kind.HTTP || !identity(jpaServiceId) || !identity(jpaDatabaseId) || jpaServiceId.equals(serviceId)))
+        if (jpaObservations && (kind == Kind.DATABASE || !identity(jpaServiceId) || !identity(jpaDatabaseId) || jpaServiceId.equals(serviceId)))
             throw new IllegalArgumentException("triage.sdk JPA observations require HTTP kind, a separate service-id and a database-id");
         if (applicationPackages == null || applicationPackages.size() > 8 || applicationPackages.stream().anyMatch(value -> !FailureLocations.javaName(value, 160, true))
             || exceptionLocations && (!endpointObservations || applicationPackages.isEmpty()))

@@ -21,7 +21,7 @@ public class TriageObservationAutoConfiguration {
                                                                 TriageObservationProperties properties) {
         return new TriageObservationsEndpoint(recorder, jpa, properties);
     }
-    @Bean @ConditionalOnProperty(prefix = "triage.sdk", name = "kind", havingValue = "HTTP", matchIfMissing = true)
+    @Bean @org.springframework.context.annotation.Conditional(HttpRequestMode.class)
     FilterRegistrationBean<TriageRequestFilter> triageRequestFilter(ObservationRecorder recorder, TriageObservationProperties properties) {
         var bean = new FilterRegistrationBean<>(new TriageRequestFilter(recorder));
         bean.addUrlPatterns(properties.getRequestPathPrefix() + "*");
@@ -45,5 +45,13 @@ public class TriageObservationAutoConfiguration {
     @Bean(destroyMethod = "close") @ConditionalOnProperty(prefix = "triage.sdk", name = "jpa-observations", havingValue = "true")
     TriageJpaObserver triageJpaObserver(TriageObservationProperties properties) {
         return new TriageJpaObserver(properties);
+    }
+    static final class HttpRequestMode implements org.springframework.context.annotation.Condition {
+        @Override public boolean matches(org.springframework.context.annotation.ConditionContext context,
+                                          org.springframework.core.type.AnnotatedTypeMetadata metadata) {
+            var kind = org.springframework.boot.context.properties.bind.Binder.get(context.getEnvironment())
+                .bind("triage.sdk.kind", TriageObservationProperties.Kind.class).orElse(TriageObservationProperties.Kind.HTTP);
+            return kind != TriageObservationProperties.Kind.DATABASE;
+        }
     }
 }

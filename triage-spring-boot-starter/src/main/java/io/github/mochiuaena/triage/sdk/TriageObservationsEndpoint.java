@@ -44,6 +44,12 @@ final class TriageObservationsEndpoint {
         if (observer == null) throw new ResponseStatusException(NOT_FOUND, "JPA observations are disabled");
         return observer.snapshot(windowMinutes, endTime);
     }
+    @GetMapping("/triage/request-observations")
+    public Object requests(@RequestParam int windowMinutes, @RequestParam Instant endTime,
+                           @RequestParam(required = false) String endpointId, HttpServletRequest request) {
+        local(request);
+        return recorder.requestSnapshot(windowMinutes, endTime, endpointId);
+    }
     private void local(HttpServletRequest request) {
         try {
             if (!InetAddress.getByName(request.getRemoteAddr()).isLoopbackAddress()) throw new IllegalArgumentException();
