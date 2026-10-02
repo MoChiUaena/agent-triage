@@ -26,7 +26,7 @@ def parse_native_memory(text, pid):
     diagnostic_pid(text, pid)
     total = re.search(r"Total: reserved=(\d+)KB, committed=(\d+)KB", text)
     heap = re.search(r"Java Heap \(reserved=(\d+)KB, committed=(\d+)KB\)", text)
-    threads = re.search(r"\(thread #(\d+)\)", text)
+    threads = re.search(r"\(threads? #(\d+)\)", text)
     if not all((total, heap, threads)):
         details = "; ".join(line.strip() for line in text.splitlines()
             if "Total:" in line or "Java Heap" in line or "Thread" in line or "thread" in line)

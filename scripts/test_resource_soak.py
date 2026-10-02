@@ -24,6 +24,12 @@ class ResourceSoakTest(unittest.TestCase):
         self.assertEqual(value["nativeNonHeapCommittedBytes"], 42696704)
         self.assertEqual(value["nativeThreadCount"], 25)
 
+    def test_reads_plural_thread_label_from_ci_jdk_summary(self):
+        text = "1234:\nTotal: reserved=1762235KB, committed=225807KB\n- Java Heap (reserved=262144KB, committed=98304KB)\n- Thread (reserved=28780KB, committed=1472KB)\n (threads #28)"
+        value = parse_native_memory(text, 1234)
+        self.assertEqual(value["nativeThreadCount"], 28)
+        self.assertEqual(value["nativeCommittedBytes"], 231226368)
+
     def test_rejects_disabled_nmt_wrong_pid_and_inconsistent_totals(self):
         for text, pid in [("1234:\nNative memory tracking is not enabled", 1234),
             (NMT, 2222), (NMT.replace("committed=140000KB", "committed=90000KB"), 1234)]:
