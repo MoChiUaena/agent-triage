@@ -265,6 +265,14 @@ def main():
             assert sql_run["status"] == "SUCCEEDED"
             assert "SQL 执行阶段失败" in sql_run["diagnosis"]["possibleCauses"][0]["text"]
             assert "连接池耗尽影响" not in sql_run["diagnosis"]["possibleCauses"][0]["text"]
+            if args.request_failures:
+                _, http_choices = request(agent, "/api/services/petclinic-service/endpoints?windowMinutes=5")
+                sql_endpoint = next(item["endpoint"] for item in http_choices["endpoints"] if item["endpoint"]["routeTemplate"] == "/owners/verification-sql")
+                http_sql = investigate(sql_endpoint, "已处理SQL异常的503响应")
+                http_data = evidence(http_sql, "read_service_metrics")["data"]
+                assert http_sql["status"] == "INSUFFICIENT_EVIDENCE" and not http_sql["diagnosis"]["possibleCauses"]
+                assert http_data["requestFailures"]["executionFailures"] == 0 and http_data["requestFailures"]["serverErrorResponses"] == 1
+                print("Petclinic mixed SQL passed: DATABASE_V2 observes SQL failure while HTTP_REQUESTS_V4 observes only the handled 503 response")
             with ThreadPoolExecutor(max_workers=1) as pool:
                 held = pool.submit(post_lab, "/verification/pool-hold")
                 deadline = time.monotonic() + 1.0
