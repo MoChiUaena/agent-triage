@@ -1,6 +1,6 @@
 # RestTemplateBuilder 接入验收
 
-日期：2026-10-02。环境：JDK 21、Spring Boot 3.5.16、Spring Framework 6.2.19。验证源码：`e60f1a68ddc26aa4a03ab7338d60d1b45bcdc0b3`。
+日期：2026-10-02。环境：JDK 21、Spring Boot 3.5.16、Spring Framework 6.2.19。最终 HTTP 实现与本机集成验收源码：`f214ffe5e618af0bea695694ab0b9d10deeb38b4`。
 
 ## 接入范围
 
@@ -14,7 +14,7 @@ HTTP 模式下，注入 Boot 的 `RestTemplateBuilder` 创建客户端即可使�
 .\mvnw.cmd -B -ntp -f integrations/pom.xml verify
 ```
 
-Starter 99 项测试、catalog 模块 2 项测试全部通过；工单和派单模块构建通过。新增验收使用回环地址和临时端口，没有调用模型或外部业务服务。
+Starter 109 项测试、catalog 模块 2 项测试全部通过；工单和派单模块构建通过。新增验收使用回环地址和临时端口，没有调用模型或外部业务服务。
 
 | 场景 | 结果 |
 | --- | --- |
@@ -22,6 +22,7 @@ Starter 99 项测试、catalog 模块 2 项测试全部通过；工单和派单�
 | 带超时类型的异常及其包装链 | 记录一次超时，原异常和响应关闭行为保留 |
 | 获取正文时失败、正文读取中的运行时包装异常 | RestClient 与 RestTemplate 都能记录 |
 | Boot 默认 JDK 工厂的真实响应头超时 | 计入下游超时 |
+| Simple 工厂带正文的 POST/PUT，延迟获取状态与响应头 | 成功等待计入耗时，真实超时计数和 HTTP_CLIENT_FAILURE 位置保留 |
 | Simple 工厂的真实响应头、正文 socket 超时 | 计入下游超时；builder 的 250 ms 超时有效 |
 | 普通 503、自定义错误处理器 | 不算下游超时；默认异常或应用返回行为保留 |
 | 多次调用、重复定制 | 入站请求及超时只计一次；观测拦截器不重复追加 |
@@ -31,7 +32,7 @@ Starter 99 项测试、catalog 模块 2 项测试全部通过；工单和派单�
 
 独立 Spring Boot 验收应用位于测试包 `example.template`，不扫描商品应用的组件。JUnit 启动真实 Servlet 服务，业务接口使用 Boot 注入的 builder 和显式 Simple 工厂访问临时下游。正常请求与响应头、正文超时经 `/triage/observations` 和 `/triage/endpoint-observations` 查询，得到 3 个入站请求、2 个超时；接口模板、故障位置和响应 traceId 能对应。实际 URL、查询值、正文和异常消息没有进入观测输出。
 
-跨平台 CI 也已通过，以下三组运行对应源码 `e60f1a68ddc26aa4a03ab7338d60d1b45bcdc0b3`：
+跨平台 CI 也已通过，以下三组运行对应补充 POST/PUT 验收前的源码 `e60f1a68ddc26aa4a03ab7338d60d1b45bcdc0b3`：
 
 - [常规与演示集成 37018664857](https://github.com/MoChiUaena/agent-triage/actions/runs/37018664857)：Windows/Linux 离线测试与独立应用、PostgreSQL、演示和本地模型协议桩。
 - [容量检查 37018664607](https://github.com/MoChiUaena/agent-triage/actions/runs/37018664607)：Windows/Linux 两条边界检查。
@@ -52,3 +53,5 @@ Spring 6.2.19 的 JDK 工厂在正文读超时到期时会关闭输入流。本�
 两项真实正文测试最初误以为一定抛出 ResourceAccessException，后来按 Spring 正文转换器的实际 RestClientException 包装修正。JDK 正文超时没有可识别类型的结果保留在上方限制中，没有用消息文本补判。
 
 独立应用首次与原数据库测试共享 H2 内存库，重复创建 products 表导致整组失败。夹具改用独立数据库并关闭无关 SQL 初始化后，两个测试和整组构建均通过。
+
+独立审查随后复现了 Simple 工厂的 POST/PUT 漏记：非空请求正文写出后，响应头等待可能发生在 getStatusCode，而不是 execute。新增四条真实 socket 测试在修复前得到成功请求仅约 1–10 ms、超时计数零；两种客户端的六条状态码、状态文字和响应头异常测试也失败。共用响应包装现在在这些方法被实际调用时记录耗时与异常，不提前读取响应；完成修复后整组本机集成验证通过。

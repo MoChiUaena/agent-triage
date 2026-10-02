@@ -66,7 +66,7 @@ RestTemplate inventoryClient(RestTemplateBuilder builder,
 
 Starter 追加观测拦截器，保留应用的超时、拦截器和错误处理器，不更换请求工厂。上例显式选用 `SimpleClientHttpRequestFactory`，其正文 socket 超时可通过 `SocketTimeoutException` 识别。Boot 默认选择的 JDK 工厂也能观测调用与正文读取耗时、识别响应头阶段超时；但 Spring 6.2.19 可能在正文超时到期后仅关闭输入流，留下普通 `IOException`。这种情况不会根据错误消息猜测为下游超时。连接超时目前验证了异常分类，未模拟真实网络中的连接黑洞。
 
-响应正文只有在应用读取时才累计耗时，组件不会预读或缓存正文。读取失败保持 Spring 原来的异常包装；正文转换阶段可能抛出 `RestClientException`，不一定是 `ResourceAccessException`。普通 4xx/5xx 仍由应用错误处理器处理。`HTTP_REQUESTS` 模式不安装下游拦截器。
+耗时包含执行请求，以及应用实际获取状态、响应头和读取正文的等待。组件不会预读或缓存正文。读取失败保持 Spring 原来的异常包装；正文转换阶段可能抛出 `RestClientException`，不一定是 `ResourceAccessException`。普通 4xx/5xx 仍由应用错误处理器处理。`HTTP_REQUESTS` 模式不安装下游拦截器。
 
 ## 显式包装工作线程
 
