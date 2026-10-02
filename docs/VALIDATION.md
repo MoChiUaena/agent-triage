@@ -12,11 +12,13 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+v0.11.0 发布：[同包与升级验收](validation/2026-10-02-v011-preview.md)覆盖 Windows/Linux 的八进程启动、五个服务、源码与历史，以及 v0.6.0、v0.10.0 两条升级基线。新分类保持可选，旧记录未采集的字段不补零，发布附件保留旧版。
+
 公开项目混合对照：[2026-10-02 验收](validation/2026-10-02-mixed-public-diagnostics.md)在 REST 的同一窗口比较八个接口，并保留旧 V3 下游观测。Petclinic 另核对同一次错误 SQL 在数据库 V2 与 HTTP V4 中的不同判断。同步／Callable 执行异常支持阶段判断，单纯 5xx、Servlet 超时、原有 404 和迟到结果不替代它；异常后的成功响应也不抹去窗口内的既有异常。
 
-请求执行判断：[2026-10-02 验收](validation/2026-10-02-request-execution.md)覆盖可选分类、异常与响应区别、异步和迟到信号、计数及事件一致性、固定规则／模型共用门槛和历史回读。主项目 289 项、Starter 62 项通过 Windows/Linux CI；Petclinic 原有异常支持阶段判断，旧协议、JPA 和 REST 的原验收保持通过。新分类的完整混合故障对照继续推进。
+请求执行判断：[2026-10-02 验收](validation/2026-10-02-request-execution.md)覆盖可选分类、异常与响应区别、异步和迟到信号、计数及事件一致性、固定规则／模型共用门槛和历史回读。主项目 289 项、Starter 62 项通过 Windows/Linux CI；Petclinic 原有异常支持阶段判断，旧协议、JPA 和 REST 的原验收保持通过。完整混合故障对照见上面的公开项目验收。
 
-入站观测增量：[V4 验收](validation/2026-10-02-inbound-http.md)覆盖无下游配置、请求与接口窗口、JPA、访问令牌、容量、未知状态、模型门槛及历史回读。主项目增至 284 项、Starter 58 项，Windows/Linux CI 通过；固定 Petclinic 验证新旧模式，REST 保留旧 V3 兼容检查。请求执行阶段失败判断尚未加入。
+入站观测增量：[V4 验收](validation/2026-10-02-inbound-http.md)覆盖无下游配置、请求与接口窗口、JPA、访问令牌、容量、未知状态、模型门槛及历史回读。主项目增至 284 项、Starter 58 项，Windows/Linux CI 通过；固定 Petclinic 验证新旧模式，REST 保留旧 V3 兼容检查。这次入站观测验收尚未包含请求执行阶段判断，后续结果见上面的请求执行验收。
 
 真实应用接入核对：[2026-10-02 复验](validation/2026-10-02-application-adoption.md)在当前应用代码上重跑固定 Petclinic 与 Petclinic REST，原接口、JPA 阶段、响应分类、异步、源码版本和停止检查通过。[接入说明](APPLICATION_ADOPTION.md)区分必要改动、辅助故障配置和未测量的运行成本；本轮只更新文档，不改变运行行为。
 
@@ -201,6 +203,6 @@ Spring AI 1.1.8 将服务端 `finish_reason=length` 转为大写 `LENGTH`。只�
 
 ## Windows 打包时提示无法重命名 JAR
 
-用 `java -jar target/agent-triage-0.10.0.jar` 启动后，如果再次执行 package，Spring Boot repackage 可能报错：无法将 JAR 重命名为 `.jar.original`。
+用 `java -jar target/agent-triage-0.11.0.jar` 启动后，如果再次执行 package，Spring Boot repackage 可能报错：无法将 JAR 重命名为 `.jar.original`。
 
 原因是运行中的 Java 进程占用了该文件。停止进程后重新打包即可。开发时建议使用 `mvnw.cmd spring-boot:run`；需要同时运行和重新打包时，可从 JAR 副本启动。

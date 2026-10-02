@@ -20,7 +20,7 @@
 | 自建线程、DeferredResult 等 | 在提交任务的位置捕获快照并包装任务 | 不改变服务地址或窗口契约 |
 | 模型辅助排查 | 应用仍提供相同观测；敏感内容先在接入方移除 | 在模型页配置服务，源码读取另行授权 |
 
-原 HTTP 模式仍要求下游身份和地址；旧 Petclinic 验收使用 `unobserved-http` 与 `http://127.0.0.1:1` 占位。主分支的[入站请求模式](INBOUND_HTTP.md)已移除这一要求，需要同时升级 Agent 与 Starter；v0.10.0 发布附件尚不包含它。观察某一 origin 的旧模式也不会覆盖应用内的所有 HTTP 客户端：自行创建的 `RestClient`、RestTemplate、WebClient、Feign 和任意 JDK HttpClient 调用尚未验证自动归属。
+原 HTTP 模式仍要求下游身份和地址；旧 Petclinic 验收使用 `unobserved-http` 与 `http://127.0.0.1:1` 占位。v0.11.0 的[入站请求模式](INBOUND_HTTP.md)已移除这一要求，需要同时升级 Agent 与 Starter。观察某一 origin 的旧模式也不会覆盖应用内的所有 HTTP 客户端：自行创建的 `RestClient`、RestTemplate、WebClient、Feign 和任意 JDK HttpClient 调用尚未验证自动归属。
 
 Starter 尚未发布到 Maven Central，需要安装发布附件或自行构建后安装到 Maven 本地仓库。SDK 本身依赖 Spring Web 和 HikariCP，不把 Agent 的模型、历史库和源码索引放入业务应用。Maven 构建摘要示例见 [Starter](STARTER.md)；Gradle、多模块聚合及代码生成目录仍需另行评估。
 
