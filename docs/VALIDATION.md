@@ -12,6 +12,8 @@ PostgreSQL 测试配置见[贡献指南](../CONTRIBUTING.md#postgresql-测试)�
 
 ## 测试覆盖
 
+小时资源检查：[2026-10-02 验收](validation/2026-10-02-hourly-resources.md)记录 Windows/Linux 与 Agent/Starter 四条一小时受控流程、原始 CSV、关闭样本及内存曲线。每条都有 120 个运行采样；更新后的门槛包含关闭阶段，并检查 GC 峰值、采样空缺和完整矩阵。复核工具与进程清理回归共 18 项，保留 JDK 标签解析和夹具文件竞态的失败记录。该结果不覆盖真实服务吞吐、业务历史积累或数天稳定性；方法见[持续运行资源检查](RUNTIME_RESOURCES.md)。
+
 v0.11.0 发布：[同包与升级验收](validation/2026-10-02-v011-preview.md)覆盖 Windows/Linux 的八进程启动、五个服务、源码与历史，以及 v0.6.0、v0.10.0 两条升级基线。新分类保持可选，旧记录未采集的字段不补零，发布附件保留旧版。
 
 公开项目混合对照：[2026-10-02 验收](validation/2026-10-02-mixed-public-diagnostics.md)在 REST 的同一窗口比较八个接口，并保留旧 V3 下游观测。Petclinic 另核对同一次错误 SQL 在数据库 V2 与 HTTP V4 中的不同判断。同步／Callable 执行异常支持阶段判断，单纯 5xx、Servlet 超时、原有 404 和迟到结果不替代它；异常后的成功响应也不抹去窗口内的既有异常。
@@ -22,7 +24,7 @@ v0.11.0 发布：[同包与升级验收](validation/2026-10-02-v011-preview.md)�
 
 真实应用接入核对：[2026-10-02 复验](validation/2026-10-02-application-adoption.md)在当前应用代码上重跑固定 Petclinic 与 Petclinic REST，原接口、JPA 阶段、响应分类、异步、源码版本和停止检查通过。[接入说明](APPLICATION_ADOPTION.md)区分必要改动、辅助故障配置和未测量的运行成本；本轮只更新文档，不改变运行行为。
 
-资源留存增量：[取消与异步验收](validation/2026-10-01-runtime-resources.md)记录 Windows/Linux 各两个五分钟作业、实际堆采样和修复前失败。主项目增至 275 项、Starter 51 项；新增检查覆盖排队 Future 关闭、完成快照的类加载器回收、反复取消后的工作队列、JDBC 归还、采样线程停止，以及八十次取消后 SSE 回放。数天运行、原生内存和真实模型供应商的持续取消尚未验证。
+资源留存增量：[取消与异步验收](validation/2026-10-01-runtime-resources.md)记录 Windows/Linux 各两个五分钟作业、实际堆采样和修复前失败。主项目增至 275 项、Starter 51 项；新增检查覆盖排队 Future 关闭、完成快照的类加载器回收、反复取消后的工作队列、JDBC 归还、采样线程停止，以及八十次取消后 SSE 回放。该次只验证五分钟堆留存；一小时 NMT／进程内存增量见上方记录，数天运行与真实模型供应商取消仍待验证。
 
 持续运行阶段的首批检查：[容量与窗口边界验收](validation/2026-10-01-observation-capacity.md)覆盖并发读写、HTTP/JDBC/V3 满容量与溢出、池采样丢失、时钟回拨，以及残缺窗口在固定规则和本地模型协议中的失败流程。Windows/Linux CI 均通过，Starter 增至 48 项；长期资源留存和吞吐基准尚未验证。
 
