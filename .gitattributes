@@ -3,3 +3,5 @@
 mvnw text eol=lf
 *.cmd text eol=crlf
 *.png binary
+
+docs/validation/samples/**/*.csv -text whitespace=trailing-space,space-before-tab,cr-at-eol
