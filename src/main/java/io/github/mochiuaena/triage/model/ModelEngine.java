@@ -145,6 +145,10 @@ public final class ModelEngine implements TriageEngine {
             }
             var metrics = session.evidence().stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElse(null);
             var logs = session.evidence().stream().filter(item -> item.source().equals("query_error_logs")).findFirst().orElse(null);
+            if (logs != null && EvidenceRules.inbound(metrics)) {
+                session.recordInboundObservationGate();
+                return new Decision(Status.INSUFFICIENT_EVIDENCE, io.github.mochiuaena.triage.execution.HttpResponseDiagnosis.incomplete(metrics, logs));
+            }
             if (logs != null && io.github.mochiuaena.triage.execution.HttpResponseDiagnosis.requiresGate(session.question(), metrics)) {
                 session.recordResponseStatusGate();
                 return new Decision(Status.INSUFFICIENT_EVIDENCE, io.github.mochiuaena.triage.execution.HttpResponseDiagnosis.incomplete(metrics, logs));
@@ -176,7 +180,7 @@ public final class ModelEngine implements TriageEngine {
         if (evidence.stream().noneMatch(item -> item.source().equals("read_service_metrics"))) missing.add("read_service_metrics");
         if (evidence.stream().noneMatch(item -> item.source().equals("query_error_logs"))) missing.add("query_error_logs");
         Evidence metrics = evidence.stream().filter(item -> item.source().equals("read_service_metrics")).findFirst().orElse(null);
-        String required = EvidenceRules.required(metrics);
+        String required = inbound(session) ? "DOC-HTTP-REQUESTS-BOUNDARY#" : EvidenceRules.required(metrics);
         String timeoutRule = database(session) ? EvidenceRules.DB_TIMEOUT : "DOC-DOWNSTREAM-TIMEOUT#";
         String baselineRule = database(session) ? EvidenceRules.DB_BASELINE : "DOC-HEALTHY-BASELINE#";
         boolean matched = evidence.stream().anyMatch(item -> item.source().equals("search_runbooks")
@@ -231,13 +235,17 @@ public final class ModelEngine implements TriageEngine {
             candidates.put("DB_POOL_EXHAUSTION_OBSERVED_rule", session.evidence().stream().filter(item -> item.id().startsWith(EvidenceRules.DB_TIMEOUT)).map(Evidence::id).toList());
             candidates.put("NO_DB_POOL_EXHAUSTION_OBSERVED_rule", session.evidence().stream().filter(item -> item.id().startsWith(EvidenceRules.DB_BASELINE)).map(Evidence::id).toList());
         }
+        if (inbound(session)) {
+            candidates.remove("DOWNSTREAM_TIMEOUT_OBSERVED_rule"); candidates.remove("NO_DOWNSTREAM_TIMEOUT_OBSERVED_rule");
+            candidates.put("HTTP_REQUESTS_boundary", session.evidence().stream().filter(item -> item.id().startsWith("DOC-HTTP-REQUESTS-BOUNDARY#")).map(Evidence::id).toList());
+        }
         try {
             return "成功判断的 evidenceIds 必须同时包含一条 read_service_metrics ID、一条 query_error_logs ID，"
                 + "以及与 assessment 对应的 rule ID。仅引用指标和日志会被拒绝。"
                 + "仍缺少来源时请继续调用工具；nextChecks 须选 1–5 个不同检查项。以下仅列出已收集的可选 ID：\n"
                 + json.writeValueAsString(candidates) + "\n各判断类型当前允许的检查项："
                 + json.writeValueAsString(Arrays.stream(ModelOutput.Assessment.values())
-                    .filter(value -> value == ModelOutput.Assessment.INSUFFICIENT_EVIDENCE || database(session) == ModelOutput.databaseAssessment(value))
+                    .filter(value -> value == ModelOutput.Assessment.INSUFFICIENT_EVIDENCE || !inbound(session) && database(session) == ModelOutput.databaseAssessment(value))
                     .collect(java.util.stream.Collectors.toMap(
                     Enum::name, assessment -> ModelOutput.allowedChecks(assessment, session.evidence()).stream().map(Enum::name).toList())));
         } catch (Exception e) { throw new RunFailure("INVALID_TOOL_OUTPUT", "无法列出本次可选证据。"); }
@@ -251,7 +259,12 @@ public final class ModelEngine implements TriageEngine {
             客户端超时配置与下游内部根因必须由对应配置和指标验证，不能套用其他服务的参数。
             如果窗口 requestCount 为 0，即使检索到了文档，也必须选择 INSUFFICIENT_EVIDENCE。
             """;
-        String assessmentRules = database(session) ? """
+        boolean inbound = session.context().target() != null && session.context().target().protocol() == io.github.mochiuaena.triage.tools.ServiceRegistry.Protocol.HTTP_REQUESTS_V4;
+        String assessmentRules = inbound ? """
+            本次是 HTTP_REQUESTS 入站请求观测，没有采集下游耗时或超时。缺少这些字段不是零值。
+            当前只能选择 INSUFFICIENT_EVIDENCE，收集请求指标、错误事件与入站观测边界规则后，由应用展示已有证据。
+            不选择任何下游或数据库判断，不从普通请求异常或响应分类推断内部根因。
+            """ : database(session) ? """
             本次是 DATABASE_POOL 观测，只能选择数据库判断类型。先区分获取连接阶段和 SQL 执行阶段。
             有请求、获取连接超时数大于零、池采样存在满载与等待重叠且日志含 DB_CONNECTION_ACQUIRE_TIMEOUT 时，选择 DB_POOL_EXHAUSTION_OBSERVED。
             有请求、获取连接超时和失败均为零、SQL 查询失败数大于零且日志含 SQL_QUERY_FAILED 时，可选择 DB_SQL_EXECUTION_FAILURE_OBSERVED；只确认失败阶段，不推断具体 SQL 根因。
@@ -286,9 +299,13 @@ public final class ModelEngine implements TriageEngine {
             本次服务：%s；下游：%s；窗口：最近 %d 分钟；窗口结束时间：%s。
             最终 JSON 结构：
             %s
-            """.formatted(source, liveLimits, assessmentRules, session.context().service(), session.context().serviceInfo().downstreamId(), session.context().windowMinutes(), session.context().endTime(), output.format(database(session)));
+            """.formatted(source, liveLimits, assessmentRules, session.context().service(), inbound ? "未采集" : session.context().serviceInfo().downstreamId(),
+                session.context().windowMinutes(), session.context().endTime(), inbound ? output.inboundFormat() : output.format(database(session)));
     }
     private boolean database(ExecutionSession session) {
         return session.context().target() != null && session.context().target().protocol() == io.github.mochiuaena.triage.tools.ServiceRegistry.Protocol.DATABASE_V2;
+    }
+    private boolean inbound(ExecutionSession session) {
+        return session.context().target() != null && session.context().target().protocol() == io.github.mochiuaena.triage.tools.ServiceRegistry.Protocol.HTTP_REQUESTS_V4;
     }
 }

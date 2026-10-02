@@ -123,6 +123,10 @@ public final class ExecutionSession {
         checkDeadline();
         publish("EVIDENCE_FEEDBACK", null, "模型提前回答时缺少必需证据或引用，应用请求补齐一次；未保存该回答。", List.of());
     }
+    public void recordInboundObservationGate() {
+        checkDeadline();
+        publish("INBOUND_OBSERVATION_GATE", null, "仅采集入站请求，未采集下游；展示已有证据，不请求模型生成成功判断。", List.of());
+    }
 
     public void checkDeadline() {
         control.checkCancelled();

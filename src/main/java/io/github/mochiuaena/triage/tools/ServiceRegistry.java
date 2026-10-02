@@ -12,7 +12,10 @@ import java.util.*;
 /** Startup-owned allowlist. Addresses never come from a run or a model tool call. */
 @Component
 public final class ServiceRegistry {
-    public enum Protocol { LAB, OBSERVATIONS_V1, DATABASE_V2, OBSERVATIONS_V3 }
+    public enum Protocol {
+        LAB, OBSERVATIONS_V1, DATABASE_V2, OBSERVATIONS_V3, HTTP_REQUESTS_V4;
+        public boolean supportsEndpoints() { return this == OBSERVATIONS_V3 || this == HTTP_REQUESTS_V4; }
+    }
     public record Config(String id, String name, String downstreamId, String downstreamName,
                          String baseUrl, Protocol protocol, Integer maxWindowMinutes, Boolean labEnabled, Boolean databaseAlias,
                          String accessToken) {
@@ -53,8 +56,11 @@ public final class ServiceRegistry {
             if (source.synthetic()) throw new IllegalArgumentException("Registered services require LIVE observations");
             for (Config config : configured) {
                 String id = identifier(config.id());
-                String downstream = identifier(config.downstreamId());
                 Protocol protocol = config.protocol() == null ? Protocol.OBSERVATIONS_V1 : config.protocol();
+                boolean inbound = protocol == Protocol.HTTP_REQUESTS_V4;
+                if (inbound && (config.downstreamId() != null || config.downstreamName() != null))
+                    throw new IllegalArgumentException("Inbound request services do not accept downstream identities");
+                String downstream = inbound ? null : identifier(config.downstreamId());
                 int window = config.maxWindowMinutes() == null ? 60 : config.maxWindowMinutes();
                 boolean lab = Boolean.TRUE.equals(config.labEnabled());
                 if (window < 1 || window > 60) throw new IllegalArgumentException("Service window must be 1..60 minutes");
@@ -66,7 +72,7 @@ public final class ServiceRegistry {
                 if (databaseAlias && protocol != Protocol.DATABASE_V2)
                     throw new IllegalArgumentException("Database alias requires DATABASE_V2");
                 Target target = new Target(new ServiceInfo(id, label(config.name(), id), downstream,
-                    label(config.downstreamName(), downstream)), ObservationSource.registeredBase(config.baseUrl()), protocol, window, lab, databaseAlias);
+                    inbound ? null : label(config.downstreamName(), downstream)), ObservationSource.registeredBase(config.baseUrl()), protocol, window, lab, databaseAlias);
                 if (values.putIfAbsent(id, target) != null) throw new IllegalArgumentException("Duplicate registered service");
                 if (config.accessToken() != null) {
                     if (protocol == Protocol.LAB || !config.accessToken().matches("[A-Za-z0-9_-]{32,128}"))

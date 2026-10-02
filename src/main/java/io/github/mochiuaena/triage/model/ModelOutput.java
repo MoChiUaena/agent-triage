@@ -69,6 +69,16 @@ final class ModelOutput {
             return json.writeValueAsString(schema);
         } catch (JsonProcessingException e) { throw new IllegalStateException("Cannot build observation-specific schema", e); }
     }
+    String inboundFormat() {
+        try {
+            var schema = (com.fasterxml.jackson.databind.node.ObjectNode) json.readTree(format(false));
+            ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("assessment")).putArray("enum").add("INSUFFICIENT_EVIDENCE");
+            var checks = ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("nextChecks").path("items")).putArray("enum");
+            for (Check check : List.of(Check.COLLECT_OBSERVATIONS, Check.SEARCH_MATCHING_RULE, Check.CORRELATE_TRACE,
+                Check.FIND_SLOW_REQUEST, Check.COLLECT_RESOURCE_METRICS)) checks.add(check.name());
+            return json.writeValueAsString(schema);
+        } catch (JsonProcessingException e) { throw new IllegalStateException("Cannot build inbound request schema", e); }
+    }
     static boolean databaseAssessment(Assessment assessment) {
         return assessment == Assessment.DB_POOL_EXHAUSTION_OBSERVED || assessment == Assessment.NO_DB_POOL_EXHAUSTION_OBSERVED
             || assessment == Assessment.DB_SQL_EXECUTION_FAILURE_OBSERVED;
@@ -177,6 +187,8 @@ final class ModelOutput {
 
     private void validateAssessment(Assessment assessment, List<Evidence> selected) {
         Evidence metrics = one(selected, "read_service_metrics");
+        if (EvidenceRules.inbound(metrics))
+            throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "本次只采集入站请求，不能选择下游或数据库成功判断。");
         Evidence logs = one(selected, "query_error_logs");
         if (!(metrics.data().get("requestCount") instanceof Number count) || count.longValue() <= 0)
             throw new RunFailure("MODEL_NO_OBSERVATIONS", "模型试图在无请求窗口生成成功判断，已拒绝。");
@@ -236,6 +248,16 @@ final class ModelOutput {
     private Diagnosis render(Response response, List<Evidence> selected, List<Check> prioritized, ServiceInfo info) {
         String service = info.equals(ServiceInfo.order()) ? "订单" : info.name();
         String downstream = info.equals(ServiceInfo.order()) ? "库存" : info.downstreamName();
+        if (info.downstreamId() == null) {
+            var observations = selected.stream().filter(item -> Set.of("read_service_metrics", "query_error_logs").contains(item.source()))
+                .map(item -> new Finding(item.summary(), List.of(item.id()))).toList();
+            var next = prioritized.stream().map(check -> switch (check) {
+                case CORRELATE_TRACE -> "用错误事件中的 traceId 核对本应用请求与业务日志。";
+                case COLLECT_RESOURCE_METRICS -> "补充本应用的 CPU、线程与数据库等资源指标。";
+                default -> checkText(check, service, service, service);
+            }).toList();
+            return new Diagnosis(observations, List.of(), next, "本次仅采集入站请求，未采集下游调用；现有观测不能确认下游状态或内部根因。");
+        }
         if (selected.stream().anyMatch(EvidenceRules::database)) {
             DatabaseDiagnosis.Stage stage = switch (response.assessment()) {
                 case DB_POOL_EXHAUSTION_OBSERVED -> DatabaseDiagnosis.Stage.POOL_EXHAUSTED;

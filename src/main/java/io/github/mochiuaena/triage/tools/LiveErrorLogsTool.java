@@ -38,6 +38,12 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
             .map(error -> new RequestFailure(error.timestamp(), error.traceId(), error.failureLocation())).toList();
         if (!locations.isEmpty()) data.put("failureLocations", locations);
         if (observation.requestDetails() != null) data.put("endpointScoped", context.endpoint() != null);
+        if (context.target() != null && context.target().protocol() == ServiceRegistry.Protocol.HTTP_REQUESTS_V4) {
+            data.remove("timeoutCount"); data.put("observationType", "HTTP_REQUESTS"); data.put("requestCount", observation.requestCount());
+            return List.of(new Evidence("LOGS-REQUESTS-" + context.endTime().toEpochMilli(), name(), "入站请求错误事件（最多 3 条）",
+                (entries.isEmpty() ? "本窗口未记录入站请求错误事件。" : "展示本窗口最近 " + entries.size() + " 条入站请求错误事件。")
+                    + " 未采集下游调用，不能据此判断下游超时或内部根因。", data));
+        }
         if (observation.databasePool() != null) {
             data.put("observationType", "DATABASE_POOL");
             data.put("requestCount", observation.requestCount());

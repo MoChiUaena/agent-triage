@@ -279,7 +279,7 @@ async function loadServiceChecks() {
   try {
     const data = await request("/api/services/status"); if (version !== serviceRequest) return;
     const stateLabels = { AVAILABLE: "可读取", EMPTY: "暂无请求", UNAVAILABLE: "不可用", SYNTHETIC: "合成演示" };
-    const protocols = { LAB: "订单样例", OBSERVATIONS_V1: "HTTP V1", DATABASE_V2: "数据库 V2", OBSERVATIONS_V3: "HTTP 接口 V3" };
+    const protocols = { LAB: "订单样例", OBSERVATIONS_V1: "HTTP V1", DATABASE_V2: "数据库 V2", OBSERVATIONS_V3: "HTTP 接口 V3", HTTP_REQUESTS_V4: "入站 HTTP V4" };
     $("#service-checks").replaceChildren(...data.map((check) => {
       const card = node("article", null, "management-card service-check"); const heading = node("div", null, "management-heading");
       const identity = node("div"); identity.append(node("h2", check.service.name), node("p", check.service.id, "service-check-id"));

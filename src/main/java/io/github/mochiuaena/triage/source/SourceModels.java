@@ -48,9 +48,9 @@ public final class SourceModels {
                            String resolution, String message, Excerpt callSite) {}
     public record EvidenceLink(List<String> edgeIds, List<String> evidenceIds, String kind, String message) {}
     public record VersionCheck(String state, String message, String runtimeSourceHash, String indexedSourceHash) {}
-    public record EndpointMatch(io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint, int requestCount, int timeoutCount,
+    public record EndpointMatch(io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint, int requestCount, Integer timeoutCount,
                                 String state, String message, List<String> sourceIds, VersionCheck version) {
-        public EndpointMatch(io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint, int requestCount, int timeoutCount,
+        public EndpointMatch(io.github.mochiuaena.triage.domain.TriageModel.RequestEndpoint endpoint, int requestCount, Integer timeoutCount,
                              String state, String message, List<String> sourceIds) { this(endpoint, requestCount, timeoutCount, state, message, sourceIds, null); }
     }
     public record FrameMatch(io.github.mochiuaena.triage.domain.TriageModel.FailureFrame frame, String state, String message, List<Excerpt> excerpts, VersionCheck version) {

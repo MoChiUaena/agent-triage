@@ -21,7 +21,10 @@ public final class TriageModel {
         }
     }
     public record ResponseStatusCounts(Integer informational, Integer successful, Integer redirection, Integer clientError, Integer serverError, Integer unknown) {}
-    public record EndpointSummary(RequestEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms,
+    public record EndpointSummary(RequestEndpoint endpoint, int requestCount,
+                                  @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Integer timeoutCount,
+                                  double requestP95Ms,
+                                  @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL) Double downstreamP95Ms,
                                   ResponseStatusCounts responseStatuses) {
         public EndpointSummary(RequestEndpoint endpoint, int requestCount, int timeoutCount, double requestP95Ms, double downstreamP95Ms) {
             this(endpoint, requestCount, timeoutCount, requestP95Ms, downstreamP95Ms, null);

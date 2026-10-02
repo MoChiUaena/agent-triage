@@ -52,7 +52,7 @@ public class RunController {
             @RequestHeader(value = "X-Triage-Source", required = false) String sourceMarker) {
         if (request.includeSource() && !"1".equals(sourceMarker)) throw new ResponseStatusException(FORBIDDEN, "源码排查需要从本机页面明确开启。");
         ServiceRegistry.Target target = registry.require(request.service());
-        if (request.endpointId() != null && (observation.synthetic() || target.protocol() != ServiceRegistry.Protocol.OBSERVATIONS_V3))
+        if (request.endpointId() != null && (observation.synthetic() || !target.protocol().supportsEndpoints()))
             throw new ResponseStatusException(BAD_REQUEST, "所选服务尚未支持按接口排查，请核对观测协议。");
         if (request.windowMinutes() > target.maxWindowMinutes())
             throw new ResponseStatusException(BAD_REQUEST, "时间窗口超过所选服务允许的 " + target.maxWindowMinutes() + " 分钟。");
@@ -87,7 +87,7 @@ public class RunController {
     public Map<String,Object> endpoints(@PathVariable String id, @RequestParam(defaultValue="15") int windowMinutes) {
         var target = registry.require(id);
         if (windowMinutes < 1 || windowMinutes > target.maxWindowMinutes()) throw new ResponseStatusException(BAD_REQUEST, "接口查询窗口超过服务允许的范围。");
-        if (observation.synthetic() || target.protocol() != ServiceRegistry.Protocol.OBSERVATIONS_V3) return Map.of("supported", false, "endpoints", List.of());
+        if (observation.synthetic() || !target.protocol().supportsEndpoints()) return Map.of("supported", false, "endpoints", List.of());
         try {
             var snapshot = live.endpointSnapshot(target, windowMinutes, Instant.now(), null);
             var details = snapshot.requestDetails();
@@ -110,7 +110,7 @@ public class RunController {
         config.put("protocol", target.protocol());
         config.put("maxWindowMinutes", target.maxWindowMinutes());
         config.put("labEnabled", target.labEnabled());
-        config.put("endpointSupported", target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V3);
+        config.put("endpointSupported", target.protocol().supportsEndpoints());
         config.put("observationSource", observation.kind().name());
         if (!observation.synthetic()) {
             try {

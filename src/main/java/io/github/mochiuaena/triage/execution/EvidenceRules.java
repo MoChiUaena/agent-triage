@@ -9,6 +9,7 @@ public final class EvidenceRules {
     public static final String DB_SQL_FAILURE = "DOC-DB-SQL-EXECUTION-FAILURE#";
     private EvidenceRules() {}
     public static boolean database(Evidence metrics) { return metrics != null && "DATABASE_POOL".equals(metrics.data().get("observationType")); }
+    public static boolean inbound(Evidence metrics) { return metrics != null && "HTTP_REQUESTS".equals(metrics.data().get("observationType")); }
     public static Map<?, ?> pool(Evidence metrics) {
         return metrics != null && metrics.data().get("databasePool") instanceof Map<?, ?> values ? values : Map.of();
     }
@@ -18,6 +19,7 @@ public final class EvidenceRules {
             && (count(values, "clientError") > 0 || count(values, "serverError") > 0 || count(values, "unknown") > 0);
     }
     public static String required(Evidence metrics) {
+        if (inbound(metrics)) return "DOC-HTTP-REQUESTS-BOUNDARY#";
         if (database(metrics)) {
             var values = pool(metrics);
             return count(values, "acquisitionTimeoutCount") > 0 ? DB_TIMEOUT

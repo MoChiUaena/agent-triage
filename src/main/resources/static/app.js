@@ -43,7 +43,8 @@ async function loadEndpoints(preserve = false) {
     endpointChoices = value.endpoints || []; endpointWindow = minutes;
     const all = element("option", "", "全部接口"); all.value = "";
     $("#endpoint").replaceChildren(all, ...endpointChoices.map(item => {
-      const option = element("option", "", item.endpoint.httpMethod + " " + item.endpoint.routeTemplate + " · " + item.requestCount + " 次请求 · " + item.timeoutCount + " 次超时");
+      const option = element("option", "", item.endpoint.httpMethod + " " + item.endpoint.routeTemplate + " · " + item.requestCount + " 次请求 · "
+        + (item.timeoutCount == null ? "下游未采集" : item.timeoutCount + " 次超时"));
       if (item.responseStatuses) option.textContent += " · 4xx " + item.responseStatuses.clientError + " / 5xx " + item.responseStatuses.serverError;
       option.value = item.endpoint.id; return option;
     }));
@@ -494,7 +495,12 @@ function renderMetrics(run) {
   const labels = serviceInfo(run);
   const requestP95 = data.requestP95Ms ?? data.orderP95Ms;
   const baseline = data.baselineRequestP95Ms ?? data.baselineOrderP95Ms;
-  const values = [
+  const inbound = data.observationType === "HTTP_REQUESTS";
+  const values = inbound ? [
+    [labels.name + "请求 p95", hasRequests ? requestP95 : null, "ms", "仅采集入站请求"],
+    ["窗口请求数", data.requestCount, "次", "最近 " + run.windowMinutes + " 分钟"],
+    ["下游观测", "未采集", "", "没有配置或采集下游调用"],
+  ] : [
     [
       labels.name + "请求 p95",
       hasRequests ? requestP95 : null,
@@ -530,7 +536,7 @@ function renderMetrics(run) {
     const number = element(
       "div",
       "metric-value",
-      value == null ? "—" : Number(value).toLocaleString("zh-CN"),
+      value == null ? "—" : typeof value === "string" ? value : Number(value).toLocaleString("zh-CN"),
     );
     if (value != null) number.append(element("small", "", unit));
     item.append(
@@ -749,6 +755,10 @@ function renderEvidence(run) {
         ["获取连接超时 / 失败", data.databasePool.acquisitionTimeoutCount + " / " + data.databasePool.acquisitionErrorCount],
         ["SQL 查询失败", data.databasePool.queryErrorCount], ["窗口内操作数", data.requestCount],
         ["查询窗口", timeText(data.windowStart) + " – " + timeText(data.windowEnd)],
+      ] : data.observationType === "HTTP_REQUESTS" ? [
+        [data.endpointScoped ? "接口请求 p95" : "服务请求 p95", data.requestP95Ms + " ms"],
+        ["窗口内请求数", data.requestCount.toLocaleString("zh-CN")], ["下游观测", "未采集"],
+        ["查询窗口", timeText(data.windowStart) + " – " + timeText(data.windowEnd)],
       ] : [
         [data.endpointScoped ? "接口请求 p95" : "服务请求 p95", (data.requestP95Ms ?? data.orderP95Ms) + " ms"],
         ["下游调用 p95", data.downstreamP95Ms + " ms"],
@@ -867,7 +877,7 @@ function renderRun(run) {
       info.push(["结论生成", "模型选证据 · 应用生成措辞"]);
     else if (
       run.events.some((event) =>
-        ["SCOPE_GATE", "EVIDENCE_GATE"].includes(event.type),
+        ["SCOPE_GATE", "EVIDENCE_GATE", "INBOUND_OBSERVATION_GATE"].includes(event.type),
       )
     )
       info.push(["结论生成", "应用证据门槛"]);

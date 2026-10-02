@@ -24,6 +24,7 @@ public class LiveMetricsTool implements ReadOnlyTool {
         data.put("windowEnd", observation.windowEnd().toString());
         data.put("requestCount", observation.requestCount());
         if (observation.databasePool() != null) return database(context, observation, data);
+        if (context.target() != null && context.target().protocol() == ServiceRegistry.Protocol.HTTP_REQUESTS_V4) return inbound(context, observation, data);
         data.put("micrometerRecordedRequestCount", observation.recordedRequestCount());
         data.put("orderP95Ms", observation.orderP95Ms());
         data.put("requestP95Ms", observation.orderP95Ms());
@@ -54,6 +55,21 @@ public class LiveMetricsTool implements ReadOnlyTool {
         }
         return List.of(new Evidence("METRICS-LIVE-" + context.endTime().toEpochMilli(), name(),
             (scoped ? "所选接口" : context.serviceInfo().name()) + "窗口指标（实际请求）", summary, data));
+    }
+
+    private List<Evidence> inbound(ToolContext context, LiveObservationClient.Snapshot value, Map<String, Object> data) {
+        data.put("observationType", "HTTP_REQUESTS"); data.put("requestP95Ms", value.orderP95Ms());
+        data.put("baselineRequestP95Ms", value.baselineOrderP95Ms()); data.put("recordedRequestCount", value.recordedRequestCount());
+        data.put("requestDetails", value.requestDetails()); data.put("endpointScoped", context.endpoint() != null); data.put("synthetic", false);
+        var counts = value.requestDetails().responseStatuses();
+        if (counts != null) data.put("responseStatuses", Map.of("informational", counts.informational(), "successful", counts.successful(),
+            "redirection", counts.redirection(), "clientError", counts.clientError(), "serverError", counts.serverError(), "unknown", counts.unknown()));
+        String summary = "本窗口记录 " + value.requestCount() + " 个" + context.serviceInfo().name() + "入站请求，请求 p95 为 "
+            + value.orderP95Ms() + "ms；未采集下游调用，不能将缺少下游指标解释为零超时。";
+        if (counts != null) summary += " 响应分类：2xx " + counts.successful() + "、4xx " + counts.clientError() + "、5xx " + counts.serverError()
+            + " 次；未知 " + counts.unknown() + " 次。";
+        return List.of(new Evidence("METRICS-REQUESTS-" + context.endTime().toEpochMilli(), name(),
+            (context.endpoint() == null ? context.serviceInfo().name() : "所选接口") + "入站请求窗口", summary, data));
     }
 
     private List<Evidence> database(ToolContext context, LiveObservationClient.Snapshot value, Map<String, Object> data) {

@@ -111,7 +111,8 @@ window.sourceView = {
     if (graph.rootIds?.length) wrapper.append(element("p", "call-root", (matches.length ? "按请求匹配的入口：" : "入口候选：") + graph.rootIds.map(method).join(" / ")));
     for (const match of matches) {
       const box = element("div", "call-entry-match");
-      box.append(element("strong", "", match.endpoint.httpMethod + " " + match.endpoint.routeTemplate + " · " + match.requestCount + " 次请求 · " + match.timeoutCount + " 次超时"),
+      box.append(element("strong", "", match.endpoint.httpMethod + " " + match.endpoint.routeTemplate + " · " + match.requestCount + " 次请求 · "
+          + (match.timeoutCount == null ? "下游未采集" : match.timeoutCount + " 次超时")),
         element("p", "", match.endpoint.handlerClass + "." + match.endpoint.handlerMethod + "(" + match.endpoint.parameterTypes.join(", ") + ")"),
         element("p", "", match.message + " MVC 匹配信息不证明处理方法体或后续调用已执行。"));
       sourceView.version(box, match.version);

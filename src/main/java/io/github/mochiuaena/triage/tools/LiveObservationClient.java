@@ -70,6 +70,11 @@ public class LiveObservationClient {
                                        ResponseStatusCounts responseStatuses) {}
     public record EndpointInput(RequestEndpoint endpoint, Integer requestCount, Integer timeoutCount, Double requestP95Ms, Double downstreamP95Ms,
                                 ResponseStatusCounts responseStatuses) {}
+    public record RequestObservations(Integer schemaVersion, String kind, String service, Instant windowStart, Instant windowEnd,
+                                      Integer requestCount, Long recordedRequestCount, Double requestP95Ms, Double baselineRequestP95Ms,
+                                      List<ErrorEntry> errors, Boolean synthetic, RequestEndpoint endpoint, List<RequestInput> endpoints,
+                                      Integer unattributedRequestCount, Integer otherEndpointRequestCount, ResponseStatusCounts responseStatuses) {}
+    public record RequestInput(RequestEndpoint endpoint, Integer requestCount, Double requestP95Ms, ResponseStatusCounts responseStatuses) {}
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(600))
         .followRedirects(HttpClient.Redirect.NEVER).build();
     private final ServiceRegistry registry;
@@ -107,12 +112,32 @@ public class LiveObservationClient {
         ServiceRegistry.Target target = context.target();
         String end = URLEncoder.encode(context.endTime().toString(), StandardCharsets.UTF_8);
         try {
-            String path = target.protocol() == ServiceRegistry.Protocol.LAB ? "/lab/observations" : target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V3 ? "/triage/endpoint-observations"
+            String path = target.protocol() == ServiceRegistry.Protocol.HTTP_REQUESTS_V4 ? "/triage/request-observations"
+                : target.protocol() == ServiceRegistry.Protocol.LAB ? "/lab/observations" : target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V3 ? "/triage/endpoint-observations"
                 : target.databaseAlias() ? "/triage/database-observations" : "/triage/observations";
             byte[] response = get(target, path + "?windowMinutes=" + context.windowMinutes() + "&endTime=" + end
                 + (context.endpoint() == null ? "" : "&endpointId=" + context.endpoint().id()));
             Snapshot snapshot;
-            if (target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V1) {
+            if (target.protocol() == ServiceRegistry.Protocol.HTTP_REQUESTS_V4) {
+                RequestObservations value = json.readValue(response, RequestObservations.class);
+                if (value == null) throw unexpected();
+                if (!Integer.valueOf(4).equals(value.schemaVersion())) throw versionMismatch();
+                if (!"HTTP_REQUESTS".equals(value.kind()) || !Boolean.FALSE.equals(value.synthetic()) || value.requestCount() == null
+                    || value.recordedRequestCount() == null || value.requestP95Ms() == null || value.endpoints() == null) throw unexpected();
+                var inputs = value.endpoints().stream().map(input -> {
+                    if (input == null) throw unexpected();
+                    return new EndpointInput(input.endpoint(), input.requestCount(), 0, input.requestP95Ms(), 0.0, input.responseStatuses());
+                }).toList();
+                var normalized = new EndpointObservations(3, "HTTP_ENDPOINTS", value.service(), null, value.windowStart(), value.windowEnd(),
+                    value.requestCount(), 0, value.recordedRequestCount(), value.requestP95Ms(), 0.0, 0.0, value.baselineRequestP95Ms(), value.errors(), false,
+                    value.endpoint(), inputs, value.unattributedRequestCount(), value.otherEndpointRequestCount(), value.responseStatuses());
+                var checked = validateEndpoints(normalized, context);
+                var summaries = checked.endpoints().stream().map(input -> new EndpointSummary(input.endpoint(), input.requestCount(), null,
+                    input.requestP95Ms(), null, input.responseStatuses())).toList();
+                var details = new RequestDetails(checked.endpoint(), summaries, checked.unattributedRequestCount(), checked.otherEndpointRequestCount(), checked.responseStatuses());
+                snapshot = new Snapshot(value.service(), Scenario.OBSERVED, value.windowStart(), value.windowEnd(), value.requestCount(), 0, 0,
+                    value.recordedRequestCount(), value.requestP95Ms(), 0, 0, value.baselineRequestP95Ms(), value.errors(), false, null, details);
+            } else if (target.protocol() == ServiceRegistry.Protocol.OBSERVATIONS_V1) {
                 ObservationsV1 value = json.readValue(response, ObservationsV1.class);
                 if (value == null) throw unexpected();
                 if (!Integer.valueOf(1).equals(value.schemaVersion())) throw versionMismatch();
@@ -156,7 +181,7 @@ public class LiveObservationClient {
         } catch (IOException e) { throw unexpected(); }
     }
     public Snapshot endpointSnapshot(ServiceRegistry.Target target, int minutes, Instant end, String id) {
-        if (target.protocol() != ServiceRegistry.Protocol.OBSERVATIONS_V3) throw new IllegalArgumentException("Endpoint observations require V3");
+        if (!target.protocol().supportsEndpoints()) throw new IllegalArgumentException("Endpoint observations require V3 or V4");
         var context = new ToolContext(target.info().id(), minutes, Scenario.OBSERVED, end, target);
         if (id == null) return snapshot(context);
         Snapshot catalogue = snapshot(context);
@@ -283,8 +308,9 @@ public class LiveObservationClient {
                 || error.traceId() == null || error.traceId().length() > 128 || error.level() == null || !List.of("ERROR", "WARN").contains(error.level())
                 || error.message() == null || error.message().isBlank() || error.message().length() > 2000) throw unexpected();
             if (error.failureLocation() != null) {
-                if (context.target().protocol() != ServiceRegistry.Protocol.OBSERVATIONS_V3) throw unexpected();
+                if (!context.target().protocol().supportsEndpoints()) throw unexpected();
                 validateFailure(error.failureLocation());
+                if (context.target().protocol() == ServiceRegistry.Protocol.HTTP_REQUESTS_V4 && !"REQUEST_EXCEPTION".equals(error.failureLocation().kind())) throw unexpected();
             }
         }
         if (value.requestDetails() != null && value.errors().size() > value.requestCount()) throw unexpected();
@@ -294,7 +320,7 @@ public class LiveObservationClient {
         return new ObservationFailure("OBSERVATION_CONTRACT", "观测数据不符合接入契约，请核对服务身份、时间窗口与字段格式。");
     }
     private ObservationFailure versionMismatch() {
-        return new ObservationFailure("OBSERVATION_VERSION", "观测接口版本与服务配置不一致，请核对 OBSERVATIONS_V1、DATABASE_V2 或 OBSERVATIONS_V3 配置。");
+        return new ObservationFailure("OBSERVATION_VERSION", "观测接口版本与服务配置不一致，请核对 V1/V2/V3 或入站 HTTP V4 配置。");
     }
 
     private byte[] get(ServiceRegistry.Target target, String path) {

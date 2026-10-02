@@ -49,6 +49,30 @@ class InboundObservationTest {
         inbound().withPropertyValues("triage.sdk.jpa-observations=true", "triage.sdk.jpa-service-id=inbound-db",
             "triage.sdk.jpa-database-id=test-db").run(context -> assertThat(context).hasNotFailed().hasSingleBean(TriageJpaObserver.class));
     }
+    @Test void basicInboundRequestsDoNotRequireEndpointOrResponseClassification() {
+        inbound().withPropertyValues("triage.sdk.endpoint-observations=false", "triage.sdk.response-status-counts=false").run(context -> {
+            assertThat(context).hasNotFailed();
+            var mvc = MockMvcBuilders.standaloneSetup(new Controller(), context.getBean(TriageObservationsEndpoint.class))
+                .addFilter(context.getBean(FilterRegistrationBean.class).getFilter(), "/api/*").build();
+            mvc.perform(get("/api/inbound/private-good")).andExpect(status().isOk());
+            mvc.perform(get("/triage/request-observations").param("windowMinutes", "1").param("endTime", Instant.now().toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.requestCount").value(1)).andExpect(jsonPath("$.unattributedRequestCount").value(1))
+                .andExpect(jsonPath("$.endpoints").isEmpty()).andExpect(jsonPath("$.responseStatuses").doesNotExist());
+        });
+    }
+    @Test void selectedInboundEndpointStillUsesExactWindowsAndRejectsExpiredData() {
+        inbound().run(context -> {
+            assertThat(context).hasNotFailed();
+            var recorder = context.getBean(ObservationRecorder.class);
+            var endpoint = new MvcEndpoint("EP-" + "a".repeat(32), "GET", "/api/fixed", "example.Controller", "get", java.util.List.of(), "MVC_SELECTED");
+            recorder.recordHttp(20, 0, false, false, "fixture", endpoint, null, 200);
+            Instant end = Instant.now();
+            var result = recorder.requestSnapshot(1, end, endpoint.id());
+            assertThat(result.requestCount()).isEqualTo(1); assertThat(result.windowStart()).isEqualTo(end.minusSeconds(60));
+            assertThat(result.windowEnd()).isEqualTo(end); assertThat(result.endpoint()).isEqualTo(endpoint);
+            assertThatThrownBy(() -> recorder.requestSnapshot(1, end.minusSeconds(1200), endpoint.id())).hasMessageContaining("422");
+        });
+    }
     @Test void inboundCapacityLossAndAccessControlKeepTheirExistingBoundaries() {
         String token = "inbound_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
         inbound().withPropertyValues("triage.sdk.capacity=10", "triage.sdk.observation-access-token=" + token).run(context -> {

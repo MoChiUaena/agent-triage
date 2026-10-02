@@ -17,10 +17,10 @@ public final class QuestionScope {
     public static boolean supports(String question, io.github.mochiuaena.triage.tools.ToolContext context) {
         String normalized = question.toLowerCase(Locale.ROOT);
         var info = context.serviceInfo();
-        boolean statusSupported = context.target() != null && context.target().protocol() == io.github.mochiuaena.triage.tools.ServiceRegistry.Protocol.OBSERVATIONS_V3
+        boolean statusSupported = context.target() != null && context.target().protocol().supportsEndpoints()
             && responseStatusQuestion(question);
-        return statusSupported || supports(question) || List.of(info.id(), info.name(), info.downstreamId(), info.downstreamName())
-            .stream().map(value -> value.toLowerCase(Locale.ROOT)).anyMatch(normalized::contains);
+        return statusSupported || supports(question) || java.util.stream.Stream.of(info.id(), info.name(), info.downstreamId(), info.downstreamName())
+            .filter(java.util.Objects::nonNull).map(value -> value.toLowerCase(Locale.ROOT)).anyMatch(normalized::contains);
     }
     public static boolean responseStatusQuestion(String question) {
         String normalized = question.toLowerCase(Locale.ROOT);
