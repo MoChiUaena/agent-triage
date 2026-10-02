@@ -132,6 +132,11 @@ def verify(directory, version, commit=None):
                 "io/github/mochiuaena/triage/sdk/TriageObservationContext$Snapshot.class",
                 "io/github/mochiuaena/triage/sdk/TriageCallableContext.class"} <= set(starter.namelist()):
                 raise ValueError("Starter is missing the v0.10 context propagation classes")
+        if number >= (0, 11, 0):
+            if not {"io/github/mochiuaena/triage/sdk/ObservationRecorder$RequestWindow.class",
+                "io/github/mochiuaena/triage/sdk/ObservationRecorder$RequestSummary.class",
+                "io/github/mochiuaena/triage/sdk/ObservationRecorder$RequestFailureCounts.class"} <= set(starter.namelist()):
+                raise ValueError("Starter is missing the v0.11 inbound request and failure classes")
     if has_agent:
         with zipfile.ZipFile(directory / agent_name) as runtime_agent:
             classes = [name for name in runtime_agent.namelist() if name.endswith(".class")]
