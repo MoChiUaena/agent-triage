@@ -27,17 +27,22 @@ final class TriageHttpClientInterceptor implements ClientHttpRequestInterceptor 
                 @Override public HttpHeaders getHeaders() { return response.getHeaders(); }
                 @Override public void close() { response.close(); }
                 @Override public InputStream getBody() throws IOException {
-                    return new FilterInputStream(response.getBody()) {
+                    InputStream input;
+                    long bodyStart = System.nanoTime();
+                    try { input = response.getBody(); }
+                    catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
+                    finally { context.addDownstreamMillis(ObservationRecorder.elapsed(bodyStart)); }
+                    return new FilterInputStream(input) {
                         @Override public int read() throws IOException {
                             long readStart = System.nanoTime();
                             try { return in.read(); }
-                            catch (IOException e) { markTimeout(context, e); throw e; }
+                            catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
                             finally { context.addDownstreamMillis(ObservationRecorder.elapsed(readStart)); }
                         }
                         @Override public int read(byte[] bytes, int offset, int length) throws IOException {
                             long readStart = System.nanoTime();
                             try { return in.read(bytes, offset, length); }
-                            catch (IOException e) { markTimeout(context, e); throw e; }
+                            catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
                             finally { context.addDownstreamMillis(ObservationRecorder.elapsed(readStart)); }
                         }
                     };
