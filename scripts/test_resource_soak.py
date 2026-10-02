@@ -1,0 +1,67 @@
+"""Guard diagnostic parsing, incomplete coverage and growth failures independently of workload code."""
+import unittest
+from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result
+
+NMT = """1234:
+Native Memory Tracking:
+Total: reserved=180000KB, committed=140000KB
+- Java Heap (reserved=131072KB, committed=98304KB)
+- Thread (reserved=5000KB, committed=1000KB)
+    (thread #25)
+"""
+
+def sample(elapsed, phase="running", native=42696704, rss=170000000, pid=1234):
+    return dict(phase=phase, pid=pid, elapsedSeconds=elapsed, heapUsedBytes=12000000,
+        nativeReservedBytes=184320000, nativeCommittedBytes=100663296 + native,
+        javaHeapCommittedBytes=100663296, nativeNonHeapCommittedBytes=native,
+        nativeThreadCount=25, rssBytes=rss, privateBytes=None)
+
+class ResourceSoakTest(unittest.TestCase):
+    def test_parses_native_commit_without_confusing_heap_or_reserved_address_space(self):
+        value = parse_native_memory(NMT, 1234)
+        self.assertEqual(value["nativeCommittedBytes"], 143360000)
+        self.assertEqual(value["javaHeapCommittedBytes"], 100663296)
+        self.assertEqual(value["nativeNonHeapCommittedBytes"], 42696704)
+        self.assertEqual(value["nativeThreadCount"], 25)
+
+    def test_rejects_disabled_nmt_wrong_pid_and_inconsistent_totals(self):
+        for text, pid in [("1234:\nNative memory tracking is not enabled", 1234),
+            (NMT, 2222), (NMT.replace("committed=140000KB", "committed=90000KB"), 1234)]:
+            with self.subTest(pid=pid), self.assertRaises(ValueError):
+                parse_native_memory(text, pid)
+
+    def test_requires_completed_workload_counters_and_cleanup(self):
+        line = "RESOURCE_RESULT agent seconds=3600 cycles=12000 cancelled=60000 fresh=12000 baselineHeap=12000000 peakHeap=14000000 finalHeap=13000000 registry=0 queues=0 connections=0"
+        result = parse_workload_result(line, "agent", 3600)
+        self.assertEqual(result["cancelled"], 60000)
+        for bad in [line.replace("seconds=3600", "seconds=300"), line.replace("registry=0", "registry=1"),
+            line.replace("cancelled=60000", "cancelled=5"), "missing completion receipt"]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse_workload_result(bad, "agent", 3600)
+
+    def test_reads_heap_used_in_kib_and_mib(self):
+        self.assertEqual(parse_heap("1234:\ngarbage-first heap total 98304K, used 12000K", 1234), 12288000)
+        self.assertEqual(parse_heap("1234:\ngarbage-first heap total 96M, used 12M", 1234), 12582912)
+        with self.assertRaises(ValueError):
+            parse_heap("1234:\nUnexpected collector output", 1234)
+
+    def test_warmup_peak_does_not_hide_or_invent_postwarmup_growth(self):
+        samples = [sample(0, native=180000000, rss=400000000), sample(120),
+            sample(150), sample(180, native=44000000), sample(200, "closed")]
+        result = summarize(samples, 180, 120, 30)
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(result["runningSamples"], 4)
+        self.assertEqual(result["postWarmupPeakNativeGrowthBytes"], 1303296)
+
+    def test_rejects_growth_and_missing_or_short_running_coverage(self):
+        valid = [sample(0), sample(120), sample(150), sample(180), sample(200, "closed")]
+        for samples in [valid[:-1], valid[:2] + [sample(60, "closed")],
+            valid[:3] + [sample(180, native=120000000), valid[-1]],
+            valid[:3] + [sample(180, rss=320000000), valid[-1]],
+            valid[:3] + [sample(180, pid=9999), valid[-1]],
+            [sample(0), sample(120), sample(150), sample(300), sample(320, "closed")]]:
+            with self.subTest(samples=samples), self.assertRaises(ValueError):
+                summarize(samples, 180, 120, 30)
+
+if __name__ == "__main__":
+    unittest.main()

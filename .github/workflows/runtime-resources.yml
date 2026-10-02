@@ -6,23 +6,33 @@ on:
       - 'src/main/java/io/github/mochiuaena/triage/execution/**'
       - 'src/test/java/io/github/mochiuaena/triage/execution/RunResourceLifecycleTest.java'
       - 'triage-spring-boot-starter/**'
+      - 'scripts/resource_soak.py'
+      - 'scripts/test_resource_soak.py'
       - '.github/workflows/runtime-resources.yml'
   pull_request:
   workflow_dispatch:
+    inputs:
+      seconds:
+        description: Continuous workload duration per component and platform
+        required: true
+        type: choice
+        default: '3600'
+        options: ['60', '300', '3600']
 permissions:
   contents: read
 concurrency:
-  group: runtime-resources-${{ github.ref }}
+  group: runtime-resources-${{ github.ref }}-${{ github.event.inputs.seconds || '300' }}
   cancel-in-progress: true
 jobs:
   retention:
     name: Resources / ${{ matrix.component }} / ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         component: [agent, starter]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 12
+    timeout-minutes: 80
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
@@ -30,11 +40,17 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Five minutes of repeated active and queued cancellation
-        if: matrix.component == 'agent'
-        shell: bash
-        run: ./mvnw -B -ntp -Dtest=RunResourceLifecycleTest -Dtriage.resource.seconds=300 '-DargLine=-Xms96m -Xmx256m' test
-      - name: Five minutes of async context and JDBC lifecycle checks
-        if: matrix.component == 'starter'
-        shell: bash
-        run: ./mvnw -B -ntp -f triage-spring-boot-starter/pom.xml -Dtest=ResourceLifecycleTest -Dtriage.resource.seconds=300 '-DargLine=-Xms96m -Xmx256m' test
+      - name: Verify diagnostic parsing and growth gates
+        run: python -m unittest discover -s scripts -p test_resource_soak.py
+      - name: Run continuous lifecycle checks with owned JVM diagnostics
+        run: python scripts/resource_soak.py --component ${{ matrix.component }} --seconds "${{ github.event.inputs.seconds || '300' }}"
+      - name: Keep numeric memory samples and summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resources-${{ matrix.component }}-${{ matrix.os }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            target/resource-soak/**/memory.csv
+            target/resource-soak/**/summary.json

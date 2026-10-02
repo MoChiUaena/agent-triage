@@ -19,11 +19,17 @@ import static org.awaitility.Awaitility.await;
 class ResourceLifecycleTest {
     @Test void repeatedAsyncCompletionAndCancellationLeaveWorkersAndJdbcConnectionsIdle() throws Exception {
         var properties = ObservationRecorderTest.properties(); properties.setCapacity(512); properties.setMaxWindowMinutes(1);
+        properties.setKind(TriageObservationProperties.Kind.HTTP_REQUESTS);
+        properties.setDownstreamId(null); properties.setDownstreamBaseUrl(null);
+        properties.setEndpointObservations(true); properties.setResponseStatusCounts(true); properties.setRequestFailureCounts(true);
         properties.setJpaObservations(true); properties.setJpaServiceId("resource-db-service"); properties.setJpaDatabaseId("resource-db");
+        properties.validate();
         var http = new ObservationRecorder(properties);
         var filter = new TriageRequestFilter(http);
         long seconds = Long.getLong("triage.resource.seconds", 0L);
-        long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+        long resourceStarted = System.nanoTime();
+        resourcePhase("running", resourceStarted);
+        long end = resourceStarted + TimeUnit.SECONDS.toNanos(seconds);
         int cycles = 0;
         long baselineHeap = 0, peakHeap = 0;
         try (var pool = new HikariDataSource(); var observer = new TriageJpaObserver(properties);
@@ -34,7 +40,8 @@ class ResourceLifecycleTest {
             do {
                 var request = new MockHttpServletRequest("GET", "/api/resource"); request.setAsyncSupported(true);
                 var snapshot = new AtomicReference<TriageObservationContext.Snapshot>();
-                filter.doFilter(request, new MockHttpServletResponse(), (req, res) -> {
+                var response = new MockHttpServletResponse(); response.setStatus(cycles % 3 == 0 ? 503 : 204);
+                filter.doFilter(request, response, (req, res) -> {
                     req.startAsync(req, res); snapshot.set(TriageObservationContext.capture());
                 });
                 var first = workers.submit(snapshot.get().wrap((Callable<Integer>) () -> query(source)));
@@ -78,6 +85,21 @@ class ResourceLifecycleTest {
                     assertThat(((Deque<?>) ReflectionTestUtils.getField(database, "pools")).size()).isLessThanOrEqualTo(3_620);
                 }
                 assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+                if (cycles <= 512) {
+                    var window = http.requestSnapshot(1, java.time.Instant.now(), null);
+                    assertThat(window.requestCount()).isEqualTo(cycles);
+                    assertThat(window.responseStatuses().serverError()).isEqualTo((cycles + 2) / 3);
+                    assertThat(window.requestFailures().serverErrorResponses()).isEqualTo((cycles + 2) / 3);
+                    assertThat(window.requestFailures().executionFailures()).isZero();
+                }
+                if (cycles % 200 == 0 && cycles > 512) {
+                    assertThatThrownBy(() -> http.requestSnapshot(1, java.time.Instant.now(), null))
+                        .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                            e -> assertThat(e.getStatusCode().value()).isEqualTo(422));
+                    assertThatThrownBy(() -> database.databaseSnapshot(1, java.time.Instant.now()))
+                        .isInstanceOfSatisfying(org.springframework.web.server.ResponseStatusException.class,
+                            e -> assertThat(e.getStatusCode().value()).isEqualTo(422));
+                }
                 if (cycles == 16 || cycles % 200 == 0) {
                     long heap = retainedHeap();
                     if (cycles == 16) baselineHeap = heap;
@@ -95,6 +117,7 @@ class ResourceLifecycleTest {
             System.out.printf("RESOURCE_RESULT starter seconds=%d cycles=%d requests=%d jdbc=%d cancelled=%d baselineHeap=%d peakHeap=%d finalHeap=%d workerContexts=0 connections=0 samplerStopped=true%n",
                 seconds, cycles, cycles, cycles * 2, cycles, baselineHeap, peakHeap, finalHeap);
         }
+        resourcePhase("closed", resourceStarted);
     }
 
     @Test void repeatedJdbcObserverCloseStopsItsSamplerAndPreservesTheApplicationsPool() throws Exception {
@@ -147,6 +170,14 @@ class ResourceLifecycleTest {
     }
     private static ScheduledExecutorService scheduler(TriageJdbcObserver observer) {
         return (ScheduledExecutorService) ReflectionTestUtils.getField(observer, "sampler");
+    }
+    private static void resourcePhase(String phase, long started) throws Exception {
+        String marker = System.getProperty("triage.resource.marker");
+        if (marker == null) return;
+        double elapsed = (System.nanoTime() - started) / 1_000_000_000.0;
+        java.nio.file.Files.writeString(java.nio.file.Path.of(marker),
+            phase + "," + ProcessHandle.current().pid() + "," + elapsed);
+        if (phase.equals("closed")) Thread.sleep(15_000); // Keep the owned test JVM available for one closing diagnostic.
     }
     private static long retainedHeap() {
         System.gc();

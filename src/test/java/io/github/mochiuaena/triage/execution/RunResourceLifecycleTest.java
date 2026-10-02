@@ -37,7 +37,9 @@ class RunResourceLifecycleTest {
             public List<Evidence> execute(ToolContext context, String query) { current.get().block(); return List.of(); }
         };
         long seconds = Long.getLong("triage.resource.seconds", 0L);
-        long end = System.nanoTime() + TimeUnit.SECONDS.toNanos(seconds);
+        long resourceStarted = System.nanoTime();
+        resourcePhase("running", resourceStarted);
+        long end = resourceStarted + TimeUnit.SECONDS.toNanos(seconds);
         int cycles = 0;
         long baselineHeap = 0, peakHeap = 0;
         try (var fixture = new Fixture(engine, List.of(tool))) {
@@ -86,6 +88,7 @@ class RunResourceLifecycleTest {
             System.out.printf("RESOURCE_RESULT agent seconds=%d cycles=%d cancelled=%d fresh=%d baselineHeap=%d peakHeap=%d finalHeap=%d registry=0 queues=0 connections=0%n",
                 seconds, cycles, cycles * 5, cycles, baselineHeap, peakHeap, finalHeap);
         }
+        resourcePhase("closed", resourceStarted);
     }
 
     @Test void shutdownCancelsDrainedCoordinatorsAndReleasesTheirRunRegistryEntries() throws Exception {
@@ -123,6 +126,14 @@ class RunResourceLifecycleTest {
     private static ThreadPoolExecutor executor(RunService service, String name) {
         return (ThreadPoolExecutor) ReflectionTestUtils.getField(service, name);
     }
+    private static void resourcePhase(String phase, long started) throws Exception {
+        String marker = System.getProperty("triage.resource.marker");
+        if (marker == null) return;
+        double elapsed = (System.nanoTime() - started) / 1_000_000_000.0;
+        java.nio.file.Files.writeString(java.nio.file.Path.of(marker),
+            phase + "," + ProcessHandle.current().pid() + "," + elapsed);
+        if (phase.equals("closed")) Thread.sleep(15_000); // Keep the owned test JVM available for one closing diagnostic.
+    }
     private static long retainedHeap() {
         System.gc();
         return java.lang.management.ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
@@ -152,6 +163,10 @@ class RunResourceLifecycleTest {
             service = new RunService(repository, new ExecutionLimits(3, Duration.ofSeconds(10), Duration.ofSeconds(20)), engine, tools);
         }
         Run submit() { return service.submit("订单请求为什么慢", new ToolContext("order-service", 5, Scenario.NORMAL, Instant.now())); }
-        @Override public void close() { service.close(); pool.close(); }
+        @Override public void close() {
+            service.close(); pool.close();
+            for (String name : List.of("coordinators", "toolWorkers", "modelWorkers"))
+                await().atMost(Duration.ofSeconds(3)).until(() -> executor(service, name).isTerminated());
+        }
     }
 }
