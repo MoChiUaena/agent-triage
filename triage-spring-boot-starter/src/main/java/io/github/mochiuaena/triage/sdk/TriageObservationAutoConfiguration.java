@@ -32,6 +32,10 @@ public class TriageObservationAutoConfiguration {
     TriageRestClientCustomizer triageRestClientCustomizer(TriageObservationProperties properties) {
         return new TriageRestClientCustomizer(properties);
     }
+    @Bean @ConditionalOnProperty(prefix = "triage.sdk", name = "kind", havingValue = "HTTP", matchIfMissing = true)
+    TriageRestTemplateCustomizer triageRestTemplateCustomizer(TriageObservationProperties properties) {
+        return new TriageRestTemplateCustomizer(properties);
+    }
     @Bean @ConditionalOnProperty(prefix = "triage.sdk", name = "endpoint-observations", havingValue = "true")
     TriageMvcEndpoints triageMvcEndpoints(TriageObservationProperties properties) { return new TriageMvcEndpoints(properties); }
     @Bean @org.springframework.context.annotation.Conditional(RequestFailureCapture.class)
