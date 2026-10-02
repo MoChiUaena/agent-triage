@@ -25,6 +25,7 @@ def main():
     parser.add_argument("--base-port", type=int, default=18460)
     parser.add_argument("--keep-running", action="store_true", help="Keep this isolated preview after a successful check")
     parser.add_argument("--jpa", action="store_true", help="Verify opt-in JPA statement and pool observations")
+    parser.add_argument("--inbound", action="store_true", help="Observe only inbound requests without a downstream placeholder")
     args = parser.parse_args()
     public = args.project_directory.resolve()
     revision = subprocess.check_output(["git", "-C", str(public), "rev-parse", "HEAD"], text=True).strip()
@@ -40,16 +41,16 @@ def main():
     output = ROOT / "target/petclinic-smoke" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     output.mkdir(parents=True)
     configuration = output / "services.yml"
+    downstream_config = "" if args.inbound else "      downstream-id: unobserved-http\n      downstream-name: 未采集的 HTTP 下游\n"
+    protocol = "HTTP_REQUESTS_V4" if args.inbound else "OBSERVATIONS_V3"
     configuration.write_text(f"""triage:
   observation:
     source: LIVE
   services:
     - id: petclinic-service
       name: Spring Petclinic
-      downstream-id: unobserved-http
-      downstream-name: 未采集的 HTTP 下游
-      base-url: {application}
-      protocol: OBSERVATIONS_V3
+{downstream_config}      base-url: {application}
+      protocol: {protocol}
       max-window-minutes: 15
 """, encoding="utf-8")
     if args.jpa:
@@ -146,9 +147,10 @@ def main():
         starter_name, starter_version = project(ROOT / "triage-spring-boot-starter")
         class_agent = ROOT / "triage-spring-boot-starter/target" / f"{starter_name}-{starter_version}-agent.jar"
         assert class_agent.is_file(), "Build the observation class Agent first"
+        http_options = ["--triage.sdk.kind=HTTP_REQUESTS", "--triage.sdk.response-status-counts=true"] if args.inbound else [
+            "--triage.sdk.downstream-id=unobserved-http", "--triage.sdk.downstream-base-url=http://127.0.0.1:1"]
         start("petclinic", public / "target/spring-petclinic-3.5.0-SNAPSHOT.jar", [f"--server.port={args.base_port + 1}", "--server.address=127.0.0.1",
-            "--triage.sdk.enabled=true", "--triage.sdk.service-id=petclinic-service", "--triage.sdk.downstream-id=unobserved-http",
-            "--triage.sdk.downstream-base-url=http://127.0.0.1:1", "--triage.sdk.request-path-prefix=/owners/",
+            "--triage.sdk.enabled=true", "--triage.sdk.service-id=petclinic-service", *http_options, "--triage.sdk.request-path-prefix=/owners/",
             "--triage.sdk.endpoint-observations=true", "--triage.sdk.exception-locations=true", "--triage.sdk.source-version-checks=true",
             "--triage.sdk.application-packages=org.springframework.samples.petclinic",
             f"--triage.sdk.jpa-observations={str(args.jpa).lower()}", "--triage.sdk.jpa-service-id=petclinic-db-service",
@@ -186,7 +188,22 @@ def main():
         normal_metrics = evidence(normal, "read_service_metrics")["data"]
         failed_metrics = evidence(failed, "read_service_metrics")["data"]
         assert normal_metrics["requestCount"] == 2 and failed_metrics["requestCount"] == 4
-        assert normal_metrics["timeoutCount"] == failed_metrics["timeoutCount"] == 0
+        if args.inbound:
+            for result in (normal, failed):
+                assert result["status"] == "INSUFFICIENT_EVIDENCE" and result["serviceInfo"]["downstreamId"] is None
+                assert "未采集下游" in result["diagnosis"]["uncertainty"]
+                metrics = evidence(result, "read_service_metrics")["data"]
+                assert metrics["observationType"] == "HTTP_REQUESTS"
+                assert not {"timeoutCount", "downstreamP95Ms", "downstreamTimeoutRate"} & metrics.keys()
+                assert result["sourceAnalysis"]["graph"]["endpointMatches"][0].get("timeoutCount") is None
+            assert normal_metrics["responseStatuses"]["successful"] == 2
+            assert failed_metrics["responseStatuses"]["successful"] == 2 and failed_metrics["responseStatuses"]["serverError"] == 2
+            end = quote(datetime.now(timezone.utc).isoformat(), safe="")
+            status, observed = request(application, "/triage/request-observations?windowMinutes=5&endTime=" + end)
+            assert status == 200 and observed["schemaVersion"] == 4 and observed["requestCount"] == 6
+            assert not {"downstreamService", "timeoutCount", "downstreamP95Ms", "downstreamTimeoutRate"} & observed.keys()
+        else:
+            assert normal_metrics["timeoutCount"] == failed_metrics["timeoutCount"] == 0
         assert not evidence(normal, "query_error_logs")["data"]["entries"]
         assert len(evidence(failed, "query_error_logs")["data"]["entries"]) == 2
         assert failed["status"] == "INSUFFICIENT_EVIDENCE"
@@ -288,6 +305,8 @@ def main():
                   f"p95={measured['p95Nanos'] / 1_000_000:.3f} ms, max={measured['maxNanos'] / 1_000_000:.3f} ms")
         else:
             print("Petclinic passed: original MVC pages, actual application exceptions, local source lines, build mismatch, frozen history and zero model calls")
+        if args.inbound:
+            print("Petclinic inbound V4 passed: no downstream identity or origin, request/response evidence, unknown downstream counters, source versions and history")
         print(f"Saved isolated verification to {output}")
         if args.keep_running:
             retained = True

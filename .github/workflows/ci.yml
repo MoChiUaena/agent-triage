@@ -36,6 +36,7 @@ jobs:
           node --check src/main/resources/static/workspace.js
           node --check src/main/resources/static/sources.js
           node --check src/main/resources/static/source-view.js
+          node scripts/inbound_ui_check.js
       - name: Verify Spring Boot starter and independent application
         shell: bash
         run: ./mvnw -B -ntp -f integrations/pom.xml verify
