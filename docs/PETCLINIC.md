@@ -28,6 +28,8 @@ python scripts/petclinic_smoke.py --project-directory $petclinicDirectory --jpa 
 
 增加 `--keep-running` 可在验证成功后保留独立预览。首次 HTTP 检查使用 18460／18461；JPA 检查使用 18470／18471。打开 Agent，从历史选择 Petclinic HTTP 服务或数据库服务；每次验证使用新的数据目录。
 
+主分支还可增加 `--inbound` 使用[入站 V4](INBOUND_HTTP.md)，移除 HTTP 下游占位配置；与 `--jpa` 组合时数据库别名继续工作。[新模式验收](validation/2026-10-02-inbound-http.md)同时保留旧 V3 对照。此时正常和异常窗口都展示已有请求证据，未采集的下游指标不会写成零；下面首次验收中的占位描述适用于旧模式。
+
 ## Linux 验证
 
 将 `mvnw.cmd` 换成 `./mvnw`，设置好 JDK 21 后可运行相同步骤。仓库还提供可手动触发的 [Public Spring Petclinic acceptance](../.github/workflows/petclinic.yml) 工作流，固定同一上游提交，验证完成后检查两个进程已经停止。流程不需要模型凭据，也不上传原始运行 JSON、数据库或源码副本。

@@ -9,6 +9,7 @@
 | 需要的能力 | 应用侧改动 | Agent 侧改动 |
 |---|---|---|
 | HTTP 请求窗口 | 添加 Starter，配置服务身份、请求前缀和观测窗口 | 登记本机地址、身份与 V1 协议 |
+| 只观察入站请求 | 主分支选择 `HTTP_REQUESTS`，不填写下游配置 | 选择 `HTTP_REQUESTS_V4`，指标明确显示未采集下游 |
 | 下游 HTTP 超时 | 配置被观测 origin，使用 Spring 注入的 `RestClient.Builder` 创建客户端 | 登记对应下游身份 |
 | 按 MVC 接口排查 | 开启 `endpoint-observations`；可选响应分类 | 改为 V3 协议，产生请求后选择接口 |
 | 业务异常位置 | 开启异常位置，明确业务包范围 | 绑定同一服务的本机源码索引 |
@@ -19,7 +20,7 @@
 | 自建线程、DeferredResult 等 | 在提交任务的位置捕获快照并包装任务 | 不改变服务地址或窗口契约 |
 | 模型辅助排查 | 应用仍提供相同观测；敏感内容先在接入方移除 | 在模型页配置服务，源码读取另行授权 |
 
-HTTP Starter 目前仍要求下游身份和地址。没有 HTTP 下游的 Petclinic 使用 `unobserved-http` 与 `http://127.0.0.1:1` 作为占位，不向它生成请求；这项配置负担尚未消除。只观察某一 origin，不等于覆盖应用内的所有 HTTP 客户端：自行创建的 `RestClient`、RestTemplate、WebClient、Feign 和任意 JDK HttpClient 调用尚未验证自动归属。
+原 HTTP 模式仍要求下游身份和地址；旧 Petclinic 验收使用 `unobserved-http` 与 `http://127.0.0.1:1` 占位。主分支的[入站请求模式](INBOUND_HTTP.md)已移除这一要求，需要同时升级 Agent 与 Starter；v0.10.0 发布附件尚不包含它。观察某一 origin 的旧模式也不会覆盖应用内的所有 HTTP 客户端：自行创建的 `RestClient`、RestTemplate、WebClient、Feign 和任意 JDK HttpClient 调用尚未验证自动归属。
 
 Starter 尚未发布到 Maven Central，需要安装发布附件或自行构建后安装到 Maven 本地仓库。SDK 本身依赖 Spring Web 和 HikariCP，不把 Agent 的模型、历史库和源码索引放入业务应用。Maven 构建摘要示例见 [Starter](STARTER.md)；Gradle、多模块聚合及代码生成目录仍需另行评估。
 
@@ -53,4 +54,4 @@ JPA 包装必须保留原有连接池配置与生命周期。`DataSourceProperti
 - [五分钟资源检查](validation/2026-10-01-runtime-resources.md)使用受控任务、内存 H2 和固定堆。其堆值不是整个 Spring Boot 应用的内存需求，没有证明数天运行或真实供应商取消的成本。
 - 历史使用 H2/PostgreSQL 保存，源码项目按文件数、字节数和索引时限限制；可以登记一个模块目录。默认不自动删除历史，页面提供预览后清理终态记录；本地模型密钥和历史库需要一起备份。
 
-下一阶段先提供明确的入站请求观测模式，让没有 HTTP 下游的应用无需占位配置，再增加有证据约束的请求执行阶段失败判断。4xx 根因、完整分布式链路、更多 HTTP 客户端和数据库内部根因仍分别评估。
+入站请求观测已接入主分支，下一项增加有证据约束的请求执行阶段失败判断。4xx 根因、完整分布式链路、更多 HTTP 客户端和数据库内部根因仍分别评估。

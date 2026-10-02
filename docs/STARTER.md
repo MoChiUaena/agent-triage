@@ -1,6 +1,6 @@
 # Spring Boot Starter 接入
 
-`triage-spring-boot-starter` 为 Spring MVC 应用提供 `/triage/observations`，复用 Agent 已有的 HTTP V1 和数据库 V2 契约。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
+`triage-spring-boot-starter` 为 Spring MVC 应用提供只读观测，支持 HTTP V1、数据库 V2、MVC 接口 V3，以及主分支的入站请求 V4。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
 
 源码和预览包使用 0.10.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。[v0.10.0 附件入口](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.10.0)提供独立 Starter JAR/POM 与可选 Agent JAR，[v0.6.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0) 保留旧附件。在附件所在目录安装：
 
@@ -27,6 +27,8 @@ mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=tri
 ```
 
 ## HTTP 模式
+
+没有 HTTP 下游时，可选择[入站请求模式](INBOUND_HTTP.md)，省去下游占位配置。下面的 HTTP 模式仍会观察一个明确配置的下游；默认配置和旧协议保持兼容。V4 需从当前源码构建，v0.10.0 发布附件保留原功能。
 
 ```yaml
 triage:
