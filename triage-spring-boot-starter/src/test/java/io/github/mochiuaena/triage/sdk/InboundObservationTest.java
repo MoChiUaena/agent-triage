@@ -23,6 +23,7 @@ class InboundObservationTest {
         @GetMapping("/api/inbound/{id}") ResponseEntity<Void> request(@PathVariable String id) {
             return ResponseEntity.status("private-bad".equals(id) ? 500 : 200).build();
         }
+        @GetMapping("/api/escape") void escape() { throw new IllegalStateException("private-escaping-error"); }
     }
     @Test void noDownstreamConfigurationStartsAndReportsOnlyInboundRequestFields() {
         inbound().run(context -> {
@@ -48,6 +49,21 @@ class InboundObservationTest {
     @Test void inboundModeCanOptIntoJpaWithoutAPlaceholderHttpOrigin() {
         inbound().withPropertyValues("triage.sdk.jpa-observations=true", "triage.sdk.jpa-service-id=inbound-db",
             "triage.sdk.jpa-database-id=test-db").run(context -> assertThat(context).hasNotFailed().hasSingleBean(TriageJpaObserver.class));
+    }
+    @Test void escapingExceptionKeepsItsResponseClassUnknownUntilTheContainerHandlesIt() {
+        inbound().run(context -> {
+            assertThat(context).hasNotFailed();
+            var mvc = MockMvcBuilders.standaloneSetup(new Controller())
+                .addInterceptors(context.getBean(TriageMvcEndpoints.class))
+                .addFilter(context.getBean(FilterRegistrationBean.class).getFilter(), "/api/*").build();
+            assertThatThrownBy(() -> mvc.perform(get("/api/escape"))).hasRootCauseInstanceOf(IllegalStateException.class);
+            var observed = context.getBean(ObservationRecorder.class).requestSnapshot(1, Instant.now(), null);
+            assertThat(observed.requestCount()).isEqualTo(1);
+            assertThat(observed.responseStatuses().unknown()).isEqualTo(1);
+            assertThat(observed.responseStatuses().serverError()).isZero();
+            assertThat(observed.errors()).hasSize(1);
+            assertThat(observed.toString()).doesNotContain("private-escaping-error");
+        });
     }
     @Test void basicInboundRequestsDoNotRequireEndpointOrResponseClassification() {
         inbound().withPropertyValues("triage.sdk.endpoint-observations=false", "triage.sdk.response-status-counts=false").run(context -> {

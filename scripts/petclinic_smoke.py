@@ -197,7 +197,8 @@ def main():
                 assert not {"timeoutCount", "downstreamP95Ms", "downstreamTimeoutRate"} & metrics.keys()
                 assert result["sourceAnalysis"]["graph"]["endpointMatches"][0].get("timeoutCount") is None
             assert normal_metrics["responseStatuses"]["successful"] == 2
-            assert failed_metrics["responseStatuses"]["successful"] == 2 and failed_metrics["responseStatuses"]["serverError"] == 2
+            counts = failed_metrics["responseStatuses"]
+            assert counts["successful"] == 2 and counts["serverError"] == 0 and counts["unknown"] == 2, counts
             end = quote(datetime.now(timezone.utc).isoformat(), safe="")
             status, observed = request(application, "/triage/request-observations?windowMinutes=5&endTime=" + end)
             assert status == 200 and observed["schemaVersion"] == 4 and observed["requestCount"] == 6
