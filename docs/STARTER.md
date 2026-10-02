@@ -147,6 +147,8 @@ TriageJpaObserver.ObservedDataSource dataSource(DataSourceProperties properties,
 }
 ```
 
+上例只展示包装入口。真实接入需要保留应用原有的 Hikari 配置绑定、池大小、超时与关闭顺序；`DataSourceProperties` 不会自动代替 `spring.datasource.hikari.*` 的专有设置。已有数据源时应按其装配方式包装，不能复制验收类中的单连接池故障参数。[应用接入说明](APPLICATION_ADOPTION.md)列出了需要额外修改的部分。
+
 Agent 启动配置同时登记 `OBSERVATIONS_V3` 服务与以下数据库服务，`base-url` 使用同一本机应用 origin：
 
 ```yaml
