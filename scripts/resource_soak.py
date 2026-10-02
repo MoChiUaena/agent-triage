@@ -212,7 +212,10 @@ def main():
     except BaseException as error:
         (output / "summary.json").write_text(json.dumps({"status": "failed", "component": args.component,
             "error": str(error), "samples": len(samples)}, indent=2) + "\n", encoding="utf-8")
-        stop_owned_processes(child)
+        try:
+            stop_owned_processes(child)
+        except Exception as cleanup_error:
+            print("RESOURCE_CLEANUP_FAILED " + str(cleanup_error), flush=True)
         raise
 
 

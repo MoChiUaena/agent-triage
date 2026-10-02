@@ -29,7 +29,10 @@ def is_running(pid):
         finally:
             kernel.CloseHandle(handle)
     status = Path(f"/proc/{pid}/stat")
-    return status.exists() and status.read_text().split(")", 1)[1].split()[0] != "Z"
+    try:
+        return status.read_text().split(")", 1)[1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
 
 
 class ResourceCleanupTest(unittest.TestCase):
@@ -40,7 +43,8 @@ class ResourceCleanupTest(unittest.TestCase):
             helper = root / "owned-helper.py"
             helper.write_text("import json, os, subprocess, sys, time\n"
                 "leaf = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
-                "open(sys.argv[1], 'w').write(json.dumps([os.getpid(), leaf.pid]))\n"
+                "with open(sys.argv[1] + '.tmp', 'w') as output: output.write(json.dumps([os.getpid(), leaf.pid]))\n"
+                "os.replace(sys.argv[1] + '.tmp', sys.argv[1])\n"
                 "time.sleep(120)\n", encoding="utf-8")
             if os.name == "nt":
                 wrapper = root / "owned-wrapper.cmd"
@@ -71,8 +75,7 @@ class ResourceCleanupTest(unittest.TestCase):
                     if is_running(pid):
                         try: os.kill(pid, signal.SIGTERM)
                         except OSError: pass
-                if child.poll() is None:
-                    child.terminate()
+                stop_owned_processes(child)
                 child.wait(timeout=5)
                 unrelated.terminate(); unrelated.wait(timeout=5)
 
