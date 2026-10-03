@@ -83,7 +83,7 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
             raise ValueError("Summary does not match numeric replay: " + key)
     workload = meta.get("workload")
     if not isinstance(workload, dict) or any(not isinstance(key, str) or
-        (type(value) is not int and not (key in ("samplerStopped", "executorsStopped", "servletStopped") and value is True)) for key, value in workload.items()):
+        (type(value) is not int and not (key in ("samplerStopped", "executorsStopped", "servletStopped", "healthyConnectionsReused", "faultConnectionsClosed") and value is True)) for key, value in workload.items()):
         raise ValueError("Invalid workload counters")
     if any(type(value) is int and value < 0 for value in workload.values()):
         raise ValueError("Negative workload counters")
@@ -103,6 +103,8 @@ def verify_matrix(summary_paths, source_commit, seconds, workload="components"):
     expected = {(component, system) for component in components for system in ("linux", "windows")}
     if len(identities) != len(expected) or set(identities) != expected:
         raise ValueError("Expected each workload mode exactly once on Linux and Windows")
+    if workload == "http" and len({meta["workload"].get("connectionPolicy", 1) for meta, rows in datasets}) != 1:
+        raise ValueError("HTTP matrix mixes connection policies")
     return sorted(datasets, key=lambda dataset: (dataset[0]["component"], dataset[0]["operatingSystem"]))
 
 
@@ -129,7 +131,8 @@ def render_http_table(datasets):
             f"{workload['observedRequests']} / {workload['observedTimeouts']} | {workload['windowRequests']} / {workload['windowTimeouts']} | "
             f"{(workload['finalHeap'] - workload['baselineHeap']) / MIB:.2f} | "
             f"{meta['postWarmupPeakNativeGrowthBytes'] / MIB:.2f} | {meta['postWarmupPeakResidentGrowthBytes'] / MIB:.2f} |")
-    lines += ["", "All measurements include the JUnit driver, Servlet and loopback downstream in one JVM. "
+    policy = datasets[0][0]["workload"].get("connectionPolicy", 1)
+    lines += ["", "Connection policy: " + ("fault-close with verified healthy connection reuse." if policy == 2 else "original shared pool."), "", "All measurements include the JUnit driver, Servlet and loopback downstream in one JVM. "
         "Separate CI runners and GC timing prevent attributing paired differences solely to Starter.", "",
         "| Starter | OS | Class growth | Thread growth | Code growth | GC growth | Other growth | Remaining NMT growth |",
         "|---|---|---:|---:|---:|---:|---:|---:|"]

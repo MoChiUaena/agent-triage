@@ -102,6 +102,11 @@ Total: reserved=180000KB, committed=140000KB
             for invalid in (summaries[:-1], summaries+[summaries[0]], summaries[:2]+summaries[:2]):
                 with self.assertRaises(ValueError): verify_matrix(invalid, "a"*40, 60, workload="http")
             with self.assertRaises(ValueError): verify_matrix(summaries, "a"*40, 60)
+            first = json.loads(summaries[0].read_text())
+            first["workload"].update(connectionPolicy=2, healthyConnectionsReused=True, faultConnectionsClosed=True)
+            summaries[0].write_text(json.dumps(first))
+            with self.assertRaisesRegex(ValueError, "mixes connection policies"):
+                verify_matrix(summaries, "a"*40, 60, workload="http")
 
     def test_http_receipt_requires_native_breakdown_and_rejects_inconsistent_categories(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -127,6 +132,16 @@ Total: reserved=180000KB, committed=140000KB
         counters = receipt(seconds=59)
         counters["expectedWindowRequests"] = counters["windowRequests"] = 469
         self.assertEqual(parse_workload_result(line("http-enabled", counters), "http-enabled", 59), counters)
+
+    def test_fault_closed_profile_requires_actual_healthy_reuse_and_all_flags(self):
+        counters = dict(receipt(), connectionPolicy=2, healthyConnectionsReused=True, faultConnectionsClosed=True)
+        self.assertEqual(parse_workload_result(line("http-enabled", counters), "http-enabled", 60), counters)
+        for key, bad in (("connectionPolicy", 3), ("healthyConnectionsReused", False), ("faultConnectionsClosed", False)):
+            with self.subTest(key=key):
+                changed = dict(counters); changed[key] = bad
+                with self.assertRaises(ValueError): parse_workload_result(line("http-enabled", changed), "http-enabled", 60)
+        changed = dict(counters); del changed["faultConnectionsClosed"]
+        with self.assertRaises(ValueError): parse_workload_result(line("http-enabled", changed), "http-enabled", 60)
 
 
 if __name__ == "__main__":

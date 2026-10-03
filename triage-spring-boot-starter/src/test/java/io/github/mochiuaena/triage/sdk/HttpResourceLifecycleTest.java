@@ -34,6 +34,7 @@ import static org.awaitility.Awaitility.await;
 /** The driver, Servlet and downstream all belong to the sampled JVM. */
 class HttpResourceLifecycleTest {
     static final int RPS = 8, CONCURRENCY = 4;
+    static final int[] SCENARIOS = {0, 3, 4, 1, 5, 6, 2, 7};
     static final String PAYLOAD = "acceptance-body";
     static final Downstream downstream = new Downstream();
     ConfigurableApplicationContext application;
@@ -102,8 +103,10 @@ class HttpResourceLifecycleTest {
             long started = System.nanoTime(), gcBefore = gcMillis();
             try {
                 var client = factory.equals("simple") ? mode.equals("normal") ? simpleNormal : simple : jdk;
-                return ResponseEntity.ok(client.exchange("/" + mode, HttpMethod.valueOf(request.getMethod()),
-                    new HttpEntity<>(body), String.class).getBody());
+                var headers = new HttpHeaders();
+                if (factory.equals("simple") && mode.contains("timeout")) headers.setConnection("close");
+                return ResponseEntity.ok(client.exchange("/" + factory + "-" + mode, HttpMethod.valueOf(request.getMethod()),
+                    new HttpEntity<>(body, headers), String.class).getBody());
             } catch (RestClientException failure) {
                 if (mode.equals("normal") || typedTimeout(failure) != factory.equals("simple"))
                     System.out.printf("RESOURCE_UNEXPECTED_HTTP_FAILURE method=%s factory=%s mode=%s elapsedMs=%.1f typedTimeout=%b gcMillis=%d downstreamActive=%d downstreamQueue=%d causeTypes=%s%n",
@@ -147,7 +150,7 @@ class HttpResourceLifecycleTest {
         for (var thread : threads) {
             String name = thread.getThreadName();
             if (name.startsWith("resource-") || name.equals("HTTP-Dispatcher") || name.startsWith("HttpClient-") ||
-                name.contains("exec-") || name.equals("main") || name.equals("Keep-Alive-Timer") || name.endsWith("timeout-task"))
+                name.contains("exec-") || name.equals("main") || name.startsWith("Keep-Alive-") || name.endsWith("timeout-task"))
                 selected.add(thread.getThreadId());
         }
         boolean changed;
@@ -185,9 +188,10 @@ class HttpResourceLifecycleTest {
     }
     static final class Downstream implements AutoCloseable {
         final ThreadPoolExecutor workers = new ThreadPoolExecutor(8, 8, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16), namedThreads("resource-downstream-"));
-        final AtomicInteger active = new AtomicInteger(), requests = new AtomicInteger(), payloadErrors = new AtomicInteger();
+        final AtomicInteger active = new AtomicInteger(), requests = new AtomicInteger(), payloadErrors = new AtomicInteger(), faultConnections = new AtomicInteger();
         final HttpServer server;
-        final AtomicBoolean closed = new AtomicBoolean();
+        final AtomicBoolean closed = new AtomicBoolean(), healthyConnectionsReused = new AtomicBoolean();
+        final Set<Integer> healthyPorts = new HashSet<>();
         Downstream() {
             try {
                 server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -198,6 +202,14 @@ class HttpResourceLifecycleTest {
                         var body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                         if (!(exchange.getRequestMethod().equals("GET") ? body.isEmpty() : body.equals(PAYLOAD))) payloadErrors.incrementAndGet();
                         var mode = exchange.getRequestURI().getPath();
+                        if (mode.contains("simple") && mode.contains("timeout") && !"close".equalsIgnoreCase(exchange.getRequestHeaders().getFirst("Connection")))
+                            faultConnections.incrementAndGet();
+                        if (mode.contains("timeout")) exchange.getResponseHeaders().set("Connection", "close");
+                        if (mode.contains("normal") && !healthyConnectionsReused.get()) synchronized (healthyPorts) {
+                            int port = exchange.getRemoteAddress().getPort();
+                            if (healthyPorts.contains(port)) healthyConnectionsReused.set(true);
+                            else if (healthyPorts.size() < 32) healthyPorts.add(port);
+                        }
                         if (mode.contains("normal")) Thread.sleep(Integer.getInteger("triage.resource.normal-delay-millis", 350));
                         if (mode.contains("header-timeout")) Thread.sleep(1000);
                         exchange.sendResponseHeaders(200, 2);
@@ -278,6 +290,8 @@ class HttpResourceLifecycleTest {
             assertThat(driver.workerContexts.get()).isZero();
             assertThat(downstream.requests.get()).isEqualTo(seconds * RPS);
             assertThat(downstream.payloadErrors.get()).isZero();
+            assertThat(downstream.healthyConnectionsReused.get()).as("Healthy requests must exercise connection reuse").isTrue();
+            assertThat(downstream.faultConnections.get()).as("Simple fault requests must close their connection").isZero();
             assertThat(driver.maxLagMillis.get()).isLessThanOrEqualTo(2000);
             var tail = checkWindow(enabled, seconds * RPS, previous);
             observedRequests = tail.observedRequests();
@@ -303,7 +317,7 @@ class HttpResourceLifecycleTest {
         long finalHeap = retainedHeap();
         assertThat(finalHeap).isLessThanOrEqualTo(baselineHeap + 64L * 1024 * 1024);
         String component = enabled ? "http-enabled" : "http-disabled";
-        System.out.printf("RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d%n",
+        System.out.printf("RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 connectionPolicy=2 healthyConnectionsReused=true faultConnectionsClosed=true requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d%n",
             component, seconds, seconds, seconds * RPS, driver.successes.get(), driver.failures.get(), counters.typedTimeouts.get(),
             counters.untypedFailures.get(), observedRequests, observedTimeouts, expectedWindowRequests, expectedWindowTimeouts,
             windowRequests, windowTimeouts, counters.responsesOpened.get(), counters.responsesClosed.get(), downstream.requests.get(),
@@ -376,17 +390,18 @@ class HttpResourceLifecycleTest {
                 maxLagMillis.accumulateAndGet(Math.max(0, (System.nanoTime() - scheduled) / 1_000_000L), Math::max);
                 if (TriageRequestFilter.CURRENT.get() != null) workerContexts.incrementAndGet();
                 try {
-                    String method = slot == 1 || slot == 4 ? "POST" : slot == 2 || slot == 5 ? "PUT" : "GET";
-                    String factory = slot == 7 ? "jdk" : "simple";
-                    String mode = slot < 3 ? "normal" : slot < 6 ? "header-timeout" : "body-timeout";
+                    int scenario = SCENARIOS[slot];
+                    String method = scenario == 1 || scenario == 4 ? "POST" : scenario == 2 || scenario == 5 ? "PUT" : "GET";
+                    String factory = scenario == 7 ? "jdk" : "simple";
+                    String mode = scenario < 3 ? "normal" : scenario < 6 ? "header-timeout" : "body-timeout";
                     var body = method.equals("GET") ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(PAYLOAD);
                     var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/resource/" + factory + "/" + mode))
                         .timeout(Duration.ofSeconds(5)).method(method, body).build();
                     var response = http.send(request, HttpResponse.BodyHandlers.ofString());
-                    assertThat(response.statusCode()).isEqualTo(slot < 3 ? 200 : 504);
-                    assertThat(response.body()).isEqualTo(slot < 3 ? "ok" : "incomplete");
+                    assertThat(response.statusCode()).isEqualTo(scenario < 3 ? 200 : 504);
+                    assertThat(response.body()).isEqualTo(scenario < 3 ? "ok" : "incomplete");
                     assertThat(response.headers().firstValue("X-Triage-Trace-Id").isPresent()).isEqualTo(enabled);
-                    if (slot < 3) successes.incrementAndGet(); else failures.incrementAndGet();
+                    if (scenario < 3) successes.incrementAndGet(); else failures.incrementAndGet();
                 } catch (Throwable error) { failure.compareAndSet(null, error); }
                 finally { if (TriageRequestFilter.CURRENT.get() != null) workerContexts.incrementAndGet(); }
             });

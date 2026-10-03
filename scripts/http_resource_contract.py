@@ -17,12 +17,16 @@ def parse_http_receipt(receipt, component, seconds):
         "responsesOpened", "responsesClosed", "downstreamRequests", "servletContexts", "workerContexts",
         "downstreamActive", "queues", "payloadErrors", "executorsStopped", "servletStopped",
         "maxLagMillis", "baselineHeap", "peakHeap", "finalHeap"}
-    if len(tokens) != len(fields) or set(fields) != required:
+    profile = {"connectionPolicy", "healthyConnectionsReused", "faultConnectionsClosed"}
+    profiled = bool(set(fields) & profile)
+    if len(tokens) != len(fields) or set(fields) != required | (profile if profiled else set()):
         raise ValueError("Missing or duplicate HTTP workload counters")
     value = {key: raw == "true" if raw in ("true", "false") else int(raw) for key, raw in fields.items()}
-    booleans = {"executorsStopped", "servletStopped"}
+    booleans = {"executorsStopped", "servletStopped", "healthyConnectionsReused", "faultConnectionsClosed"}
     if any(type(number) is not (bool if key in booleans else int) for key, number in value.items()):
         raise ValueError("Wrong HTTP counter type")
+    if profiled and (value["connectionPolicy"] != 2 or value["healthyConnectionsReused"] is not True or value["faultConnectionsClosed"] is not True):
+        raise ValueError("Fault-close profile lacks verified healthy reuse or connection cleanup")
     enabled = component == "http-enabled"
     expected = dict(seconds=seconds, cycles=seconds, rps=8, concurrency=4, requests=seconds*8,
         successes=seconds*3, failures=seconds*5, typedTimeouts=seconds*4, untypedFailures=seconds,
