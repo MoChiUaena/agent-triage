@@ -377,7 +377,7 @@ class HttpResourceLifecycleTest {
     }
     static final class Driver implements AutoCloseable {
         final ThreadPoolExecutor workers = new ThreadPoolExecutor(CONCURRENCY, CONCURRENCY, 0, TimeUnit.SECONDS,
-            new ArrayBlockingQueue<>(8), namedThreads("resource-driver-"));
+            new ArrayBlockingQueue<>(8), namedThreads("resource-driver-"), new BoundedResourceAdmission(Duration.ofSeconds(2)));
         final java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
         final AtomicReference<Throwable> failure = new AtomicReference<>();
         final AtomicInteger successes = new AtomicInteger(), failures = new AtomicInteger(), workerContexts = new AtomicInteger();
