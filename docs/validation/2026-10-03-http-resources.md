@@ -50,6 +50,23 @@
 
 短验收尚不足以核对长时偶发连接故障。策略 2 的十分钟及小时检查需独立完成，不能与策略 1 的四组混合重放。
 
+## 故障连接隔离后的十分钟结果（策略 2）
+
+[37094935610](https://github.com/MoChiUaena/agent-triage/actions/runs/37094935610) 四组通过，源码为 `eb4d00a741a5ef9224c3f669ed5a9a8802d1e94a`。每组 4800 请求、2400 次有类型超时、600 次 JDK 无类型正文失败、4200 个响应全部关闭；正常连接实际复用，Simple 故障请求和所有故障响应关闭连接。
+
+| Starter | 平台 | 观测请求 / 超时 | GC 后堆变化 MiB | NMT 非堆增长 MiB | RSS 增长 MiB |
+|---|---|---:|---:|---:|---:|
+| 关闭 | linux | 0 / 0 | 4.05 | 9.45 | 19.84 |
+| 关闭 | windows | 0 / 0 | 4.10 | 0.85 | 0.00 |
+| 开启 | linux | 4800 / 2400 | 6.08 | 1.87 | 23.66 |
+| 开启 | windows | 4800 / 2400 | 6.34 | 17.88 | 0.00 |
+
+十分钟四组及附件重放通过。小时检查仍需独立完成，不能用十分钟结果代替小时，也不能与策略 1 混合重放。
+
+![十分钟 HTTP 资源曲线](samples/2026-10-03-http-resources/policy-2/600s/memory.png)
+
+曲线包含同一 JVM 的驱动、Servlet、观测器和下游；堆采样不全发生于 GC 之后。阴影为预热期，关闭样本以 × 标出。
+
 ## 首轮十分钟失败
 
 [37090078761](https://github.com/MoChiUaena/agent-triage/actions/runs/37090078761) 的 Windows 两组通过，Linux 两组失败，不能作为整体验收通过记录。开启组约第 243 秒的正常请求收到 504；关闭组最终有类型超时为 2399，预期 2400。首轮源码为 `3633cdfe0aafe5ac5907378df0cf1b4dc7982920`。
@@ -57,6 +74,12 @@
 原夹具所有请求共用 250 毫秒读取预算。350 毫秒正常延迟回归确认会被误判为失败，因此正常预算改为 2 秒，故障预算保持 250 毫秒，并加上实际发送延迟、GC 时间和异常类型诊断。第二轮 [37091375388](https://github.com/MoChiUaena/agent-triage/actions/runs/37091375388) 三组通过，但 Windows 开启组约第 240 秒有三个正常请求等待 2 秒后超时；诊断显示期间 GC 计时未增加。第三轮四组通过，前两轮底层延迟及类型差异仍未确定，不能用成功复跑证明问题已修复。
 
 最新短测 [37093072901](https://github.com/MoChiUaena/agent-triage/actions/runs/37093072901) 还捕获正常 POST 在读取响应头时发生 Connection reset。现场中分发器在等待，故障处理线程在预设延迟，没有观察到锁阻塞；正常与故障请求共用 HttpURLConnection 池是待验证的来源。当前策略让故障连接不再返回池，并保留正常连接复用的断言。不能仅据旧策略的一次通过认定问题已解决。
+
+## 一小时首次验收（未通过）
+
+[37096173643](https://github.com/MoChiUaena/agent-triage/actions/runs/37096173643) 使用源码 `88a5c26b96deee9920e4ff449257b316ea22f93d`。Windows 关闭组约 16 分钟、开启组约 21 分钟在 Maven 工作负载失败后退出；输出失败尾部时，Python 的 cp1252 编码又因替换字符报错，原始失败原因没有完整输出。因此该轮不能作为四组通过结果。
+
+错误输出已增加安全编码回归，夹具自身断言也保留调用位置。后续 [二十分钟诊断](https://github.com/MoChiUaena/agent-triage/actions/runs/37098109735) 使用修订后的诊断流程；未完成前不作通过判断。
 
 ## 测量边界
 
@@ -94,3 +117,12 @@ CSV 和 JSON 保留附件原始字节，summary.json 包含源码、平台、计
 | [samples/2026-10-03-http-resources/policy-2/60s/http-enabled-linux/summary.json](samples/2026-10-03-http-resources/policy-2/60s/http-enabled-linux/summary.json) | 50e340b3545704721c3f2e7dd40affb12891a3487e879b80d0162c592808351c |
 | [samples/2026-10-03-http-resources/policy-2/60s/http-enabled-windows/memory.csv](samples/2026-10-03-http-resources/policy-2/60s/http-enabled-windows/memory.csv) | 35a34e0452c61982c84104cc8238cbdd3ce2bf3293295736f9888397462a115d |
 | [samples/2026-10-03-http-resources/policy-2/60s/http-enabled-windows/summary.json](samples/2026-10-03-http-resources/policy-2/60s/http-enabled-windows/summary.json) | 655298fe5632eeae6a92e2575ab8fb0e551ec8176c9a15c127523b5bcde9fedd |
+
+| [samples/2026-10-03-http-resources/policy-2/600s/http-disabled-linux/memory.csv](samples/2026-10-03-http-resources/policy-2/600s/http-disabled-linux/memory.csv) | 4ac622124c95e5a8b39e615795f65299781d9f81780f2497dfd82ca38d89ca62 |
+| [samples/2026-10-03-http-resources/policy-2/600s/http-disabled-linux/summary.json](samples/2026-10-03-http-resources/policy-2/600s/http-disabled-linux/summary.json) | 3a1757840a4baff07aa0992b18665c39ead7084088fae7d06356c88d94ff80a4 |
+| [samples/2026-10-03-http-resources/policy-2/600s/http-disabled-windows/memory.csv](samples/2026-10-03-http-resources/policy-2/600s/http-disabled-windows/memory.csv) | 5eb3a6c54bcd6b8f2e8195f3ce29081d71127d1c36a0f5ff503333e71b19dfd7 |
+| [samples/2026-10-03-http-resources/policy-2/600s/http-disabled-windows/summary.json](samples/2026-10-03-http-resources/policy-2/600s/http-disabled-windows/summary.json) | 7a32f6f72bf65f23555e7b07e29265eb1e7d76212d85efda141b3b7c05fcb730 |
+| [samples/2026-10-03-http-resources/policy-2/600s/http-enabled-linux/memory.csv](samples/2026-10-03-http-resources/policy-2/600s/http-enabled-linux/memory.csv) | 13309d6c88c0b07030d54ea81c3e13c695adf9ac72b9614530f47e90692599e2 |
+| [samples/2026-10-03-http-resources/policy-2/600s/http-enabled-linux/summary.json](samples/2026-10-03-http-resources/policy-2/600s/http-enabled-linux/summary.json) | 29e629a1b1c41223465f56e7d50531b2f57674072320572e2b683fe0e9629b4d |
+| [samples/2026-10-03-http-resources/policy-2/600s/http-enabled-windows/memory.csv](samples/2026-10-03-http-resources/policy-2/600s/http-enabled-windows/memory.csv) | 648b1ea04a1afc3126b98bd4f13df80d3af58ccf0239f6a9d009ec4993c50733 |
+| [samples/2026-10-03-http-resources/policy-2/600s/http-enabled-windows/summary.json](samples/2026-10-03-http-resources/policy-2/600s/http-enabled-windows/summary.json) | 7fb15318139130865ebfae3d4118ed47f8bdac0f29cf6774ed6903e57e5154c8 |
