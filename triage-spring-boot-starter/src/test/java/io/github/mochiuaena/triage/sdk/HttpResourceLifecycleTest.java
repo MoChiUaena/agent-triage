@@ -1,0 +1,338 @@
+package io.github.mochiuaena.triage.sdk;
+
+import com.sun.net.httpserver.HttpServer;
+import jakarta.servlet.*;
+import jakarta.servlet.http.*;
+import java.io.*;
+import java.lang.management.ManagementFactory;
+import java.net.*;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.nio.file.*;
+import java.time.*;
+import java.util.*;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.SpringBootConfiguration;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.annotation.Bean;
+import org.springframework.core.Ordered;
+import org.springframework.http.*;
+import org.springframework.http.client.*;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.client.*;
+import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.await;
+
+/** The driver, Servlet and downstream all belong to the sampled JVM. */
+class HttpResourceLifecycleTest {
+    static final int RPS = 8, CONCURRENCY = 4;
+    static final String PAYLOAD = "acceptance-body";
+    static final Downstream downstream = new Downstream();
+    ConfigurableApplicationContext application;
+    Counters counters;
+    int port;
+
+    @SpringBootConfiguration @EnableAutoConfiguration
+    static class Application {
+        @Bean Counters counters() { return new Counters(); }
+        @Bean(destroyMethod = "close") java.net.http.HttpClient businessHttpClient() {
+            return java.net.http.HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+        }
+        @Bean Controller controller(RestTemplateBuilder builder, java.net.http.HttpClient businessHttpClient,
+                                    Counters counters, @Value("${triage.sdk.downstream-base-url}") String origin) {
+            return new Controller(builder, businessHttpClient, counters, origin);
+        }
+        @Bean FilterRegistrationBean<Filter> cleanupAudit(Counters counters) {
+            var registration = new FilterRegistrationBean<Filter>((request, response, chain) -> {
+                if (TriageRequestFilter.CURRENT.get() != null) counters.servletContexts.incrementAndGet();
+                try { chain.doFilter(request, response); }
+                finally {
+                    if (TriageRequestFilter.CURRENT.get() != null) counters.servletContexts.incrementAndGet();
+                    var context = (TriageRequestFilter.Context) request.getAttribute(TriageRequestFilter.CONTEXT_ATTRIBUTE);
+                    if (context != null && (context.isActive() || context.handlerClass != null || context.endpoint != null))
+                        counters.servletContexts.incrementAndGet();
+                    var requestPath = ((HttpServletRequest) request).getRequestURI();
+                    counters.completed(requestPath.contains("simple") && requestPath.contains("timeout"),
+                        ((HttpServletResponse) response).getStatus() >= 500);
+                }
+            });
+            registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+            registration.addUrlPatterns("/api/*");
+            return registration;
+        }
+    }
+    @RestController
+    static class Controller {
+        final RestTemplate simple, jdk;
+        final Counters counters;
+        Controller(RestTemplateBuilder builder, java.net.http.HttpClient businessHttpClient, Counters counters, String origin) {
+            this.counters = counters;
+            var configured = builder.rootUri(origin).connectTimeout(Duration.ofSeconds(2)).readTimeout(Duration.ofMillis(250))
+                .additionalInterceptors((request, body, execution) -> {
+                    var response = execution.execute(request, body);
+                    counters.responsesOpened.incrementAndGet();
+                    return new ClientHttpResponse() {
+                        final AtomicBoolean closed = new AtomicBoolean();
+                        @Override public HttpStatusCode getStatusCode() throws IOException { return response.getStatusCode(); }
+                        @Override public String getStatusText() throws IOException { return response.getStatusText(); }
+                        @Override public HttpHeaders getHeaders() { return response.getHeaders(); }
+                        @Override public InputStream getBody() throws IOException { return response.getBody(); }
+                        @Override public void close() {
+                            try { response.close(); }
+                            finally { if (closed.compareAndSet(false, true)) counters.responsesClosed.incrementAndGet(); }
+                        }
+                    };
+                });
+            simple = configured.requestFactory(SimpleClientHttpRequestFactory::new).build();
+            // The owned JDK HttpClient already has its connect timeout.
+            jdk = configured.connectTimeout(null).requestFactory(() -> new JdkClientHttpRequestFactory(businessHttpClient)).build();
+        }
+        @RequestMapping("/api/resource/{factory}/{mode}")
+        ResponseEntity<String> call(@PathVariable String factory, @PathVariable String mode, HttpServletRequest request,
+                                    @RequestBody(required = false) String body) {
+            try {
+                var client = factory.equals("simple") ? simple : jdk;
+                return ResponseEntity.ok(client.exchange("/" + mode, HttpMethod.valueOf(request.getMethod()),
+                    new HttpEntity<>(body), String.class).getBody());
+            } catch (RestClientException failure) {
+                if (typedTimeout(failure)) counters.typedTimeouts.incrementAndGet();
+                else counters.untypedFailures.incrementAndGet();
+                return ResponseEntity.status(504).body("incomplete");
+            }
+        }
+    }
+    record Completion(Instant time, boolean timeout, boolean failed) { }
+    static final class Counters {
+        final AtomicInteger responsesOpened = new AtomicInteger(), responsesClosed = new AtomicInteger();
+        final AtomicInteger typedTimeouts = new AtomicInteger(), untypedFailures = new AtomicInteger();
+        final AtomicInteger servletContexts = new AtomicInteger(), completed = new AtomicInteger();
+        final Deque<Completion> recent = new ArrayDeque<>();
+        synchronized void completed(boolean timeout, boolean failed) {
+            recent.addLast(new Completion(Instant.now(), timeout, failed));
+            while (recent.size() > 1024) recent.removeFirst();
+            completed.incrementAndGet();
+        }
+        synchronized List<Completion> recent() { return List.copyOf(recent); }
+    }
+    static boolean typedTimeout(Throwable failure) {
+        var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+        for (var cause = failure; cause != null && seen.add(cause); cause = cause.getCause())
+            if (cause instanceof SocketTimeoutException || cause instanceof HttpTimeoutException) return true;
+        return false;
+    }
+    static final class Downstream implements AutoCloseable {
+        final ThreadPoolExecutor workers = new ThreadPoolExecutor(8, 8, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
+        final AtomicInteger active = new AtomicInteger(), requests = new AtomicInteger(), payloadErrors = new AtomicInteger();
+        final HttpServer server;
+        final AtomicBoolean closed = new AtomicBoolean();
+        Downstream() {
+            try {
+                server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+                server.setExecutor(workers);
+                server.createContext("/", exchange -> {
+                    active.incrementAndGet(); requests.incrementAndGet();
+                    try {
+                        var body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                        if (!(exchange.getRequestMethod().equals("GET") ? body.isEmpty() : body.equals(PAYLOAD))) payloadErrors.incrementAndGet();
+                        var mode = exchange.getRequestURI().getPath();
+                        if (mode.contains("header-timeout")) Thread.sleep(1000);
+                        exchange.sendResponseHeaders(200, 2);
+                        exchange.getResponseBody().write('o'); exchange.getResponseBody().flush();
+                        if (mode.contains("body-timeout")) Thread.sleep(1000);
+                        exchange.getResponseBody().write('k');
+                    } catch (IOException ignored) { /* Timed-out peers may have already closed their socket. */ }
+                    catch (InterruptedException failure) { Thread.currentThread().interrupt(); }
+                    finally { exchange.close(); active.decrementAndGet(); }
+                });
+                server.start();
+            } catch (IOException failure) { workers.shutdownNow(); throw new UncheckedIOException(failure); }
+        }
+        String origin() { return "http://127.0.0.1:" + server.getAddress().getPort(); }
+        @Override public void close() {
+            if (closed.compareAndSet(false, true)) { server.stop(0); workers.shutdownNow(); workers.close(); }
+        }
+    }
+    @AfterAll static void closeDownstream() { downstream.close(); }
+
+    @Test void realServletWorkloadMaintainsCountsAndReturnsItsResources() throws Exception {
+        int seconds = Integer.getInteger("triage.resource.seconds", 2);
+        application = new org.springframework.boot.builder.SpringApplicationBuilder(Application.class).properties(
+            "server.port=0", "server.address=127.0.0.1", "triage.sdk.enabled=" + System.getProperty("triage.resource.http.enabled", "true"),
+            "triage.sdk.service-id=resource-service", "triage.sdk.downstream-id=loopback-service",
+            "triage.sdk.downstream-base-url=" + downstream.origin(), "triage.sdk.endpoint-observations=true",
+            "triage.sdk.response-status-counts=true", "triage.sdk.exception-locations=true",
+            "triage.sdk.application-packages=io.github.mochiuaena.triage.sdk", "server.tomcat.threads.max=4",
+            "server.tomcat.threads.min-spare=4", "server.shutdown=immediate", "spring.main.banner-mode=off").run();
+        counters = application.getBean(Counters.class);
+        port = ((org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext) application).getWebServer().getPort();
+        int downstreamPort = downstream.server.getAddress().getPort();
+        boolean enabled = application.getEnvironment().getProperty("triage.sdk.enabled", Boolean.class, false);
+        assertThat(seconds).isBetween(2, 7200);
+        long started = System.nanoTime();
+        long baselineHeap = 0, peakHeap = 0;
+        double nextHeap = Math.min(120, seconds / 5.0);
+        var driver = new Driver(port, enabled);
+        long observedRequests = 0; int observedTimeouts = 0, windowRequests = 0, windowTimeouts = 0;
+        int expectedWindowRequests, expectedWindowTimeouts;
+        WindowCheck previous = null;
+        try {
+            phase("running", started);
+            for (int index = 0; index < seconds * RPS; index++) {
+                long scheduled = started + index * 1_000_000_000L / RPS;
+                long remaining = scheduled - System.nanoTime();
+                if (remaining > 0) TimeUnit.NANOSECONDS.sleep(remaining);
+                driver.maxLagMillis.accumulateAndGet(Math.max(0, (System.nanoTime() - scheduled) / 1_000_000L), Math::max);
+                driver.submit(index % RPS);
+                double elapsed = (System.nanoTime() - started) / 1_000_000_000.0;
+                if (elapsed >= nextHeap) {
+                    long heap = retainedHeap();
+                    if (baselineHeap == 0) baselineHeap = heap;
+                    peakHeap = Math.max(peakHeap, heap);
+                    assertThat(heap).isLessThanOrEqualTo(baselineHeap + 64L * 1024 * 1024);
+                    nextHeap += 30;
+                }
+                if ((index + 1) % (30 * RPS) == 0 && index + 1 < seconds * RPS) {
+                    int issued = index + 1;
+                    await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == issued);
+                    previous = checkWindow(enabled, issued, previous);
+                    observedTimeouts += previous.newTimeouts();
+                }
+                if (driver.failure.get() != null) throw new AssertionError("HTTP driver assertion failed", driver.failure.get());
+            }
+            driver.workers.shutdown();
+            assertThat(driver.workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(driver.failure.get()).isNull();
+            await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == seconds * RPS && downstream.active.get() == 0);
+            assertThat(driver.successes.get()).isEqualTo(seconds * 3);
+            assertThat(driver.failures.get()).isEqualTo(seconds * 5);
+            assertThat(counters.typedTimeouts.get()).isEqualTo(seconds * 4);
+            assertThat(counters.untypedFailures.get()).isEqualTo(seconds);
+            assertThat(counters.responsesOpened.get()).isEqualTo(seconds * 7);
+            assertThat(counters.responsesClosed.get()).isEqualTo(counters.responsesOpened.get());
+            assertThat(counters.servletContexts.get()).isZero();
+            assertThat(driver.workerContexts.get()).isZero();
+            assertThat(downstream.requests.get()).isEqualTo(seconds * RPS);
+            assertThat(downstream.payloadErrors.get()).isZero();
+            assertThat(driver.maxLagMillis.get()).isLessThanOrEqualTo(2000);
+            var tail = checkWindow(enabled, seconds * RPS, previous);
+            observedRequests = tail.observedRequests();
+            observedTimeouts += tail.newTimeouts();
+            windowRequests = tail.requests(); windowTimeouts = tail.timeouts();
+            expectedWindowRequests = tail.expectedRequests(); expectedWindowTimeouts = tail.expectedTimeouts();
+            assertThat(observedTimeouts).isEqualTo(enabled ? seconds * 4 : 0);
+        } finally {
+            driver.close();
+            application.close();
+            downstream.close();
+        }
+        assertThat(driver.workers.isTerminated()).isTrue();
+        assertThat(downstream.workers.isTerminated()).isTrue();
+        assertThat(downstream.active.get()).isZero();
+        assertThat(driver.workers.getQueue()).isEmpty();
+        assertThat(downstream.workers.getQueue()).isEmpty();
+        assertThat(application.isActive()).isFalse();
+        assertPortClosed(port);
+        assertPortClosed(downstreamPort);
+        long finalHeap = retainedHeap();
+        assertThat(finalHeap).isLessThanOrEqualTo(baselineHeap + 64L * 1024 * 1024);
+        String component = enabled ? "http-enabled" : "http-disabled";
+        System.out.printf("RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d%n",
+            component, seconds, seconds, seconds * RPS, driver.successes.get(), driver.failures.get(), counters.typedTimeouts.get(),
+            counters.untypedFailures.get(), observedRequests, observedTimeouts, expectedWindowRequests, expectedWindowTimeouts,
+            windowRequests, windowTimeouts, counters.responsesOpened.get(), counters.responsesClosed.get(), downstream.requests.get(),
+            driver.maxLagMillis.get(), baselineHeap, peakHeap, finalHeap);
+        phase("closed", started);
+    }
+    static void assertPortClosed(int port) {
+        assertThatThrownBy(() -> {
+            try (var connection = new Socket("127.0.0.1", port)) { fail("Fixture port still accepts connections"); }
+        }).isInstanceOf(IOException.class);
+    }
+    static boolean nearBoundary(List<Completion> events, Instant boundary) {
+        return events.stream().anyMatch(event -> Math.abs(Duration.between(boundary, event.time()).toMillis()) < 50);
+    }
+    record WindowCheck(Instant end, int requests, int timeouts, int expectedRequests, int expectedTimeouts,
+                       long observedRequests, int newTimeouts) { }
+    WindowCheck checkWindow(boolean enabled, int issued, WindowCheck previous) throws Exception {
+        Instant end; List<Completion> recent;
+        // Keep both minute boundaries away from completion times: audit follows observer by a few microseconds.
+        do { Thread.sleep(100); end = Instant.now(); recent = counters.recent(); }
+        while (nearBoundary(recent, end.minusSeconds(60)));
+        Instant start = end.minusSeconds(60);
+        var completedWindow = recent.stream().filter(value -> !value.time().isBefore(start)).toList();
+        int expectedRequests = completedWindow.size();
+        int expectedTimeouts = (int) completedWindow.stream().filter(Completion::timeout).count();
+        if (!enabled) {
+            assertThat(application.getBeansOfType(ObservationRecorder.class)).isEmpty();
+            return new WindowCheck(end, 0, 0, expectedRequests, expectedTimeouts, 0, 0);
+        }
+        var recorder = application.getBean(ObservationRecorder.class);
+        var window = (ObservationRecorder.HttpWindow) recorder.snapshot(1, end);
+        assertThat(window.recordedRequestCount()).isEqualTo(issued);
+        assertThat(window.requestCount()).isEqualTo(expectedRequests);
+        assertThat(window.timeoutCount()).isEqualTo(expectedTimeouts);
+        assertThat(window.downstreamP95Ms()).isGreaterThanOrEqualTo(150);
+        var endpoints = (ObservationRecorder.EndpointWindow) recorder.endpointSnapshot(1, end, null);
+        assertThat(endpoints.responseStatuses().serverError()).isEqualTo(completedWindow.stream().filter(Completion::failed).count());
+        assertThat(endpoints.toString()).doesNotContain(PAYLOAD, downstream.origin(), "incomplete");
+        int expired = previous == null ? 0 : (int) recent.stream().filter(event -> event.timeout() &&
+            !event.time().isBefore(previous.end().minusSeconds(60)) && event.time().isBefore(start)).count();
+        int newTimeouts = window.timeoutCount() - (previous == null ? 0 : previous.timeouts()) + expired;
+        return new WindowCheck(end, window.requestCount(), window.timeoutCount(), expectedRequests, expectedTimeouts,
+            window.recordedRequestCount(), newTimeouts);
+    }
+    static long retainedHeap() {
+        System.gc();
+        return ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getUsed();
+    }
+    static void phase(String phase, long started) throws Exception {
+        String marker = System.getProperty("triage.resource.marker");
+        if (marker == null) return;
+        var destination = Path.of(marker);
+        var temporary = destination.resolveSibling(destination.getFileName() + ".tmp");
+        Files.writeString(temporary, phase + "," + ProcessHandle.current().pid() + "," +
+            (System.nanoTime() - started) / 1_000_000_000.0);
+        Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        if (phase.equals("closed")) Thread.sleep(15_000);
+    }
+    static final class Driver implements AutoCloseable {
+        final ThreadPoolExecutor workers = new ThreadPoolExecutor(CONCURRENCY, CONCURRENCY, 0, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(8));
+        final java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+        final AtomicReference<Throwable> failure = new AtomicReference<>();
+        final AtomicInteger successes = new AtomicInteger(), failures = new AtomicInteger(), workerContexts = new AtomicInteger();
+        final AtomicLong maxLagMillis = new AtomicLong();
+        final int port; final boolean enabled;
+        Driver(int port, boolean enabled) { this.port = port; this.enabled = enabled; }
+        void submit(int slot) {
+            workers.execute(() -> {
+                if (TriageRequestFilter.CURRENT.get() != null) workerContexts.incrementAndGet();
+                try {
+                    String method = slot == 1 || slot == 4 ? "POST" : slot == 2 || slot == 5 ? "PUT" : "GET";
+                    String factory = slot == 7 ? "jdk" : "simple";
+                    String mode = slot < 3 ? "normal" : slot < 6 ? "header-timeout" : "body-timeout";
+                    var body = method.equals("GET") ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(PAYLOAD);
+                    var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/resource/" + factory + "/" + mode))
+                        .timeout(Duration.ofSeconds(5)).method(method, body).build();
+                    var response = http.send(request, HttpResponse.BodyHandlers.ofString());
+                    assertThat(response.statusCode()).isEqualTo(slot < 3 ? 200 : 504);
+                    assertThat(response.body()).isEqualTo(slot < 3 ? "ok" : "incomplete");
+                    assertThat(response.headers().firstValue("X-Triage-Trace-Id").isPresent()).isEqualTo(enabled);
+                    if (slot < 3) successes.incrementAndGet(); else failures.incrementAndGet();
+                } catch (Throwable error) { failure.compareAndSet(null, error); }
+                finally { if (TriageRequestFilter.CURRENT.get() != null) workerContexts.incrementAndGet(); }
+            });
+        }
+        @Override public void close() {
+            workers.shutdownNow(); workers.close(); http.close();
+        }
+    }
+}

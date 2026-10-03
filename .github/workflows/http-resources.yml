@@ -1,0 +1,57 @@
+name: HTTP resource comparison
+on:
+  push:
+    branches: [main, 'feature/**', 'fix/**']
+    paths:
+      - 'triage-spring-boot-starter/**'
+      - 'scripts/*resource*.py'
+      - '.github/workflows/http-resources.yml'
+  pull_request:
+    paths:
+      - 'triage-spring-boot-starter/**'
+      - 'scripts/*resource*.py'
+      - '.github/workflows/http-resources.yml'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Identical fixed-rate HTTP traffic per mode and platform
+        required: true
+        type: choice
+        default: '600'
+        options: ['60', '600', '3600']
+permissions:
+  contents: read
+concurrency:
+  group: http-resources-${{ github.ref }}-${{ github.event.inputs.seconds || '60' }}
+  cancel-in-progress: true
+jobs:
+  comparison:
+    name: HTTP / ${{ matrix.component }} / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        component: [http-disabled, http-enabled]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Verify numeric receipts and replay gates
+        run: python -m unittest discover -s scripts -p 'test_*resource*.py'
+      - name: Drive owned Servlet and loopback downstream
+        run: python scripts/resource_soak.py --component ${{ matrix.component }} --seconds "${{ github.event.inputs.seconds || '60' }}"
+      - name: Keep numeric diagnostics only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: http-resources-${{ matrix.component }}-${{ matrix.os }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            target/resource-soak/**/memory.csv
+            target/resource-soak/**/summary.json

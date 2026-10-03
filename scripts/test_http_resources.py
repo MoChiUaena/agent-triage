@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from resource_soak import parse_workload_result, parse_native_memory
-from resource_report import verify_matrix
+from resource_report import verify_matrix, verify_dataset
 import test_resource_report as report_fixtures
 
 
@@ -83,18 +83,31 @@ Total: reserved=180000KB, committed=140000KB
                     root = Path(directory)/(component+"-"+system); root.mkdir()
                     meta = report_fixtures.ResourceReportTest().fixture(root)
                     meta.update(component=component, operatingSystem=system, workload=receipt(component))
+                    with (root/"memory.csv").open(newline="") as source: rows = list(csv.DictReader(source))
+                    for row in rows:
+                        for key in ("nativeClassCommittedBytes", "nativeThreadCommittedBytes", "nativeCodeCommittedBytes", "nativeGCCommittedBytes", "nativeOtherCommittedBytes"):
+                            row[key] = "0"
+                        row["nativeUncategorizedCommittedBytes"] = row["nativeNonHeapCommittedBytes"]
                     if system == "windows":
-                        with (root/"memory.csv").open(newline="") as source: rows = list(csv.DictReader(source))
                         for row in rows: row["privateBytes"] = "150000000"
-                        with (root/"memory.csv").open("w", newline="") as output:
-                            writer=csv.DictWriter(output, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
                         meta["baseline"]["privateBytes"] = meta["closedSample"]["privateBytes"] = 150000000
+                    with (root/"memory.csv").open("w", newline="") as output:
+                        writer=csv.DictWriter(output, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
+                    for key in ("nativeClassCommittedBytes", "nativeThreadCommittedBytes", "nativeCodeCommittedBytes", "nativeGCCommittedBytes", "nativeOtherCommittedBytes", "nativeUncategorizedCommittedBytes"):
+                        meta["baseline"][key] = int(rows[2][key]); meta["closedSample"][key] = int(rows[-1][key])
                     summary=root/"summary.json"; summary.write_text(json.dumps(meta)); summaries.append(summary)
             datasets = verify_matrix(summaries, "a"*40, 60, workload="http")
             self.assertEqual(len(datasets), 4)
             for invalid in (summaries[:-1], summaries+[summaries[0]], summaries[:2]+summaries[:2]):
                 with self.assertRaises(ValueError): verify_matrix(invalid, "a"*40, 60, workload="http")
             with self.assertRaises(ValueError): verify_matrix(summaries, "a"*40, 60)
+
+    def test_http_receipt_requires_native_breakdown_and_rejects_inconsistent_categories(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); meta = report_fixtures.ResourceReportTest().fixture(root)
+            meta.update(component="http-enabled", workload=receipt())
+            (root/"summary.json").write_text(json.dumps(meta))
+            with self.assertRaises(ValueError): verify_dataset(root/"summary.json", "a"*40, 60)
 
 
 if __name__ == "__main__":

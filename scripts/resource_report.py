@@ -65,6 +65,8 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
     if meta.get("component") not in ("agent", "starter", *HTTP_COMPONENTS) or meta.get("operatingSystem") not in ("linux", "windows"):
         raise ValueError("Unsupported component or operating system")
     rows = read_samples(summary_path.with_name("memory.csv"), meta["operatingSystem"])
+    if meta["component"] in HTTP_COMPONENTS and any(not NATIVE_BREAKDOWN <= row.keys() for row in rows):
+        raise ValueError("HTTP comparison requires numeric NMT categories")
     replay = summarize(rows, seconds, min(120, seconds / 5), min(30, seconds / 10))
     recorded_replay = dict(replay)
     if "growthIncludesClosed" not in meta:
@@ -105,6 +107,8 @@ def verify_matrix(summary_paths, source_commit, seconds, workload="components"):
 
 
 def render_table(datasets):
+    if datasets and datasets[0][0]["component"] in HTTP_COMPONENTS:
+        return render_http_table(datasets)
     lines = ["| Component | OS | Running samples | Cycles | GC retained heap delta (MiB) | NMT non-heap growth (MiB) | RSS growth (MiB) | Native threads (peak / closed) |",
         "|---|---|---:|---:|---:|---:|---:|---:|"]
     for meta, rows in datasets:
@@ -115,6 +119,29 @@ def render_table(datasets):
             f"{meta['peakNativeThreadCount']} / {closed['nativeThreadCount']} |")
     return "\n".join(lines) + "\n"
 
+
+def render_http_table(datasets):
+    lines = ["| Starter | OS | Requests | Observed requests / timeouts | Final minute requests / timeouts | GC retained heap delta (MiB) | NMT non-heap growth (MiB) | RSS growth (MiB) |",
+        "|---|---|---:|---:|---:|---:|---:|---:|"]
+    for meta, rows in datasets:
+        workload = meta["workload"]
+        lines.append(f"| {meta['component'].removeprefix('http-')} | {meta['operatingSystem']} | {workload['requests']} | "
+            f"{workload['observedRequests']} / {workload['observedTimeouts']} | {workload['windowRequests']} / {workload['windowTimeouts']} | "
+            f"{(workload['finalHeap'] - workload['baselineHeap']) / MIB:.2f} | "
+            f"{meta['postWarmupPeakNativeGrowthBytes'] / MIB:.2f} | {meta['postWarmupPeakResidentGrowthBytes'] / MIB:.2f} |")
+    lines += ["", "All measurements include the JUnit driver, Servlet and loopback downstream in one JVM. "
+        "Separate CI runners and GC timing prevent attributing paired differences solely to Starter.", "",
+        "| Starter | OS | Class growth | Thread growth | Code growth | GC growth | Other growth | Remaining NMT growth |",
+        "|---|---|---:|---:|---:|---:|---:|---:|"]
+    for meta, rows in datasets:
+        steady = [row for row in rows if row["phase"] == "closed" or row["elapsedSeconds"] >= meta["warmupSeconds"]]
+        growth = [(max(row[key] for row in steady) - meta["baseline"][key]) / MIB for key in
+            ("nativeClassCommittedBytes", "nativeThreadCommittedBytes", "nativeCodeCommittedBytes", "nativeGCCommittedBytes",
+             "nativeOtherCommittedBytes", "nativeUncategorizedCommittedBytes")]
+        lines.append(f"| {meta['component'].removeprefix('http-')} | {meta['operatingSystem']} | " +
+            " | ".join(f"{value:.2f}" for value in growth) + " |")
+    lines += ["", "NMT category peaks are independent; their growth values do not sum to a simultaneous peak. Values are MiB."]
+    return "\n".join(lines) + "\n"
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
