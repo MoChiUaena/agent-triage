@@ -111,7 +111,7 @@ class HttpResourceLifecycleTest {
                     Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure));
                 if ((mode.equals("normal") || typedTimeout(failure) != factory.equals("simple")) && counters.dumpedFailure.compareAndSet(false, true)) {
                     var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
-                    for (var cause = failure; cause != null && seen.add(cause); cause = cause.getCause()) {
+                    for (Throwable cause = failure; cause != null && seen.add(cause); cause = cause.getCause()) {
                         System.out.println("RESOURCE_FAILURE_FRAMES cause=" + cause.getClass().getName());
                         for (var frame : Arrays.stream(cause.getStackTrace()).limit(12).toList()) System.out.println("RESOURCE_FRAME " + frame);
                     }
@@ -156,10 +156,17 @@ class HttpResourceLifecycleTest {
             for (var thread : threads) if (selected.contains(thread.getThreadId()) && thread.getLockOwnerId() > 0)
                 changed |= selected.add(thread.getLockOwnerId());
         } while (changed);
-        for (var thread : threads) if (selected.contains(thread.getThreadId())) {
+        var ordered = Arrays.stream(threads).filter(thread -> selected.contains(thread.getThreadId())).sorted(Comparator.comparingInt(thread -> diagnosticPriority(thread.getThreadName()))).toList();
+        for (var thread : ordered) {
             System.out.printf("RESOURCE_THREAD name=%s id=%d state=%s lock=%s owner=%d%n", thread.getThreadName(), thread.getThreadId(), thread.getThreadState(), thread.getLockName(), thread.getLockOwnerId());
             for (var frame : Arrays.stream(thread.getStackTrace()).limit(12).toList()) System.out.println("RESOURCE_FRAME " + frame);
         }
+    }
+    static int diagnosticPriority(String name) {
+        if (name.equals("HTTP-Dispatcher") || name.equals("Keep-Alive-Timer") || name.endsWith("timeout-task")) return 0;
+        if (name.startsWith("resource-downstream-")) return 1;
+        if (name.startsWith("resource-driver-") || name.equals("main")) return 3;
+        return 2;
     }
     static long gcMillis() {
         return ManagementFactory.getGarbageCollectorMXBeans().stream().mapToLong(bean -> Math.max(0, bean.getCollectionTime())).sum();
