@@ -1,6 +1,6 @@
 # Spring Boot Starter 接入
 
-`triage-spring-boot-starter` 为 Spring MVC 应用提供只读观测，支持 HTTP V1、数据库 V2、MVC 接口 V3，以及主分支的入站请求 V4。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
+`triage-spring-boot-starter` 为 Spring MVC 应用提供只读观测，支持 HTTP V1、数据库 V2、MVC 接口 V3，以及入站请求 V4。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
 
 源码和预览包使用 0.11.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。[v0.11.0 附件入口](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.11.0)提供独立 Starter JAR/POM 与可选 Agent JAR，[v0.6.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0) 保留旧附件。在附件所在目录安装：
 
@@ -28,7 +28,7 @@ mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=tri
 
 ## HTTP 模式
 
-没有 HTTP 下游时，可选择[入站请求模式](INBOUND_HTTP.md)，省去下游占位配置。下面的 HTTP 模式仍会观察一个明确配置的下游；默认配置和旧协议保持兼容。V4 需从当前源码构建，v0.11.0 发布附件保留原功能。
+没有 HTTP 下游时，可选择[入站请求模式](INBOUND_HTTP.md)，省去下游占位配置。下面的 HTTP 模式仍会观察一个明确配置的下游；默认配置和旧协议保持兼容。v0.11.0 的发布附件已包含 V4，Agent 与 Starter 需同时升级。
 
 ```yaml
 triage:
@@ -83,7 +83,7 @@ executor.execute(observation.wrap(() -> {
 
 多个任务可共享同一个请求快照。累计下游耗时是被观测调用耗时之和，可能大于并发请求的总耗时，不能当作关键路径；多个超时仍只将该请求计为一次超时，错误位置保留首次捕获的结果。
 
-主分支在响应完成时释放上下文中的 MVC 处理类、接口和故障位置引用，已经采集的窗口仍保留对应描述。即使应用继续持有已完成的快照，也不会通过这个处理类引用阻止业务类加载器回收。包装不负责调度或取消业务任务；应用仍需关闭自己的执行器，及时归还 JDBC 连接。关闭 JDBC/JPA 观测器会停止采样线程，连接池由应用管理。
+v0.11.0 在响应完成时释放上下文中的 MVC 处理类、接口和故障位置引用，已经采集的窗口仍保留对应描述。即使应用继续持有已完成的快照，也不会通过这个处理类引用阻止业务类加载器回收。包装不负责调度或取消业务任务；应用仍需关闭自己的执行器，及时归还 JDBC 连接。关闭 JDBC/JPA 观测器会停止采样线程，连接池由应用管理。
 
 Spring MVC 的 Callable 和 WebAsyncTask 可显式开启 `triage.sdk.async-context-propagation: true`，同时需要 `endpoint-observations: true`。Starter 在 MVC 交接 Callable 时捕获上下文，在执行器线程处理任务前附上，并在任务返回或抛出异常后恢复。该开关默认关闭，也不会装饰应用的其他执行器。DeferredResult、CompletableFuture 或应用自行创建的任务仍需在请求线程捕获快照并显式包装。响应完成后，仍在运行的任务只能继续执行业务逻辑，不能继续向已完成请求添加观测。
 
@@ -262,7 +262,7 @@ Maven 项目可以在 `process-classes` 阶段生成清单，随后由打包步�
 
 运行端只读取处理类所属代码来源的清单，并核验对应类资源的摘要。MVC 描述和 HTTP 失败时仍在当前线程中的业务位置可提供可选 `sourceHash`。默认不启用 Java Agent 时，普通请求异常中只有与已选 MVC 处理类的类名、加载器名和模块名一致的栈帧才使用该处理类的已核验摘要；其他类的栈帧仍标为未知。`Throwable` 栈帧本身不提供可公开读取的 `Class` 引用，因此同名且加载器名相同的复杂多加载器部署无法仅凭这项检查区分。这是已选处理类的构建对应关系，不是对整条异常栈的认证。V1/V2 输出保持原样。
 
-当前主分支构建 Starter 时，还会生成只含运行类查询入口的 `-agent.jar`。业务应用仍需正常依赖 Starter；启动时额外传入同一次构建生成的 Agent JAR：
+从源码构建 Starter 时，还会生成只含运行类查询入口的 `-agent.jar`。业务应用仍需正常依赖 Starter；启动时额外传入同一次构建生成的 Agent JAR：
 
 ```sh
 java -javaagent:/path/to/triage-spring-boot-starter-0.11.0-agent.jar -jar application.jar
@@ -282,7 +282,7 @@ java -javaagent:/path/to/triage-spring-boot-starter-0.11.0-agent.jar -jar applic
 
 `capacity` 按采集记录数计算。HTTP 中所有接口共用容量，选择一个接口不会增加它的保留范围；JPA 中一次 HTTP 请求可能产生多条 JDBC 记录。刚好填满容量仍可读取，淘汰样本的时间等于窗口起点时必须拒绝；数据库池采样丢失也会拒绝数据库窗口。缩小窗口只有在起点严格晚于丢失边界时才有效，固定结束时间的旧窗口不会随新请求恢复。
 
-按预计的最高记录速率、查询窗口和排查等待时间估算所需容量，并给突发流量留余量。例如每秒 20 条记录、15 分钟窗口，仅窗口内就需要约 18000 条；默认 10000 条不足以保留这一窗口。这是容量估算，不是吞吐或性能测试结果。主分支还会记住保留期清理的丢失边界，避免时钟回拨后把旧窗口当作完整数据；已发布的 v0.11.0 附件保持原样。
+按预计的最高记录速率、查询窗口和排查等待时间估算所需容量，并给突发流量留余量。例如每秒 20 条记录、15 分钟窗口，仅窗口内就需要约 18000 条；默认 10000 条不足以保留这一窗口。这是容量估算，不是吞吐或性能测试结果。v0.11.0 会记住保留期清理的丢失边界，避免时钟回拨后把旧窗口当作完整数据。
 
 ## 验证
 
