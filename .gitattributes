@@ -5,3 +5,5 @@ mvnw text eol=lf
 *.png binary
 
 docs/validation/samples/**/*.csv -text whitespace=trailing-space,space-before-tab,cr-at-eol
+
+docs/validation/samples/**/*.json -text whitespace=trailing-space,space-before-tab,cr-at-eol
