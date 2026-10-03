@@ -4,8 +4,54 @@ from pathlib import Path
 import tempfile
 import unittest
 from resource_report import verify_dataset, verify_matrix
+from resource_memory_details import NMT_CATEGORIES, make_details_sample, append_details_sample, details_receipt
 
 class ResourceReportTest(unittest.TestCase):
+    def detailed_fixture(self, root):
+        meta = self.fixture(root)
+        core = dict(nativeClassCommittedBytes=6000000, nativeThreadCommittedBytes=1000000,
+            nativeCodeCommittedBytes=10000000, nativeGCCommittedBytes=15000000,
+            nativeOtherCommittedBytes=0, nativeUncategorizedCommittedBytes=11000000)
+        with (root / "memory.csv").open(newline="") as source: rows = list(csv.DictReader(source))
+        for row in rows: row.update(core)
+        with (root / "memory.csv").open("w", newline="") as output:
+            writer = csv.DictWriter(output, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
+        meta["baseline"].update(core); meta["closedSample"].update(core)
+        nmt = dict.fromkeys(NMT_CATEGORIES)
+        nmt.update(nativeMetaspaceCommittedBytes=8000000, nativeSymbolCommittedBytes=1000000, nativeArenaChunkCommittedBytes=2000000)
+        rollup = dict(rollupRssBytes=170000000, rollupPssBytes=120000000, rollupPrivateCleanBytes=20000000,
+            rollupPrivateDirtyBytes=80000000, rollupSharedCleanBytes=65000000, rollupSharedDirtyBytes=5000000,
+            rollupAnonymousBytes=100000000, rollupSwapBytes=0, rollupPssAnonBytes=90000000,
+            rollupPssFileBytes=30000000, rollupPssShmemBytes=0)
+        path = root / "memory-details.csv"
+        for raw in rows:
+            base = dict(phase=raw["phase"], pid=int(raw["pid"]), elapsedSeconds=float(raw["elapsedSeconds"]), **core)
+            append_details_sample(path, make_details_sample(base, nmt, rollup))
+        meta["memoryDetails"] = details_receipt(path, len(rows))
+        (root / "summary.json").write_text(json.dumps(meta))
+        return meta
+
+    def test_replays_bound_memory_details_when_the_receipt_declares_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.detailed_fixture(root)
+            meta, rows = verify_dataset(root / "summary.json", "a" * 40, 60)
+            self.assertEqual(len(meta.get("_memoryDetailsRows", [])), 12)
+            self.assertEqual(meta["_memoryDetailsRows"][0]["nativeArenaChunkCommittedBytes"], 2000000)
+
+    def test_rejects_missing_or_altered_details_instead_of_ignoring_their_manifest(self):
+        for kind in ("missing", "altered", "resigned-wrong-time", "unknown-version"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); meta = self.detailed_fixture(root)
+                path = root / "memory-details.csv"
+                if kind == "missing": path.unlink()
+                elif kind == "altered": path.write_bytes(path.read_bytes() + b"extra\r\n")
+                elif kind == "resigned-wrong-time":
+                    path.write_bytes(path.read_bytes().replace(b"running,1234,0.0,", b"running,1234,1.0,"))
+                    meta["memoryDetails"] = details_receipt(path, 12)
+                else: meta["memoryDetails"]["version"] = 99
+                (root / "summary.json").write_text(json.dumps(meta))
+                with self.assertRaises(ValueError): verify_dataset(root / "summary.json", "a" * 40, 60)
+
     def fixture(self, root):
         rows = [dict(phase="running", pid=1234, elapsedSeconds=elapsed, nativeReservedBytes=180000000,
             nativeCommittedBytes=143000000, javaHeapCommittedBytes=100000000, nativeNonHeapCommittedBytes=43000000,

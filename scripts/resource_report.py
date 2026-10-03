@@ -9,6 +9,7 @@ import re
 
 from http_resource_contract import HTTP_COMPONENTS, NATIVE_BREAKDOWN
 from resource_soak import MIB, parse_workload_result, summarize
+from resource_memory_details import verify_details_file, detail_growth
 
 FIELDS = {"phase", "pid", "elapsedSeconds", "nativeReservedBytes", "nativeCommittedBytes",
     "javaHeapCommittedBytes", "nativeNonHeapCommittedBytes", "nativeThreadCount", "heapUsedBytes",
@@ -91,7 +92,13 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
         key + "=" + (str(value).lower() if isinstance(value, bool) else str(value)) for key, value in workload.items())
     if parse_workload_result(text, meta["component"], seconds) != workload:
         raise ValueError("Invalid workload or cleanup receipt")
-    return {**meta, **replay}, rows
+    result = {**meta, **replay}
+    if "memoryDetails" in meta:
+        if any(not NATIVE_BREAKDOWN <= row.keys() for row in rows):
+            raise ValueError("Memory details require the matching base NMT categories")
+        result["_memoryDetailsRows"] = verify_details_file(summary_path.with_name("memory-details.csv"),
+            meta["memoryDetails"], rows, meta["operatingSystem"])
+    return result, rows
 
 
 def verify_matrix(summary_paths, source_commit, seconds, workload="components"):
@@ -105,12 +112,14 @@ def verify_matrix(summary_paths, source_commit, seconds, workload="components"):
         raise ValueError("Expected each workload mode exactly once on Linux and Windows")
     if workload == "http" and len({meta["workload"].get("connectionPolicy", 1) for meta, rows in datasets}) != 1:
         raise ValueError("HTTP matrix mixes connection policies")
+    if len({"memoryDetails" in meta for meta, rows in datasets}) != 1:
+        raise ValueError("Resource matrix mixes detailed and legacy memory profiles")
     return sorted(datasets, key=lambda dataset: (dataset[0]["component"], dataset[0]["operatingSystem"]))
 
 
 def render_table(datasets):
     if datasets and datasets[0][0]["component"] in HTTP_COMPONENTS:
-        return render_http_table(datasets)
+        return render_http_table(datasets) + render_memory_details(datasets)
     lines = ["| Component | OS | Running samples | Cycles | GC retained heap delta (MiB) | NMT non-heap growth (MiB) | RSS growth (MiB) | Native threads (peak / closed) |",
         "|---|---|---:|---:|---:|---:|---:|---:|"]
     for meta, rows in datasets:
@@ -119,6 +128,30 @@ def render_table(datasets):
         lines.append(f"| {meta['component']} | {meta['operatingSystem']} | {meta['runningSamples']} | {workload['cycles']} | {retained:.2f} | "
             f"{meta['postWarmupPeakNativeGrowthBytes'] / MIB:.2f} | {meta['postWarmupPeakResidentGrowthBytes'] / MIB:.2f} | "
             f"{meta['peakNativeThreadCount']} / {closed['nativeThreadCount']} |")
+    return "\n".join(lines) + "\n" + render_memory_details(datasets)
+
+def render_memory_details(datasets):
+    if not datasets or not all("memoryDetails" in meta for meta, rows in datasets): return ""
+    keys = ("nativeArenaChunkCommittedBytes", "nativeMetaspaceCommittedBytes", "nativeCompilerCommittedBytes",
+        "nativeInternalCommittedBytes", "nativeSymbolCommittedBytes", "nativeTrackingCommittedBytes")
+    lines = ["", "| Component | OS | Arena Chunk growth | Metaspace growth | Compiler growth | Internal growth | Symbol growth | NMT tracking growth |",
+        "|---|---|---:|---:|---:|---:|---:|---:|"]
+    for meta, rows in datasets:
+        details = meta["_memoryDetailsRows"]
+        values = [detail_growth(details, meta["warmupSeconds"], key) for key in keys]
+        lines.append(f"| {meta['component']} | {meta['operatingSystem']} | " + " | ".join(
+            "not reported" if value is None else f"{value / MIB:.2f}" for value in values) + " |")
+    lines += ["", "| Component | Linux rollup RSS growth | Anonymous resident growth | PSS growth | Anonymous PSS growth | File PSS growth | Shared-memory PSS growth |",
+        "|---|---:|---:|---:|---:|---:|---:|"]
+    for meta, rows in datasets:
+        if meta["operatingSystem"] != "linux": continue
+        values = [detail_growth(meta["_memoryDetailsRows"], meta["warmupSeconds"], key) for key in
+            ("rollupRssBytes", "rollupAnonymousBytes", "rollupPssBytes", "rollupPssAnonBytes", "rollupPssFileBytes", "rollupPssShmemBytes")]
+        lines.append(f"| {meta['component']} | " + " | ".join(
+            "not reported" if value is None else f"{value / MIB:.2f}" for value in values) + " |")
+    lines += ["", "Values are MiB, including closing samples. Unreported categories stay unreported. "
+        "NMT committed allocation, RSS residency and proportional shares measure different quantities; "
+        "serial readings are not atomic, and category peaks cannot be summed to attribute a total peak."]
     return "\n".join(lines) + "\n"
 
 

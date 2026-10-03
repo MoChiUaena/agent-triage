@@ -72,6 +72,16 @@ python scripts/resource_report.py target/http-resource-artifacts --workload http
 
 HTTP 收据的 connectionPolicy=2 表示故障连接关闭，并验证正常连接复用。旧收据缺少该字段时按原共享池策略 1 重放；四组不得混合策略。
 
+### 内存分项
+
+采样命令增加 `--memory-details` 时，另保存数值 `memory-details.csv`，不改变原 `memory.csv`。HTTP 工作流默认开启这项采集。明细包含 Arena Chunk、Metaspace、Compiler、Internal、Symbol 等 NMT 项，以及 Linux 的匿名页、私有／共享页和 PSS。Windows 的 Linux 字段留空；NMT 未报告的项目也留空，不当作测得的零值。Metaspace 和 Symbol 缺失时采集失败。
+
+摘要中的 `memoryDetails` 标明格式版本、行数与 SHA-256。重放要求每行的 PID、阶段和时间与原采样一一对应，并检查 NMT 剩余量和 Linux 页统计的一致性；文件缺失、被修改或矩阵混用新旧采集配置时拒绝通过。原附件没有这项标记时继续按旧格式复核，原始字节无需转换。
+
+NMT 项按 KiB 四舍五入，细分剩余量可包含很小的负舍入差；超过 21 KiB 的负差会失败。Linux `smaps_rollup` 的 RSS 应等于私有和共享的干净／脏页之和。旧内核未提供 PSS 分类时，三项分类都保持未报告。
+
+重放表增加分项增长，包含关闭样本；任一所需点未报告的项目不计算增长。NMT 提交量、RSS 驻留量和 PSS 分摊量描述不同的内存属性，不能直接相减当作分配来源。读数来自同一次采样过程中的顺序查询，并非原子快照。明细只保留固定指标名和数值，不包含映射地址、文件路径、堆内容或环境变量。
+
 HTTP 复核要求新增 NMT 分项、固定速率下的完整请求数、实际观测计数和关闭结果；Class、Thread、Code、GC 缺失时采集失败，NMT 未报告的 Other 按零处理。30 秒内的检查要求最终窗口含全部请求，较长检查为自然过期保留有限余量，并要求超时数与固定故障比例相符，不接受原组件循环的附件替代。输出包含资源增长和 NMT 分项；各分项峰值可能发生在不同时间，不能相加当作同一时刻的总峰值。
 
 这里测量的是同一 JVM 中的驱动、Servlet、观测器和回环下游。两组运行在不同 CI 虚拟机，GC 时点也不同，数值差不能直接当作 Starter 的生产开销。这是固定故障比例的资源验收，尚未覆盖真实业务吞吐、远程网络或数天运行。

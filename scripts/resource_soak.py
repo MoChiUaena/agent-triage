@@ -15,6 +15,8 @@ import subprocess
 import time
 
 from http_resource_contract import HTTP_COMPONENTS, parse_http_receipt
+from resource_memory_details import (parse_nmt_details, process_details, make_details_sample,
+    append_details_sample, details_receipt, verify_details_file)
 
 ROOT = Path(__file__).resolve().parents[1]
 MIB = 1024 * 1024
@@ -192,6 +194,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--component", required=True, choices=("agent", "starter", *HTTP_COMPONENTS))
     parser.add_argument("--seconds", type=int, default=3600)
+    parser.add_argument("--memory-details", action="store_true", help="Add numeric NMT and Linux resident-page details")
     args = parser.parse_args()
     if not 10 <= args.seconds <= 7200:
         parser.error("seconds must be 10..7200")
@@ -210,7 +213,7 @@ def main():
     if args.component in HTTP_COMPONENTS:
         command.insert(-1, "-Dtriage.resource.http.enabled=" + str(args.component == "http-enabled").lower())
     starting_source = source_state()
-    samples, child, pid, started = [], None, None, time.monotonic()
+    samples, detail_samples, child, pid, started = [], [], None, None, time.monotonic()
     try:
         with (output / "maven.log").open("wb") as log:
             child = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
@@ -235,9 +238,15 @@ def main():
                                 return subprocess.check_output([str(jcmd), str(pid), *arguments], text=True, timeout=10,
                                     creationflags=subprocess.CREATE_NO_WINDOW if windows else 0)
                             value = dict(phase=phase, pid=pid, elapsedSeconds=elapsed)
-                            value.update(parse_native_memory(diagnostic("VM.native_memory", "summary", "scale=KB"), pid, require_breakdown=args.component in HTTP_COMPONENTS))
+                            native_text = diagnostic("VM.native_memory", "summary", "scale=KB")
+                            value.update(parse_native_memory(native_text, pid, require_breakdown=args.component in HTTP_COMPONENTS))
                             value["heapUsedBytes"] = parse_heap(diagnostic("GC.heap_info"), pid)
                             value.update(process_memory(pid))
+                            if args.memory_details:
+                                details = make_details_sample(value, parse_nmt_details(native_text, pid),
+                                    process_details(pid, "windows" if windows else "linux"))
+                                append_details_sample(output / "memory-details.csv", details)
+                                detail_samples.append(details)
                             samples.append(value); last_sample = elapsed
                             with (output / "memory.csv").open("w", newline="", encoding="utf-8") as file:
                                 writer = csv.DictWriter(file, fieldnames=list(value)); writer.writeheader(); writer.writerows(samples)
@@ -251,6 +260,9 @@ def main():
         summary.update(component=args.component, operatingSystem="windows" if windows else "linux",
             workload=parse_workload_result(workload_text, args.component, args.seconds))
         summary.update(source_provenance(starting_source, source_state()))
+        if args.memory_details:
+            summary["memoryDetails"] = details_receipt(output / "memory-details.csv", len(detail_samples))
+            verify_details_file(output / "memory-details.csv", summary["memoryDetails"], samples, summary["operatingSystem"])
         (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         print("RESOURCE_SOAK_PASSED " + json.dumps(summary), flush=True)
     except BaseException as error:
