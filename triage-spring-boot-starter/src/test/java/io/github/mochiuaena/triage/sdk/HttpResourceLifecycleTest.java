@@ -332,16 +332,12 @@ class HttpResourceLifecycleTest {
             try (var connection = new Socket("127.0.0.1", port)) { fail("Fixture port still accepts connections"); }
         }).isInstanceOf(IOException.class);
     }
-    static boolean nearBoundary(List<Completion> events, Instant boundary) {
-        return events.stream().anyMatch(event -> Math.abs(Duration.between(boundary, event.time()).toMillis()) < 50);
-    }
     record WindowCheck(Instant end, int requests, int timeouts, int expectedRequests, int expectedTimeouts,
                        long observedRequests, int newTimeouts) { }
     WindowCheck checkWindow(boolean enabled, int issued, WindowCheck previous) throws Exception {
-        Instant end; List<Completion> recent;
+        List<Completion> recent = counters.recent();
         // Keep both minute boundaries away from completion times: audit follows observer by a few microseconds.
-        do { Thread.sleep(100); end = Instant.now(); recent = counters.recent(); }
-        while (nearBoundary(recent, end.minusSeconds(60)));
+        Instant end = HttpWindowBoundary.select(Instant.now(), recent.stream().map(Completion::time).toList());
         Instant start = end.minusSeconds(60);
         var completedWindow = recent.stream().filter(value -> !value.time().isBefore(start)).toList();
         int expectedRequests = completedWindow.size();
