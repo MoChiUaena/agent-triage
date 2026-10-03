@@ -50,6 +50,39 @@ class HistoryGrowthTest {
         }
     }
 
+    @Test void smallHistoriesDoNotReportFirstPageQueriesAsCursorSamples() throws Exception {
+        var measurements = new ArrayList<HistoryGrowthFixture.Measurement>();
+        try (var fixture = HistoryGrowthFixture.h2(directory)) {
+            int loaded = 0;
+            for (int checkpoint : HistoryGrowthFixture.checkpoints("24,48,72")) {
+                fixture.append(loaded, checkpoint); loaded = checkpoint;
+                verifyQueries(fixture, loaded, false); verifyCursorTraversal(fixture, loaded, false);
+                measurements.add(fixture.measure(checkpoint, 0, 0, 0));
+            }
+            assertThat(fixture.cleanup(24)).isEqualTo(24);
+            verifyQueries(fixture, 72, true); verifyCursorTraversal(fixture, 72, true);
+            measurements.add(fixture.measure(72, 1, 24, 0));
+            fixture.reopen();
+            verifyQueries(fixture, 72, true); verifyCursorTraversal(fixture, 72, true);
+            measurements.add(fixture.measure(72, 2, 24, 0));
+        }
+        for (int i : List.of(0, 1, 3, 4)) {
+            assertThat(measurements.get(i).cursorPage().minimumNanos()).isZero();
+            assertThat(measurements.get(i).cursorPage().medianNanos()).isZero();
+            assertThat(measurements.get(i).cursorPage().maximumNanos()).isZero();
+        }
+        assertThat(measurements.get(2).cursorPage().medianNanos()).isPositive();
+        HistoryGrowthFixture.report("h2-small", measurements);
+        List<String> lines = Files.readAllLines(Path.of("target", "history-growth", "h2-small.csv"));
+        List<String> header = List.of(lines.getFirst().split(","));
+        int samplesColumn = header.indexOf("cursor_page_samples");
+        assertThat(samplesColumn).isGreaterThanOrEqualTo(0);
+        int[] expectedSamples = {0, 0, 5, 0, 0};
+        for (int i = 0; i < expectedSamples.length; i++) {
+            assertThat(Integer.parseInt(lines.get(i + 1).split(",")[samplesColumn])).isEqualTo(expectedSamples[i]);
+        }
+    }
+
     private void validateGrowth(HistoryGrowthFixture fixture, String name) throws Exception {
         int[] checkpoints = HistoryGrowthFixture.checkpoints(System.getProperty("history.growth.checkpoints"));
         var measurements = new ArrayList<HistoryGrowthFixture.Measurement>();
@@ -63,6 +96,7 @@ class HistoryGrowthTest {
             assertThat(measured.minPayloadBytes()).isGreaterThan(1000);
             assertThat(measured.maxPayloadBytes()).isGreaterThan(measured.minPayloadBytes() * 3);
             assertThat(measured.physicalBytes()).isPositive();
+            assertThat(measured.cursorPage().samples()).isEqualTo(checkpoint > 50 ? 5 : 0);
             if (!measurements.isEmpty()) {
                 assertThat(measured.payloadBytes()).isGreaterThan(measurements.getLast().payloadBytes());
                 // Allocation can remain constant between checkpoints; report it without a monotonicity gate.
@@ -107,7 +141,7 @@ class HistoryGrowthTest {
         List<String> lines = Files.readAllLines(Path.of("target", "history-growth", name + ".csv"));
         assertThat(lines).hasSize(checkpoints.length + 3);
         for (String line : lines.subList(1, lines.size())) {
-            assertThat(line).matches("[0-9]+(,[0-9]+){26}");
+            assertThat(line).matches("[0-9]+(,[0-9]+){27}");
         }
     }
 

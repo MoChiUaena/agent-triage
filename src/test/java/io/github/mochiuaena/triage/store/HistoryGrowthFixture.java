@@ -148,7 +148,8 @@ final class HistoryGrowthFixture implements AutoCloseable {
         String cursor = page(ALL, null).nextCursor();
         return new Measurement(backend, checkpoint, phase, number(payload, "rows"), number(payload, "bytes"),
             number(payload, "minimum"), number(payload, "maximum"), physicalBytes(), projected, loadNanos, deleted,
-            cleanupNanos, timing(() -> page(ALL, null)), timing(() -> page(ALL, cursor)), timing(() -> page(SELECTED, null)),
+            cleanupNanos, timing(() -> page(ALL, null)), cursor == null ? new Timing(0, 0, 0, 0) : timing(() -> page(ALL, cursor)),
+            timing(() -> page(SELECTED, null)),
             timing(() -> statistics(ALL)), timing(() -> statistics(SELECTED)));
     }
 
@@ -159,10 +160,10 @@ final class HistoryGrowthFixture implements AutoCloseable {
         long[] samples = new long[5];
         for (int i = 0; i < samples.length; i++) { long start = System.nanoTime(); query.get(); samples[i] = System.nanoTime() - start; }
         Arrays.sort(samples);
-        return new Timing(samples[0], samples[2], samples[4]);
+        return new Timing(samples[0], samples[2], samples[4], samples.length);
     }
 
-    record Timing(long minimumNanos, long medianNanos, long maximumNanos) {
+    record Timing(long minimumNanos, long medianNanos, long maximumNanos, int samples) {
         String csv() { return minimumNanos + "," + medianNanos + "," + maximumNanos; }
     }
     record Measurement(int backend, int checkpointRows, int phase, long rows, long payloadBytes, long minPayloadBytes,
@@ -171,7 +172,8 @@ final class HistoryGrowthFixture implements AutoCloseable {
         String csv() {
             return backend + "," + checkpointRows + "," + phase + "," + rows + "," + payloadBytes + "," + minPayloadBytes + ","
                 + maxPayloadBytes + "," + physicalBytes + "," + projectedRows + "," + loadNanos + "," + deletedRows + "," + cleanupNanos
-                + "," + page.csv() + "," + cursorPage.csv() + "," + filteredPage.csv() + "," + statistics.csv() + "," + filteredStatistics.csv();
+                + "," + page.csv() + "," + cursorPage.csv() + "," + cursorPage.samples() + "," + filteredPage.csv() + ","
+                + statistics.csv() + "," + filteredStatistics.csv();
         }
     }
 
@@ -179,8 +181,10 @@ final class HistoryGrowthFixture implements AutoCloseable {
         Path directory = Path.of("target", "history-growth"); Files.createDirectories(directory);
         String header = "backend,checkpoint_rows,phase,rows,payload_bytes,min_payload_bytes,max_payload_bytes,physical_bytes,projected_rows,"
             + "load_ns,deleted_rows,cleanup_ns";
-        for (String query : List.of("page", "cursor_page", "filtered_page", "statistics", "filtered_statistics"))
+        for (String query : List.of("page", "cursor_page", "filtered_page", "statistics", "filtered_statistics")) {
             header += "," + query + "_min_ns," + query + "_median_ns," + query + "_max_ns";
+            if (query.equals("cursor_page")) header += ",cursor_page_samples";
+        }
         var lines = new ArrayList<String>(); lines.add(header); measurements.forEach(value -> lines.add(value.csv()));
         Files.write(directory.resolve(name + ".csv"), lines, StandardCharsets.UTF_8);
     }
