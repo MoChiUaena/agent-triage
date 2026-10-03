@@ -15,4 +15,21 @@
 
 ![十分钟资源曲线](samples/2026-10-03-http-resources/policy-2/bounded-audit/600s/memory.png)
 
-原始数值保留在 [60 秒](samples/2026-10-03-http-resources/policy-2/bounded-audit/60s/)和[十分钟](samples/2026-10-03-http-resources/policy-2/bounded-audit/600s/)目录，逐文件校验见 [SHA256SUMS](samples/2026-10-03-http-resources/policy-2/bounded-audit/SHA256SUMS)。[前两次小时失败](2026-10-03-http-resources.md)继续保留，不能用本轮十分钟结果替代小时验收。运行和重放命令见[资源检查](../RUNTIME_RESOURCES.md)。
+## 一小时结果
+
+[37111670537](https://github.com/MoChiUaena/agent-triage/actions/runs/37111670537) 使用同一源码，Windows/Linux 四组全部通过，附件已独立重放。每组完成 28,800 次请求、14,400 次预设超时、3600 次无类型正文失败，25,200 个响应全部关闭。开启组的累计观测数完整，最终一分钟均为 475 次请求、237 次超时；窗口外的记录正常过期。
+
+| Starter | 平台 | GC 后堆峰值增量 MiB | 关闭后 GC 堆变化 MiB | NMT 非堆增长 MiB | RSS 增长 MiB |
+|---|---|---:|---:|---:|---:|
+| 关闭 | Linux | 0.06 | -3.06 | 11.74 | 84.62 |
+| 关闭 | Windows | 0.04 | -3.01 | 13.49 | 0.00 |
+| 开启 | Linux | 1.96 | 1.07 | 15.52 | 66.49 |
+| 开启 | Windows | 1.86 | 1.04 | 16.39 | 0.00 |
+
+上下文、执行器、队列和原监听端口的回收检查通过。GC 后堆 64 MiB、NMT 非堆 64 MiB 和 RSS 128 MiB 的增长门槛均未超限，关闭阶段也纳入检查。Linux RSS 仍增长约 66–85 MiB，分配来源尚未确定；这轮结果覆盖固定故障比例的一小时回环负载，数天稳定性及真实业务吞吐另行验证。
+
+曲线中的普通堆采样随运行时间上升，关闭后回落；它们不全发生在 GC 之后。上表的 GC 后峰值来自夹具定时主动 GC 后的独立核对，不能用曲线的采样峰值替代。门槛通过也不能单独证明没有泄漏。
+
+![一小时资源曲线](samples/2026-10-03-http-resources/policy-2/bounded-audit/3600s/memory.png)
+
+原始数值保留在 [60 秒](samples/2026-10-03-http-resources/policy-2/bounded-audit/60s/)、[十分钟](samples/2026-10-03-http-resources/policy-2/bounded-audit/600s/)和[一小时](samples/2026-10-03-http-resources/policy-2/bounded-audit/3600s/)目录，逐文件校验见 [SHA256SUMS](samples/2026-10-03-http-resources/policy-2/bounded-audit/SHA256SUMS)。[前两次小时失败及未确定的原因](2026-10-03-http-resources.md)继续保留。运行和重放命令见[资源检查](../RUNTIME_RESOURCES.md)。
