@@ -25,7 +25,7 @@ Starter 使用入站 V4，每三轮产生一次 503，其余为 204，确认响�
 
 ## 采样与判定
 
-脚本只读取测试方法公布的 JVM PID。JVM 使用 G1、`-Xms96m -Xmx256m` 和 NMT summary。每 30 秒读取堆使用量、Java 堆提交量、NMT 总预留量与提交量、NMT 线程数及进程驻留内存；Windows 另记录私有提交量。预留地址空间与实际驻留内存分列，空字段表示该平台未采集，不补零。
+脚本只读取测试方法公布的 JVM PID。JVM 使用 G1、`-Xms96m -Xmx256m` 和 NMT summary。每 30 秒读取堆使用量、Java 堆提交量、NMT 总预留量与提交量、NMT 线程数及进程驻留内存；新版采样还记录 Class、Thread、Code、GC、Other 和其余 NMT 提交量。Windows 另记录私有提交量。预留地址空间与实际驻留内存分列，空字段表示该平台未采集，不补零。
 
 小时检查排除前 120 秒预热，以第一个预热后样本为基线；关闭后的样本也纳入增长门槛。NMT 总提交量扣除 Java 堆提交量后，上浮门槛为 64 MiB；进程驻留量上浮门槛为 128 MiB。原 Java 测试继续检查 GC 后堆峰值和最终留存相对初始基线上浮不超过 64 MiB。这些数值是本次受控验收的门槛，不能单独证明没有泄漏。
 
@@ -38,7 +38,7 @@ Starter 使用入站 V4，每三轮产生一次 503，其余为 204，确认响�
 下载同一次工作流的四个数值附件，解压到一个空目录，例如 `target/resource-artifacts/`。从工作流详情取得完整的源码 SHA，再运行：
 
 ```powershell
-python -m unittest discover -s scripts -p 'test_resource*.py'
+python -m unittest discover -s scripts -p 'test_*resource*.py'
 $resourceSourceCommit = '从工作流复制的完整源码SHA'
 python scripts/resource_report.py target/resource-artifacts --source-commit $resourceSourceCommit --seconds 3600
 ```
@@ -48,3 +48,24 @@ python scripts/resource_report.py target/resource-artifacts --source-commit $res
 旧采样器的汇总未包含关闭阶段增长。复核工具先核对其原始定义，再将关闭样本纳入当前门槛，输出重算后的数值；不会把旧汇总直接当作新版结果。
 
 汇总一致性检查不能代替附件来源核对。请确认附件属于所记录的工作流和源码提交；这些受控数值也不能用于推断生产吞吐或数天运行的稳定性。
+
+## 真实 HTTP 对照
+
+HTTP 检查使用随机回环端口的 Servlet 应用和下游服务，分别关闭、开启 Starter。两组都保留测试用的响应关闭计数和上下文审计，每秒发送 8 次请求，驱动并发度为 4。每秒包含三个正常 GET/POST/PUT、三个 Simple 工厂响应头超时、一个 Simple 正文超时和一个 JDK 无可靠超时类型的正文读取失败；下游核对 POST/PUT 正文，应用保持原请求方法。正常返回固定延迟 350 毫秒，读取预算为 2 秒；故障请求的读取预算为 250 毫秒，下游等待 1 秒。两个预算用于区分正常调度延迟与故障场景，固定请求速率保持一致。
+
+```powershell
+python scripts/resource_soak.py --component http-disabled --seconds 600
+python scripts/resource_soak.py --component http-enabled --seconds 600
+```
+
+脚本仍由 Maven/JUnit 启动测试 JVM。它检查全部请求的累计计数、每 30 秒及最后一分钟的完整观测窗口、异常类型、响应关闭、工作线程和 Servlet 上下文。JDK 无可靠超时类型的正文失败单独计数，不按异常消息判断超时。关闭 Servlet、两个 JDK HTTP 客户端、驱动线程和下游后，核对执行器终止、队列清空和原端口关闭，再采集关闭样本。
+
+GitHub 的 `HTTP resource comparison` 工作流包含两种开关状态与 Windows/Linux 四组，支持 60、600 和 3600 秒；相关推送默认执行 60 秒。下载同次工作流的四组数值附件后，使用独立的 HTTP 矩阵复核：
+
+```powershell
+python scripts/resource_report.py target/http-resource-artifacts --workload http --source-commit $resourceSourceCommit --seconds 600
+```
+
+HTTP 复核要求新增 NMT 分项、固定速率下的完整请求数、实际观测计数和关闭结果；Class、Thread、Code、GC 缺失时采集失败，NMT 未报告的 Other 按零处理。30 秒内的检查要求最终窗口含全部请求，较长检查为自然过期保留有限余量，并要求超时数与固定故障比例相符，不接受原组件循环的附件替代。输出包含资源增长和 NMT 分项；各分项峰值可能发生在不同时间，不能相加当作同一时刻的总峰值。
+
+这里测量的是同一 JVM 中的驱动、Servlet、观测器和回环下游。两组运行在不同 CI 虚拟机，GC 时点也不同，数值差不能直接当作 Starter 的生产开销。这是固定故障比例的资源验收，尚未覆盖真实业务吞吐、远程网络或数天运行。
