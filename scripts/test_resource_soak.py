@@ -1,6 +1,7 @@
 """Guard diagnostic parsing, incomplete coverage and growth failures independently of workload code."""
 import unittest
-from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance
+import io
+from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log
 
 NMT = """1234:
 Native Memory Tracking:
@@ -17,6 +18,15 @@ def sample(elapsed, phase="running", native=42696704, rss=170000000, pid=1234):
         nativeThreadCount=25, rssBytes=rss, privateBytes=None)
 
 class ResourceSoakTest(unittest.TestCase):
+    def test_windows_failure_output_does_not_mask_the_original_error_with_encoding_failure(self):
+        raw = io.BytesIO()
+        output = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
+        emit_failure_log("RESOURCE_THREAD name=HTTP-Dispatcher state=WAITING\nMaven assertion failed: \ufffd", "http-disabled", output)
+        value = raw.getvalue().decode("cp1252")
+        self.assertIn("HTTP-Dispatcher", value)
+        self.assertIn("Maven assertion failed", value)
+        self.assertIn("\\ufffd", value)
+
     def test_keeps_owned_thread_evidence_when_maven_tail_would_truncate_it(self):
         evidence = "RESOURCE_THREAD name=HTTP-Dispatcher state=BLOCKED\nRESOURCE_FRAME sun.net.httpserver.ServerImpl.run\n"
         text = evidence + "unrelated request Authorization=do-not-export\n"*1000 + "Maven failed"

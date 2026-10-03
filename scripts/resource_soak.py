@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import sys
 import subprocess
 import time
 
@@ -152,6 +153,15 @@ def failure_diagnostics(text):
     return "\n".join(lines)[:32768]
 
 
+def emit_failure_log(text, component, stream=None):
+    stream = sys.stdout if stream is None else stream
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(errors="backslashreplace")
+    if component in HTTP_COMPONENTS:
+        print(failure_diagnostics(text), file=stream, flush=True)
+    print(text[-5000:], file=stream, flush=True)
+
+
 def source_state():
     return (subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()))
@@ -235,9 +245,7 @@ def main():
                 time.sleep(.2)
             workload_text = (output / "maven.log").read_text(encoding="utf-8", errors="replace")
             if child.returncode != 0:
-                if args.component in HTTP_COMPONENTS:
-                    print(failure_diagnostics(workload_text), flush=True)
-                print(workload_text[-5000:], flush=True)
+                emit_failure_log(workload_text, args.component)
                 raise RuntimeError(f"Maven workload failed with exit {child.returncode}; see {output / 'maven.log'}")
         summary = summarize(samples, args.seconds, warmup, interval)
         summary.update(component=args.component, operatingSystem="windows" if windows else "linux",
