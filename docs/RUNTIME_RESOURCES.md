@@ -60,7 +60,7 @@ python scripts/resource_soak.py --component http-enabled --seconds 600
 
 脚本仍由 Maven/JUnit 启动测试 JVM。它检查全部请求的累计计数、每 30 秒及最后一分钟的完整观测窗口、异常类型、响应关闭、工作线程和 Servlet 上下文。JDK 无可靠超时类型的正文失败单独计数，不按异常消息判断超时。关闭 Servlet、两个 JDK HTTP 客户端、驱动线程和下游后，核对执行器终止、队列清空和原端口关闭，再采集关闭样本。
 
-GitHub 的 `HTTP resource comparison` 工作流包含两种开关状态与 Windows/Linux 四组，支持 60、600 和 3600 秒；相关推送默认执行 60 秒。下载同次工作流的四组数值附件后，使用独立的 HTTP 矩阵复核：
+GitHub 的 `HTTP resource comparison` 工作流包含两种开关状态与 Windows/Linux 四组，支持 60、600、1200 和 3600 秒；相关推送默认执行 60 秒。下载同次工作流的四组数值附件后，使用独立的 HTTP 矩阵复核：
 
 ```powershell
 python scripts/resource_report.py target/http-resource-artifacts --workload http --source-commit $resourceSourceCommit --seconds 600

@@ -18,7 +18,7 @@ on:
         required: true
         type: choice
         default: '600'
-        options: ['60', '600', '3600']
+        options: ['60', '600', '1200', '3600']
 permissions:
   contents: read
 concurrency:
