@@ -51,7 +51,7 @@ python scripts/resource_report.py target/resource-artifacts --source-commit $res
 
 ## 真实 HTTP 对照
 
-HTTP 检查使用随机回环端口的 Servlet 应用和下游服务，分别关闭、开启 Starter。两组都保留测试用的响应关闭计数和上下文审计，每秒发送 8 次请求，驱动并发度为 4。每秒包含三个正常 GET/POST/PUT、三个 Simple 工厂响应头超时、一个 Simple 正文超时和一个 JDK 无可靠超时类型的正文读取失败；下游核对 POST/PUT 正文，应用保持原请求方法。正常返回固定延迟 350 毫秒，读取预算为 2 秒；故障请求的读取预算为 250 毫秒，下游等待 1 秒。两个预算用于区分正常调度延迟与故障场景，固定请求速率保持一致。
+HTTP 检查使用随机回环端口的 Servlet 应用和下游服务，分别关闭、开启 Starter。两组都保留测试用的响应关闭计数和上下文审计，每秒发送 8 次请求，驱动并发度为 4。每秒包含三个正常 GET/POST/PUT、三个 Simple 工厂响应头超时、一个 Simple 正文超时和一个 JDK 无可靠超时类型的正文读取失败；下游核对 POST/PUT 正文，应用保持原请求方法。正常返回固定延迟 350 毫秒，读取预算为 2 秒；故障请求的读取预算为 250 毫秒，下游等待 1 秒。两个预算用于区分正常调度延迟与故障场景，固定请求速率保持一致。正常与故障请求混排，Simple 故障请求和所有故障响应使用 Connection: close；正常请求要求实际复用连接。这条策略不用于推断纯正常长连接流量的开销。
 
 ```powershell
 python scripts/resource_soak.py --component http-disabled --seconds 600
@@ -65,6 +65,8 @@ GitHub 的 `HTTP resource comparison` 工作流包含两种开关状态与 Windo
 ```powershell
 python scripts/resource_report.py target/http-resource-artifacts --workload http --source-commit $resourceSourceCommit --seconds 600
 ```
+
+HTTP 收据的 connectionPolicy=2 表示故障连接关闭，并验证正常连接复用。旧收据缺少该字段时按原共享池策略 1 重放；四组不得混合策略。
 
 HTTP 复核要求新增 NMT 分项、固定速率下的完整请求数、实际观测计数和关闭结果；Class、Thread、Code、GC 缺失时采集失败，NMT 未报告的 Other 按零处理。30 秒内的检查要求最终窗口含全部请求，较长检查为自然过期保留有限余量，并要求超时数与固定故障比例相符，不接受原组件循环的附件替代。输出包含资源增长和 NMT 分项；各分项峰值可能发生在不同时间，不能相加当作同一时刻的总峰值。
 
