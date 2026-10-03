@@ -71,7 +71,7 @@ class HttpResourceLifecycleTest {
     }
     @RestController
     static class Controller {
-        final RestTemplate simple, jdk;
+        final RestTemplate simple, simpleNormal, jdk;
         final Counters counters;
         Controller(RestTemplateBuilder builder, java.net.http.HttpClient businessHttpClient, Counters counters, String origin) {
             this.counters = counters;
@@ -91,6 +91,7 @@ class HttpResourceLifecycleTest {
                         }
                     };
                 });
+            simpleNormal = configured.readTimeout(Duration.ofSeconds(2)).requestFactory(SimpleClientHttpRequestFactory::new).build();
             simple = configured.requestFactory(SimpleClientHttpRequestFactory::new).build();
             // The owned JDK HttpClient already has its connect timeout.
             jdk = configured.connectTimeout(null).requestFactory(() -> new JdkClientHttpRequestFactory(businessHttpClient)).build();
@@ -98,11 +99,16 @@ class HttpResourceLifecycleTest {
         @RequestMapping("/api/resource/{factory}/{mode}")
         ResponseEntity<String> call(@PathVariable String factory, @PathVariable String mode, HttpServletRequest request,
                                     @RequestBody(required = false) String body) {
+            long started = System.nanoTime(), gcBefore = gcMillis();
             try {
-                var client = factory.equals("simple") ? simple : jdk;
+                var client = factory.equals("simple") ? mode.equals("normal") ? simpleNormal : simple : jdk;
                 return ResponseEntity.ok(client.exchange("/" + mode, HttpMethod.valueOf(request.getMethod()),
                     new HttpEntity<>(body), String.class).getBody());
             } catch (RestClientException failure) {
+                if (mode.equals("normal") || typedTimeout(failure) != factory.equals("simple"))
+                    System.out.printf("RESOURCE_UNEXPECTED_HTTP_FAILURE method=%s factory=%s mode=%s elapsedMs=%.1f typedTimeout=%b gcMillis=%d downstreamActive=%d downstreamQueue=%d causeTypes=%s%n",
+                    request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typedTimeout(failure),
+                    Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure));
                 if (typedTimeout(failure)) counters.typedTimeouts.incrementAndGet();
                 else counters.untypedFailures.incrementAndGet();
                 return ResponseEntity.status(504).body("incomplete");
@@ -121,6 +127,15 @@ class HttpResourceLifecycleTest {
             completed.incrementAndGet();
         }
         synchronized List<Completion> recent() { return List.copyOf(recent); }
+    }
+    static long gcMillis() {
+        return ManagementFactory.getGarbageCollectorMXBeans().stream().mapToLong(bean -> Math.max(0, bean.getCollectionTime())).sum();
+    }
+    static String causeTypes(Throwable failure) {
+        var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+        var types = new ArrayList<String>();
+        for (var cause = failure; cause != null && seen.add(cause); cause = cause.getCause()) types.add(cause.getClass().getName());
+        return String.join("/", types);
     }
     static boolean typedTimeout(Throwable failure) {
         var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
@@ -143,6 +158,7 @@ class HttpResourceLifecycleTest {
                         var body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                         if (!(exchange.getRequestMethod().equals("GET") ? body.isEmpty() : body.equals(PAYLOAD))) payloadErrors.incrementAndGet();
                         var mode = exchange.getRequestURI().getPath();
+                        if (mode.contains("normal")) Thread.sleep(Integer.getInteger("triage.resource.normal-delay-millis", 350));
                         if (mode.contains("header-timeout")) Thread.sleep(1000);
                         exchange.sendResponseHeaders(200, 2);
                         exchange.getResponseBody().write('o'); exchange.getResponseBody().flush();
@@ -180,6 +196,7 @@ class HttpResourceLifecycleTest {
         long baselineHeap = 0, peakHeap = 0;
         double nextHeap = Math.min(120, seconds / 5.0);
         var driver = new Driver(port, enabled);
+        var businessHttpClient = application.getBean(java.net.http.HttpClient.class);
         long observedRequests = 0; int observedTimeouts = 0, windowRequests = 0, windowTimeouts = 0;
         int expectedWindowRequests, expectedWindowTimeouts;
         WindowCheck previous = null;
@@ -190,7 +207,7 @@ class HttpResourceLifecycleTest {
                 long remaining = scheduled - System.nanoTime();
                 if (remaining > 0) TimeUnit.NANOSECONDS.sleep(remaining);
                 driver.maxLagMillis.accumulateAndGet(Math.max(0, (System.nanoTime() - scheduled) / 1_000_000L), Math::max);
-                driver.submit(index % RPS);
+                driver.submit(index % RPS, scheduled);
                 double elapsed = (System.nanoTime() - started) / 1_000_000_000.0;
                 if (elapsed >= nextHeap) {
                     long heap = retainedHeap();
@@ -234,6 +251,8 @@ class HttpResourceLifecycleTest {
             downstream.close();
         }
         assertThat(driver.workers.isTerminated()).isTrue();
+        assertThat(driver.http.isTerminated()).isTrue();
+        assertThat(businessHttpClient.isTerminated()).isTrue();
         assertThat(downstream.workers.isTerminated()).isTrue();
         assertThat(downstream.active.get()).isZero();
         assertThat(driver.workers.getQueue()).isEmpty();
@@ -312,8 +331,9 @@ class HttpResourceLifecycleTest {
         final AtomicLong maxLagMillis = new AtomicLong();
         final int port; final boolean enabled;
         Driver(int port, boolean enabled) { this.port = port; this.enabled = enabled; }
-        void submit(int slot) {
+        void submit(int slot, long scheduled) {
             workers.execute(() -> {
+                maxLagMillis.accumulateAndGet(Math.max(0, (System.nanoTime() - scheduled) / 1_000_000L), Math::max);
                 if (TriageRequestFilter.CURRENT.get() != null) workerContexts.incrementAndGet();
                 try {
                     String method = slot == 1 || slot == 4 ? "POST" : slot == 2 || slot == 5 ? "PUT" : "GET";

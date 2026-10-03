@@ -15,8 +15,9 @@ def receipt(component="http-enabled", seconds=60):
     return dict(seconds=seconds, cycles=cycles, rps=8, concurrency=4, requests=cycles*8,
         successes=cycles*3, failures=cycles*5, typedTimeouts=cycles*4, untypedFailures=cycles,
         observedRequests=cycles*8 if enabled else 0, observedTimeouts=cycles*4 if enabled else 0,
-        expectedWindowRequests=472, expectedWindowTimeouts=236,
-        windowRequests=472 if enabled else 0, windowTimeouts=236 if enabled else 0,
+        expectedWindowRequests=seconds*8 if seconds < 60 else 472, expectedWindowTimeouts=seconds*4 if seconds < 60 else 236,
+        windowRequests=(seconds*8 if seconds < 60 else 472) if enabled else 0,
+        windowTimeouts=(seconds*4 if seconds < 60 else 236) if enabled else 0,
         responsesOpened=cycles*7, responsesClosed=cycles*7, downstreamRequests=cycles*8,
         servletContexts=0, workerContexts=0, downstreamActive=0, queues=0, payloadErrors=0,
         executorsStopped=True, servletStopped=True, maxLagMillis=100,
@@ -108,6 +109,24 @@ Total: reserved=180000KB, committed=140000KB
             meta.update(component="http-enabled", workload=receipt())
             (root/"summary.json").write_text(json.dumps(meta))
             with self.assertRaises(ValueError): verify_dataset(root/"summary.json", "a"*40, 60)
+
+    def test_final_window_cannot_hide_missing_traffic_or_timeouts(self):
+        for seconds in (10, 60, 600, 3600):
+            for field in ("Requests", "Timeouts"):
+                with self.subTest(seconds=seconds, field=field):
+                    counters = receipt(seconds=seconds)
+                    counters["expectedWindow"+field] = counters["window"+field] = 1
+                    with self.assertRaises(ValueError):
+                        parse_workload_result(line("http-enabled", counters), "http-enabled", seconds)
+
+    def test_owned_http_nmt_requires_actual_class_code_thread_and_gc_measurements(self):
+        text = "1234:\nTotal: reserved=180000KB, committed=140000KB\n- Java Heap (reserved=131072KB, committed=98304KB)\n- Thread (reserved=5000KB, committed=1000KB)\n (thread #25)"
+        with self.assertRaises(ValueError): parse_native_memory(text, 1234, require_breakdown=True)
+
+    def test_final_minute_near_one_minute_duration_can_naturally_expire_first_requests(self):
+        counters = receipt(seconds=59)
+        counters["expectedWindowRequests"] = counters["windowRequests"] = 469
+        self.assertEqual(parse_workload_result(line("http-enabled", counters), "http-enabled", 59), counters)
 
 
 if __name__ == "__main__":

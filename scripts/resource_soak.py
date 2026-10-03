@@ -24,7 +24,7 @@ def diagnostic_pid(text, pid):
         raise ValueError("Diagnostic output belongs to a different JVM")
 
 
-def parse_native_memory(text, pid):
+def parse_native_memory(text, pid, require_breakdown=False):
     diagnostic_pid(text, pid)
     total = re.search(r"Total: reserved=(\d+)KB, committed=(\d+)KB", text)
     heap = re.search(r"Java Heap \(reserved=(\d+)KB, committed=(\d+)KB\)", text)
@@ -41,6 +41,8 @@ def parse_native_memory(text, pid):
         nativeThreadCount=int(threads[1]))
     for category in ("Class", "Thread", "Code", "GC", "Other"):
         match = re.search(r"-\s+" + category + r" \(reserved=\d+KB, committed=(\d+)KB\)", text)
+        if require_breakdown and category != "Other" and match is None:
+            raise ValueError("Missing owned HTTP NMT category: " + category)
         value["native" + category + "CommittedBytes"] = int(match[1]) * 1024 if match else 0
     value["nativeUncategorizedCommittedBytes"] = value["nativeNonHeapCommittedBytes"] - sum(
         value["native" + category + "CommittedBytes"] for category in ("Class", "Thread", "Code", "GC", "Other"))
@@ -205,7 +207,7 @@ def main():
                                 return subprocess.check_output([str(jcmd), str(pid), *arguments], text=True, timeout=10,
                                     creationflags=subprocess.CREATE_NO_WINDOW if windows else 0)
                             value = dict(phase=phase, pid=pid, elapsedSeconds=elapsed)
-                            value.update(parse_native_memory(diagnostic("VM.native_memory", "summary", "scale=KB"), pid))
+                            value.update(parse_native_memory(diagnostic("VM.native_memory", "summary", "scale=KB"), pid, require_breakdown=args.component in HTTP_COMPONENTS))
                             value["heapUsedBytes"] = parse_heap(diagnostic("GC.heap_info"), pid)
                             value.update(process_memory(pid))
                             samples.append(value); last_sample = elapsed

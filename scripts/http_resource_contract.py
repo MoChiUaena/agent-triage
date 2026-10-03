@@ -35,8 +35,12 @@ def parse_http_receipt(receipt, component, seconds):
     expected_requests = value["expectedWindowRequests"]
     if not min(seconds*8, 480)-16 <= expected_requests <= min(seconds*8, 484):
         raise ValueError("Final HTTP window lacks completed traffic")
-    if not 0 < value["expectedWindowTimeouts"] <= min(seconds*4, expected_requests):
-        raise ValueError("Invalid final HTTP timeout window")
+    expected_timeouts = value["expectedWindowTimeouts"]
+    if seconds <= 30:
+        if expected_requests != seconds*8 or expected_timeouts != seconds*4:
+            raise ValueError("Short HTTP window must contain the full workload")
+    elif not min(seconds, 60)*4-16 <= expected_timeouts <= min(seconds*4, expected_requests, 248):
+        raise ValueError("Final HTTP timeout window lacks the fixed-rate workload")
     if value["windowRequests"] != (expected_requests if enabled else 0) or value["windowTimeouts"] != (value["expectedWindowTimeouts"] if enabled else 0):
         raise ValueError("Final HTTP window differs from completed requests")
     if value["maxLagMillis"] > 2000:
