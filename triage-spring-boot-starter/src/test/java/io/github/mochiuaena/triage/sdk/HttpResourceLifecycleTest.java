@@ -166,7 +166,7 @@ class HttpResourceLifecycleTest {
         }
     }
     static int diagnosticPriority(String name) {
-        if (name.equals("HTTP-Dispatcher") || name.equals("Keep-Alive-Timer") || name.endsWith("timeout-task")) return 0;
+        if (name.equals("HTTP-Dispatcher") || name.startsWith("Keep-Alive-") || name.endsWith("timeout-task")) return 0;
         if (name.startsWith("resource-downstream-")) return 1;
         if (name.startsWith("resource-driver-") || name.equals("main")) return 3;
         return 2;
@@ -190,8 +190,8 @@ class HttpResourceLifecycleTest {
         final ThreadPoolExecutor workers = new ThreadPoolExecutor(8, 8, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16), namedThreads("resource-downstream-"));
         final AtomicInteger active = new AtomicInteger(), requests = new AtomicInteger(), payloadErrors = new AtomicInteger(), faultConnections = new AtomicInteger();
         final HttpServer server;
-        final AtomicBoolean closed = new AtomicBoolean(), healthyConnectionsReused = new AtomicBoolean();
-        final Set<Integer> healthyPorts = new HashSet<>();
+        final AtomicBoolean closed = new AtomicBoolean();
+        final HealthyConnectionProbe healthyConnections = new HealthyConnectionProbe();
         Downstream() {
             try {
                 server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -205,11 +205,7 @@ class HttpResourceLifecycleTest {
                         if (mode.contains("simple") && mode.contains("timeout") && !"close".equalsIgnoreCase(exchange.getRequestHeaders().getFirst("Connection")))
                             faultConnections.incrementAndGet();
                         if (mode.contains("timeout")) exchange.getResponseHeaders().set("Connection", "close");
-                        if (mode.contains("normal") && !healthyConnectionsReused.get()) synchronized (healthyPorts) {
-                            int port = exchange.getRemoteAddress().getPort();
-                            if (healthyPorts.contains(port)) healthyConnectionsReused.set(true);
-                            else if (healthyPorts.size() < 32) healthyPorts.add(port);
-                        }
+                        if (mode.contains("normal")) healthyConnections.accept(exchange.getRemoteAddress().getPort());
                         if (mode.contains("normal")) Thread.sleep(Integer.getInteger("triage.resource.normal-delay-millis", 350));
                         if (mode.contains("header-timeout")) Thread.sleep(1000);
                         exchange.sendResponseHeaders(200, 2);
@@ -268,6 +264,10 @@ class HttpResourceLifecycleTest {
                     assertThat(heap).isLessThanOrEqualTo(baselineHeap + 64L * 1024 * 1024);
                     nextHeap += 30;
                 }
+                if (index == 2 * RPS - 1) {
+                    await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == 2 * RPS);
+                    assertThat(downstream.healthyConnections.reused()).as("Healthy connection reuse must occur in the first two seconds").isTrue();
+                }
                 if ((index + 1) % (30 * RPS) == 0 && index + 1 < seconds * RPS) {
                     int issued = index + 1;
                     await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == issued);
@@ -290,7 +290,7 @@ class HttpResourceLifecycleTest {
             assertThat(driver.workerContexts.get()).isZero();
             assertThat(downstream.requests.get()).isEqualTo(seconds * RPS);
             assertThat(downstream.payloadErrors.get()).isZero();
-            assertThat(downstream.healthyConnectionsReused.get()).as("Healthy requests must exercise connection reuse").isTrue();
+            assertThat(downstream.healthyConnections.reused()).as("Healthy requests must exercise connection reuse").isTrue();
             assertThat(downstream.faultConnections.get()).as("Simple fault requests must close their connection").isZero();
             assertThat(driver.maxLagMillis.get()).isLessThanOrEqualTo(2000);
             var tail = checkWindow(enabled, seconds * RPS, previous);
