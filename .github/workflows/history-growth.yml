@@ -1,5 +1,12 @@
 name: History growth
 on:
+  push:
+    branches: [main, 'feature/**', 'fix/**']
+    paths:
+      - 'src/main/java/io/github/mochiuaena/triage/store/**'
+      - 'src/main/resources/db/migration/**'
+      - 'src/test/java/io/github/mochiuaena/triage/store/HistoryGrowth*'
+      - '.github/workflows/history-growth.yml'
   pull_request:
     paths:
       - 'src/main/java/io/github/mochiuaena/triage/store/**'
