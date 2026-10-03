@@ -299,6 +299,10 @@ class HttpResourceLifecycleTest {
             windowRequests = tail.requests(); windowTimeouts = tail.timeouts();
             expectedWindowRequests = tail.expectedRequests(); expectedWindowTimeouts = tail.expectedTimeouts();
             assertThat(observedTimeouts).isEqualTo(enabled ? seconds * 4 : 0);
+        } catch (Exception | AssertionError failure) {
+            System.out.println("RESOURCE_FAILURE_FRAMES cause=" + failure.getClass().getName());
+            for (var frame : Arrays.stream(failure.getStackTrace()).limit(12).toList()) System.out.println("RESOURCE_FRAME " + frame);
+            throw failure;
         } finally {
             driver.close();
             application.close();
