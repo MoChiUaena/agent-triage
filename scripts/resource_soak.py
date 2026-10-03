@@ -146,6 +146,23 @@ def parse_workload_result(text, component, seconds):
     return value
 
 
+def failure_diagnostics(text):
+    prefixes = ("RESOURCE_UNEXPECTED_HTTP_FAILURE ", "RESOURCE_FAILURE_FRAMES ", "RESOURCE_THREAD ", "RESOURCE_FRAME ")
+    lines = [line[:1024] for line in text.splitlines() if line.startswith(prefixes)]
+    return "\n".join(lines)[:32768]
+
+
+def source_state():
+    return (subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
+        bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()))
+
+
+def source_provenance(before, after):
+    if before[0] != after[0]:
+        raise ValueError("Workload source commit changed during the owned run")
+    return dict(sourceCommit=before[0], sourceTreeDirty=before[1] or after[1])
+
+
 def stop_owned_processes(child):
     if child is not None and child.poll() is None:
         if os.name == "nt":
@@ -182,6 +199,7 @@ def main():
         "-DargLine=-Xms96m -Xmx256m -XX:+UseG1GC -XX:NativeMemoryTracking=summary", "test"]
     if args.component in HTTP_COMPONENTS:
         command.insert(-1, "-Dtriage.resource.http.enabled=" + str(args.component == "http-enabled").lower())
+    starting_source = source_state()
     samples, child, pid, started = [], None, None, time.monotonic()
     try:
         with (output / "maven.log").open("wb") as log:
@@ -215,14 +233,16 @@ def main():
                                 writer = csv.DictWriter(file, fieldnames=list(value)); writer.writeheader(); writer.writerows(samples)
                             print(f"RESOURCE_SAMPLE {args.component} phase={phase} elapsed={elapsed:.1f}s heap={value['heapUsedBytes']} native={value['nativeNonHeapCommittedBytes']} rss={value['rssBytes']}", flush=True)
                 time.sleep(.2)
+            workload_text = (output / "maven.log").read_text(encoding="utf-8", errors="replace")
             if child.returncode != 0:
-                print((output / "maven.log").read_text(encoding="utf-8", errors="replace")[-5000:], flush=True)
+                if args.component in HTTP_COMPONENTS:
+                    print(failure_diagnostics(workload_text), flush=True)
+                print(workload_text[-5000:], flush=True)
                 raise RuntimeError(f"Maven workload failed with exit {child.returncode}; see {output / 'maven.log'}")
         summary = summarize(samples, args.seconds, warmup, interval)
         summary.update(component=args.component, operatingSystem="windows" if windows else "linux",
-            workload=parse_workload_result((output / "maven.log").read_text(encoding="utf-8", errors="replace"), args.component, args.seconds),
-            sourceCommit=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
-            sourceTreeDirty=bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True).strip()))
+            workload=parse_workload_result(workload_text, args.component, args.seconds))
+        summary.update(source_provenance(starting_source, source_state()))
         (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         print("RESOURCE_SOAK_PASSED " + json.dumps(summary), flush=True)
     except BaseException as error:

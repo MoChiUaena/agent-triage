@@ -1,6 +1,6 @@
 """Guard diagnostic parsing, incomplete coverage and growth failures independently of workload code."""
 import unittest
-from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result
+from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance
 
 NMT = """1234:
 Native Memory Tracking:
@@ -17,6 +17,21 @@ def sample(elapsed, phase="running", native=42696704, rss=170000000, pid=1234):
         nativeThreadCount=25, rssBytes=rss, privateBytes=None)
 
 class ResourceSoakTest(unittest.TestCase):
+    def test_keeps_owned_thread_evidence_when_maven_tail_would_truncate_it(self):
+        evidence = "RESOURCE_THREAD name=HTTP-Dispatcher state=BLOCKED\nRESOURCE_FRAME sun.net.httpserver.ServerImpl.run\n"
+        text = evidence + "unrelated request Authorization=do-not-export\n"*1000 + "Maven failed"
+        value = failure_diagnostics(text)
+        self.assertIn("HTTP-Dispatcher", value)
+        self.assertIn("ServerImpl.run", value)
+        self.assertNotIn("Authorization", value)
+        self.assertLessEqual(len(failure_diagnostics(evidence*10000)), 32768)
+
+    def test_attests_starting_source_and_rejects_head_changed_during_workload(self):
+        self.assertEqual(source_provenance(("a"*40, False), ("a"*40, False)),
+            dict(sourceCommit="a"*40, sourceTreeDirty=False))
+        self.assertTrue(source_provenance(("a"*40, True), ("a"*40, False))["sourceTreeDirty"])
+        with self.assertRaises(ValueError): source_provenance(("a"*40, False), ("b"*40, False))
+
     def test_parses_native_commit_without_confusing_heap_or_reserved_address_space(self):
         value = parse_native_memory(NMT, 1234)
         self.assertEqual(value["nativeCommittedBytes"], 143360000)
