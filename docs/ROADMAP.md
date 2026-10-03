@@ -170,4 +170,6 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 - [x] 定时采集同一 JVM 的 NMT、堆和进程 RSS，Windows 另记录私有提交量；排除 120 秒预热，将关闭样本纳入门槛，保存 CSV、摘要和曲线。[运行与复核](RUNTIME_RESOURCES.md)
 - [x] 修正验收工具的关闭采样、GC 峰值、Windows 进程清理及 PID 文件竞态。本次受控组件没有出现留存门槛超限；Linux Agent RSS 仍有台阶增长，分配来源和数天运行继续核对。
 - [x] 接入 Spring Boot `RestTemplateBuilder`，复用同步 HTTP 的耗时、超时、正文读取及上下文规则，验证真实 socket 与独立应用。JDK 工厂的无类型正文断流保留计数边界；WebClient、Feign、自行创建的客户端仍需分别评估。[接入配置](STARTER.md) / [验收记录](validation/2026-10-02-rest-template-observations.md)
+- [x] 增加真实 Servlet 与回环下游的固定流量对照，验证正常连接复用、故障连接关闭、超时分类、窗口计数及资源归还；Windows/Linux 的关闭、开启四组通过十分钟并完成附件重放。[复验记录](validation/2026-10-03-http-window-audit.md)
+- [ ] 完成真实 HTTP 流量的一小时四组验收；前两次小时检查存在 Windows 超时，继续保留失败记录和诊断。
 - [ ] 在真实 HTTP 服务中继续验证数天运行、业务历史增长及资源成本，保留原生内存分项和分配来源。
