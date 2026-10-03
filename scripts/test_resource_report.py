@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from resource_report import verify_dataset, verify_matrix
+from resource_report import verify_dataset, verify_matrix, render_table
 from resource_memory_details import NMT_CATEGORIES, make_details_sample, append_details_sample, details_receipt
 
 class ResourceReportTest(unittest.TestCase):
@@ -51,6 +51,21 @@ class ResourceReportTest(unittest.TestCase):
                 else: meta["memoryDetails"]["version"] = 99
                 (root / "summary.json").write_text(json.dumps(meta))
                 with self.assertRaises(ValueError): verify_dataset(root / "summary.json", "a" * 40, 60)
+
+    def test_matrix_rejects_mixing_detailed_and_legacy_profiles(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); summaries = self.matrix_fixture(root)
+            self.detailed_fixture(summaries[0].parent)
+            with self.assertRaises(ValueError): verify_matrix(summaries, "a" * 40, 60)
+
+    def test_render_uses_verified_details_and_keeps_unreported_fields_distinct_from_zero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); self.detailed_fixture(root)
+            dataset = verify_dataset(root / "summary.json", "a" * 40, 60)
+            table = render_table([dataset])
+            self.assertIn("Arena Chunk growth", table)
+            self.assertIn("| agent | linux | 0.00 | 0.00 | not reported |", table)
+            self.assertIn("File PSS growth", table)
 
     def fixture(self, root):
         rows = [dict(phase="running", pid=1234, elapsedSeconds=elapsed, nativeReservedBytes=180000000,
