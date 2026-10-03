@@ -39,3 +39,5 @@
 合并后的[常规 CI](https://github.com/MoChiUaena/agent-triage/actions/runs/37116414930)在 Windows 默认两秒短测中失败：四个驱动线程在忙，八个排队位置已满，尚无任务完成，下一次提交被立即拒绝。停顿来源尚未确定，不能把该失败归因于 GC 或网络。
 
 驱动在满队列时改为最多等待两秒；容量恢复后提交，否则仍失败。工作线程及队列容量保持原值，实际发送延迟仍从原计划时刻计算，原有两秒延迟门槛和全部请求计数继续检查。回归覆盖了容量恢复、等待超时、关闭期间提交及中断。上方一小时数值仍属于所标注的 `bb3ace8`，保留原始字节和源码身份。
+
+修正源码 `a4fa60b49c622dc21eb5434a775f402f5b8ae2fc` 通过了[完整常规 CI](https://github.com/MoChiUaena/agent-triage/actions/runs/37117960988)及[60 秒 HTTP 四组](https://github.com/MoChiUaena/agent-triage/actions/runs/37117961025)，短测附件重放通过；每组 480 次请求、240 次预设超时、420 个响应关闭。本次修正没有重跑小时矩阵，上方一小时数据继续按原源码复核。
