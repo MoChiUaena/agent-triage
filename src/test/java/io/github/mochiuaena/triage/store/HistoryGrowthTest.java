@@ -59,13 +59,18 @@ class HistoryGrowthTest {
                 verifyQueries(fixture, loaded, false); verifyCursorTraversal(fixture, loaded, false);
                 measurements.add(fixture.measure(checkpoint, 0, 0, 0));
             }
-            assertThat(fixture.cleanup(24)).isEqualTo(24);
+            long start = System.nanoTime();
+            long deleted = fixture.cleanup(24);
+            long cleanupNanos = System.nanoTime() - start;
+            assertThat(deleted).isEqualTo(24);
             verifyQueries(fixture, 72, true); verifyCursorTraversal(fixture, 72, true);
-            measurements.add(fixture.measure(72, 1, 24, 0));
+            measurements.add(fixture.measure(72, 1, 24, cleanupNanos));
             fixture.reopen();
             verifyQueries(fixture, 72, true); verifyCursorTraversal(fixture, 72, true);
-            measurements.add(fixture.measure(72, 2, 24, 0));
+            measurements.add(fixture.measure(72, 2, 24, cleanupNanos));
         }
+        assertThat(measurements.get(3).cleanupNanos()).isPositive();
+        assertThat(measurements.get(4).cleanupNanos()).isEqualTo(measurements.get(3).cleanupNanos());
         for (int i : List.of(0, 1, 3, 4)) {
             assertThat(measurements.get(i).cursorPage().minimumNanos()).isZero();
             assertThat(measurements.get(i).cursorPage().medianNanos()).isZero();
