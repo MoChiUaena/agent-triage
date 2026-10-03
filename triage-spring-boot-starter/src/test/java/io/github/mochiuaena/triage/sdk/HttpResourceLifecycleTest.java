@@ -109,6 +109,10 @@ class HttpResourceLifecycleTest {
                     System.out.printf("RESOURCE_UNEXPECTED_HTTP_FAILURE method=%s factory=%s mode=%s elapsedMs=%.1f typedTimeout=%b gcMillis=%d downstreamActive=%d downstreamQueue=%d causeTypes=%s%n",
                     request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typedTimeout(failure),
                     Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure));
+                if ((mode.equals("normal") || typedTimeout(failure) != factory.equals("simple")) && counters.dumpedFailure.compareAndSet(false, true)) {
+                    System.out.println("RESOURCE_FAILURE_FRAMES " + Arrays.toString(Arrays.copyOf(failure.getStackTrace(), Math.min(6, failure.getStackTrace().length))));
+                    dumpResourceThreads();
+                }
                 if (typedTimeout(failure)) counters.typedTimeouts.incrementAndGet();
                 else counters.untypedFailures.incrementAndGet();
                 return ResponseEntity.status(504).body("incomplete");
@@ -120,6 +124,7 @@ class HttpResourceLifecycleTest {
         final AtomicInteger responsesOpened = new AtomicInteger(), responsesClosed = new AtomicInteger();
         final AtomicInteger typedTimeouts = new AtomicInteger(), untypedFailures = new AtomicInteger();
         final AtomicInteger servletContexts = new AtomicInteger(), completed = new AtomicInteger();
+        final AtomicBoolean dumpedFailure = new AtomicBoolean();
         final Deque<Completion> recent = new ArrayDeque<>();
         synchronized void completed(boolean timeout, boolean failed) {
             recent.addLast(new Completion(Instant.now(), timeout, failed));
@@ -127,6 +132,18 @@ class HttpResourceLifecycleTest {
             completed.incrementAndGet();
         }
         synchronized List<Completion> recent() { return List.copyOf(recent); }
+    }
+    static java.util.concurrent.ThreadFactory namedThreads(String prefix) {
+        var sequence = new AtomicInteger();
+        return task -> new Thread(task, prefix + sequence.incrementAndGet());
+    }
+    static void dumpResourceThreads() {
+        for (var thread : ManagementFactory.getThreadMXBean().dumpAllThreads(true, true)) {
+            String name = thread.getThreadName();
+            if (!(name.startsWith("resource-") || name.equals("HTTP-Dispatcher") || name.contains("SelectorManager") || name.contains("exec-") || name.equals("main"))) continue;
+            System.out.printf("RESOURCE_THREAD name=%s id=%d state=%s lock=%s owner=%d%n", name, thread.getThreadId(), thread.getThreadState(), thread.getLockName(), thread.getLockOwnerId());
+            for (var frame : Arrays.stream(thread.getStackTrace()).limit(6).toList()) System.out.println("RESOURCE_FRAME " + frame);
+        }
     }
     static long gcMillis() {
         return ManagementFactory.getGarbageCollectorMXBeans().stream().mapToLong(bean -> Math.max(0, bean.getCollectionTime())).sum();
@@ -144,7 +161,7 @@ class HttpResourceLifecycleTest {
         return false;
     }
     static final class Downstream implements AutoCloseable {
-        final ThreadPoolExecutor workers = new ThreadPoolExecutor(8, 8, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16));
+        final ThreadPoolExecutor workers = new ThreadPoolExecutor(8, 8, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16), namedThreads("resource-downstream-"));
         final AtomicInteger active = new AtomicInteger(), requests = new AtomicInteger(), payloadErrors = new AtomicInteger();
         final HttpServer server;
         final AtomicBoolean closed = new AtomicBoolean();
@@ -324,7 +341,7 @@ class HttpResourceLifecycleTest {
     }
     static final class Driver implements AutoCloseable {
         final ThreadPoolExecutor workers = new ThreadPoolExecutor(CONCURRENCY, CONCURRENCY, 0, TimeUnit.SECONDS,
-            new ArrayBlockingQueue<>(8));
+            new ArrayBlockingQueue<>(8), namedThreads("resource-driver-"));
         final java.net.http.HttpClient http = java.net.http.HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
         final AtomicReference<Throwable> failure = new AtomicReference<>();
         final AtomicInteger successes = new AtomicInteger(), failures = new AtomicInteger(), workerContexts = new AtomicInteger();
