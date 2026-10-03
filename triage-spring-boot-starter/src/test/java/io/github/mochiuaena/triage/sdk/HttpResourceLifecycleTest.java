@@ -196,8 +196,7 @@ class HttpResourceLifecycleTest {
             try {
                 server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
                 server.setExecutor(workers);
-                server.createContext("/", exchange -> {
-                    active.incrementAndGet(); requests.incrementAndGet();
+                server.createContext("/", new ResourceHttpHandler(exchange -> {
                     try {
                         var body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                         if (!(exchange.getRequestMethod().equals("GET") ? body.isEmpty() : body.equals(PAYLOAD))) payloadErrors.incrementAndGet();
@@ -212,10 +211,10 @@ class HttpResourceLifecycleTest {
                         exchange.getResponseBody().write('o'); exchange.getResponseBody().flush();
                         if (mode.contains("body-timeout")) Thread.sleep(1000);
                         exchange.getResponseBody().write('k');
-                    } catch (IOException ignored) { /* Timed-out peers may have already closed their socket. */ }
-                    catch (InterruptedException failure) { Thread.currentThread().interrupt(); }
-                    finally { exchange.close(); active.decrementAndGet(); }
-                });
+                    } catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt(); throw new IOException(failure);
+                    }
+                }, active, requests));
                 server.start();
             } catch (IOException failure) { workers.shutdownNow(); throw new UncheckedIOException(failure); }
         }
