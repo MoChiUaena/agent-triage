@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 import re
 
+from http_resource_contract import HTTP_COMPONENTS, NATIVE_BREAKDOWN
 from resource_soak import MIB, parse_workload_result, summarize
 
 FIELDS = {"phase", "pid", "elapsedSeconds", "nativeReservedBytes", "nativeCommittedBytes",
@@ -18,13 +19,14 @@ def read_samples(csv_path, operating_system):
     rows = []
     with csv_path.open(newline="", encoding="utf-8") as source:
         reader = csv.DictReader(source)
-        if reader.fieldnames is None or len(reader.fieldnames) != len(FIELDS) or set(reader.fieldnames) != FIELDS:
+        columns = set(reader.fieldnames or [])
+        if reader.fieldnames is None or len(reader.fieldnames) != len(columns) or columns not in (FIELDS, FIELDS | NATIVE_BREAKDOWN):
             raise ValueError("Unexpected numeric CSV columns")
         for raw in reader:
-            if set(raw) != FIELDS or any(value is None for value in raw.values()):
+            if set(raw) != columns or any(value is None for value in raw.values()):
                 raise ValueError("Incomplete numeric CSV row")
             row = {"phase": raw["phase"], "elapsedSeconds": float(raw["elapsedSeconds"])}
-            for key in FIELDS - {"phase", "elapsedSeconds"}:
+            for key in columns - {"phase", "elapsedSeconds"}:
                 value = raw[key]
                 if key == "privateBytes" and value == "" and operating_system == "linux":
                     row[key] = None
@@ -40,6 +42,8 @@ def read_samples(csv_path, operating_system):
                 raise ValueError("Inconsistent NMT totals")
             if row["nativeNonHeapCommittedBytes"] != row["nativeCommittedBytes"] - row["javaHeapCommittedBytes"]:
                 raise ValueError("NMT non-heap commit does not match total minus Java heap")
+            if NATIVE_BREAKDOWN <= columns and sum(row[key] for key in NATIVE_BREAKDOWN) != row["nativeNonHeapCommittedBytes"]:
+                raise ValueError("NMT categories do not match non-heap total")
             if operating_system == "windows" and row["privateBytes"] <= 0:
                 raise ValueError("Missing Windows private commit")
             if operating_system == "linux" and row["privateBytes"] is not None:
@@ -58,7 +62,7 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
         raise ValueError("Workload has no passing receipt")
     if meta.get("sourceCommit") != source_commit or meta.get("sourceTreeDirty") is not False:
         raise ValueError("Wrong source commit or modified source tree")
-    if meta.get("component") not in ("agent", "starter") or meta.get("operatingSystem") not in ("linux", "windows"):
+    if meta.get("component") not in ("agent", "starter", *HTTP_COMPONENTS) or meta.get("operatingSystem") not in ("linux", "windows"):
         raise ValueError("Unsupported component or operating system")
     rows = read_samples(summary_path.with_name("memory.csv"), meta["operatingSystem"])
     replay = summarize(rows, seconds, min(120, seconds / 5), min(30, seconds / 10))
@@ -77,7 +81,7 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
             raise ValueError("Summary does not match numeric replay: " + key)
     workload = meta.get("workload")
     if not isinstance(workload, dict) or any(not isinstance(key, str) or
-        (type(value) is not int and not (key == "samplerStopped" and value is True)) for key, value in workload.items()):
+        (type(value) is not int and not (key in ("samplerStopped", "executorsStopped", "servletStopped") and value is True)) for key, value in workload.items()):
         raise ValueError("Invalid workload counters")
     if any(type(value) is int and value < 0 for value in workload.values()):
         raise ValueError("Negative workload counters")
@@ -88,12 +92,15 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
     return {**meta, **replay}, rows
 
 
-def verify_matrix(summary_paths, source_commit, seconds):
+def verify_matrix(summary_paths, source_commit, seconds, workload="components"):
     datasets = [verify_dataset(Path(summary), source_commit, seconds) for summary in summary_paths]
     identities = [(meta["component"], meta["operatingSystem"]) for meta, rows in datasets]
-    expected = {(component, system) for component in ("agent", "starter") for system in ("linux", "windows")}
+    if workload not in ("components", "http"):
+        raise ValueError("Unsupported workload matrix")
+    components = HTTP_COMPONENTS if workload == "http" else ("agent", "starter")
+    expected = {(component, system) for component in components for system in ("linux", "windows")}
     if len(identities) != len(expected) or set(identities) != expected:
-        raise ValueError("Expected exactly one Agent and Starter receipt on each of Linux and Windows")
+        raise ValueError("Expected each workload mode exactly once on Linux and Windows")
     return sorted(datasets, key=lambda dataset: (dataset[0]["component"], dataset[0]["operatingSystem"]))
 
 
@@ -113,11 +120,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, help="Downloaded artifact directory containing the four numeric receipts")
     parser.add_argument("--source-commit", required=True, help="Exact commit from the completed GitHub workflow")
+    parser.add_argument("--workload", choices=("components", "http"), default="components")
     parser.add_argument("--seconds", type=int, default=3600)
     parser.add_argument("--output", type=Path, help="Optional Markdown table; written only after the full matrix passes")
     args = parser.parse_args()
     try:
-        datasets = verify_matrix(args.directory.rglob("summary.json"), args.source_commit, args.seconds)
+        datasets = verify_matrix(args.directory.rglob("summary.json"), args.source_commit, args.seconds, args.workload)
         table = render_table(datasets)
         if args.output is not None:
             args.output.write_text(table, encoding="utf-8")

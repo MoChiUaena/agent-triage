@@ -13,6 +13,8 @@ import signal
 import subprocess
 import time
 
+from http_resource_contract import HTTP_COMPONENTS, parse_http_receipt
+
 ROOT = Path(__file__).resolve().parents[1]
 MIB = 1024 * 1024
 
@@ -34,9 +36,17 @@ def parse_native_memory(text, pid):
     reserved, committed, heap_committed = int(total[1]) * 1024, int(total[2]) * 1024, int(heap[2]) * 1024
     if not reserved >= committed >= heap_committed > 0:
         raise ValueError("Inconsistent NMT totals")
-    return dict(nativeReservedBytes=reserved, nativeCommittedBytes=committed,
+    value = dict(nativeReservedBytes=reserved, nativeCommittedBytes=committed,
         javaHeapCommittedBytes=heap_committed, nativeNonHeapCommittedBytes=committed - heap_committed,
         nativeThreadCount=int(threads[1]))
+    for category in ("Class", "Thread", "Code", "GC", "Other"):
+        match = re.search(r"-\s+" + category + r" \(reserved=\d+KB, committed=(\d+)KB\)", text)
+        value["native" + category + "CommittedBytes"] = int(match[1]) * 1024 if match else 0
+    value["nativeUncategorizedCommittedBytes"] = value["nativeNonHeapCommittedBytes"] - sum(
+        value["native" + category + "CommittedBytes"] for category in ("Class", "Thread", "Code", "GC", "Other"))
+    if value["nativeUncategorizedCommittedBytes"] < 0:
+        raise ValueError("Inconsistent NMT category totals")
+    return value
 
 
 def parse_heap(text, pid):
@@ -113,6 +123,8 @@ def parse_workload_result(text, component, seconds):
     receipts = re.findall(r"RESOURCE_RESULT " + component + r" ([^\r\n]+)", text)
     if len(receipts) != 1:
         raise ValueError("Missing or duplicate completed workload receipt")
+    if component in HTTP_COMPONENTS:
+        return parse_http_receipt(receipts[0], component, seconds)
     fields = dict(re.findall(r"([A-Za-z]+)=([0-9]+|true|false)", receipts[0]))
     shared = {"seconds", "cycles", "cancelled", "baselineHeap", "peakHeap", "finalHeap", "connections"}
     required = shared | ({"fresh", "registry", "queues"} if component == "agent" else {"requests", "jdbc", "workerContexts", "samplerStopped"})
@@ -149,7 +161,7 @@ def stop_owned_processes(child):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--component", required=True, choices=("agent", "starter"))
+    parser.add_argument("--component", required=True, choices=("agent", "starter", *HTTP_COMPONENTS))
     parser.add_argument("--seconds", type=int, default=3600)
     args = parser.parse_args()
     if not 10 <= args.seconds <= 7200:
@@ -161,11 +173,13 @@ def main():
     windows = os.name == "nt"
     jcmd = Path(os.environ["JAVA_HOME"]) / "bin" / ("jcmd.exe" if windows else "jcmd")
     command = [str(ROOT / ("mvnw.cmd" if windows else "mvnw")), "-B", "-ntp"]
-    if args.component == "starter":
+    if args.component != "agent":
         command += ["-f", str(ROOT / "triage-spring-boot-starter/pom.xml")]
-    command += ["-Dtest=" + ("RunResourceLifecycleTest" if args.component == "agent" else "ResourceLifecycleTest"),
+    command += ["-Dtest=" + ("RunResourceLifecycleTest" if args.component == "agent" else "HttpResourceLifecycleTest" if args.component in HTTP_COMPONENTS else "ResourceLifecycleTest"),
         f"-Dtriage.resource.seconds={args.seconds}", f"-Dtriage.resource.marker={marker}",
         "-DargLine=-Xms96m -Xmx256m -XX:+UseG1GC -XX:NativeMemoryTracking=summary", "test"]
+    if args.component in HTTP_COMPONENTS:
+        command.insert(-1, "-Dtriage.resource.http.enabled=" + str(args.component == "http-enabled").lower())
     samples, child, pid, started = [], None, None, time.monotonic()
     try:
         with (output / "maven.log").open("wb") as log:
