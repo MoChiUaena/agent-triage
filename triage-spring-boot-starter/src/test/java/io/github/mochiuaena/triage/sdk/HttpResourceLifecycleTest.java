@@ -110,7 +110,11 @@ class HttpResourceLifecycleTest {
                     request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typedTimeout(failure),
                     Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure));
                 if ((mode.equals("normal") || typedTimeout(failure) != factory.equals("simple")) && counters.dumpedFailure.compareAndSet(false, true)) {
-                    System.out.println("RESOURCE_FAILURE_FRAMES " + Arrays.toString(Arrays.copyOf(failure.getStackTrace(), Math.min(6, failure.getStackTrace().length))));
+                    var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
+                    for (var cause = failure; cause != null && seen.add(cause); cause = cause.getCause()) {
+                        System.out.println("RESOURCE_FAILURE_FRAMES cause=" + cause.getClass().getName());
+                        for (var frame : Arrays.stream(cause.getStackTrace()).limit(12).toList()) System.out.println("RESOURCE_FRAME " + frame);
+                    }
                     dumpResourceThreads();
                 }
                 if (typedTimeout(failure)) counters.typedTimeouts.incrementAndGet();
@@ -138,11 +142,23 @@ class HttpResourceLifecycleTest {
         return task -> new Thread(task, prefix + sequence.incrementAndGet());
     }
     static void dumpResourceThreads() {
-        for (var thread : ManagementFactory.getThreadMXBean().dumpAllThreads(true, true)) {
+        var threads = ManagementFactory.getThreadMXBean().dumpAllThreads(true, true);
+        var selected = new HashSet<Long>();
+        for (var thread : threads) {
             String name = thread.getThreadName();
-            if (!(name.startsWith("resource-") || name.equals("HTTP-Dispatcher") || name.contains("SelectorManager") || name.contains("exec-") || name.equals("main"))) continue;
-            System.out.printf("RESOURCE_THREAD name=%s id=%d state=%s lock=%s owner=%d%n", name, thread.getThreadId(), thread.getThreadState(), thread.getLockName(), thread.getLockOwnerId());
-            for (var frame : Arrays.stream(thread.getStackTrace()).limit(6).toList()) System.out.println("RESOURCE_FRAME " + frame);
+            if (name.startsWith("resource-") || name.equals("HTTP-Dispatcher") || name.startsWith("HttpClient-") ||
+                name.contains("exec-") || name.equals("main") || name.equals("Keep-Alive-Timer") || name.endsWith("timeout-task"))
+                selected.add(thread.getThreadId());
+        }
+        boolean changed;
+        do {
+            changed = false;
+            for (var thread : threads) if (selected.contains(thread.getThreadId()) && thread.getLockOwnerId() > 0)
+                changed |= selected.add(thread.getLockOwnerId());
+        } while (changed);
+        for (var thread : threads) if (selected.contains(thread.getThreadId())) {
+            System.out.printf("RESOURCE_THREAD name=%s id=%d state=%s lock=%s owner=%d%n", thread.getThreadName(), thread.getThreadId(), thread.getThreadState(), thread.getLockName(), thread.getLockOwnerId());
+            for (var frame : Arrays.stream(thread.getStackTrace()).limit(12).toList()) System.out.println("RESOURCE_FRAME " + frame);
         }
     }
     static long gcMillis() {
