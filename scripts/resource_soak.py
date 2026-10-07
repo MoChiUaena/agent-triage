@@ -179,7 +179,7 @@ def native_trim_arguments(component, enabled, memory_details, platform):
     return ["-Dtriage.resource.close-hold-seconds=75"]
 
 
-def emit_failure_log(text, component, stream=None, safepoint_path=None):
+def emit_bounded_failure_evidence(text, component, stream=None, safepoint_path=None):
     stream = sys.stdout if stream is None else stream
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(errors="backslashreplace")
@@ -190,7 +190,14 @@ def emit_failure_log(text, component, stream=None, safepoint_path=None):
                     print(safepoint_diagnostics(source, failure_uptime_ms(text)), file=stream, flush=True)
             except OSError:
                 print("RESOURCE_SAFEPOINT kind=unavailable reason=missing_file", file=stream, flush=True)
-        print(failure_diagnostics(text), file=stream, flush=True)
+        evidence = failure_diagnostics(text)
+        if evidence:
+            print(evidence, file=stream, flush=True)
+
+
+def emit_failure_log(text, component, stream=None, safepoint_path=None):
+    stream = sys.stdout if stream is None else stream
+    emit_bounded_failure_evidence(text, component, stream, safepoint_path)
     print(text[-5000:], file=stream, flush=True)
 
 
@@ -255,6 +262,7 @@ def main():
     command[-1:-1] = http_timing_arguments(args.component, args.http_timing) + trim_arguments
     starting_source = source_state()
     samples, detail_samples, child, pid, started = [], [], None, None, time.monotonic()
+    reported_failure = False
     try:
         with (output / "maven.log").open("wb") as log:
             child = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
@@ -310,6 +318,7 @@ def main():
             if child.returncode != 0:
                 emit_failure_log(workload_text, args.component,
                     safepoint_path=safepoint_path if args.http_timing else None)
+                reported_failure = True
                 raise RuntimeError(f"Maven workload failed with exit {child.returncode}; see {output / 'maven.log'}")
         if args.http_timing:
             try:
@@ -340,6 +349,20 @@ def main():
         (output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         print("RESOURCE_SOAK_PASSED " + json.dumps(summary), flush=True)
     except BaseException as error:
+        if args.component in HTTP_COMPONENTS and not reported_failure:
+            maven_log = output / "maven.log"
+            if maven_log.is_file():
+                try:
+                    partial = maven_log.read_text(encoding="utf-8", errors="replace")
+                    emit_bounded_failure_evidence(partial, args.component,
+                        safepoint_path=safepoint_path if args.http_timing else None)
+                except OSError:
+                    pass
+            maven_state = child.poll() if child is not None else "not_started"
+            last_sample = f"{samples[-1]['elapsedSeconds']:.3f}" if samples else "unreported"
+            print(f"RESOURCE_COLLECTOR_FAILURE mavenState={maven_state if maven_state is not None else 'running'} "
+                f"ownedPid={pid if pid is not None else 'unreported'} samples={len(samples)} "
+                f"lastSampleSeconds={last_sample}", flush=True)
         (output / "summary.json").write_text(json.dumps({"status": "failed", "component": args.component,
             "error": str(error), "samples": len(samples)}, indent=2) + "\n", encoding="utf-8")
         try:

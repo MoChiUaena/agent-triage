@@ -3,7 +3,7 @@ import unittest
 import io
 import tempfile
 from pathlib import Path
-from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, http_timing_arguments, native_trim_arguments, safepoint_jvm_option
+from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, emit_bounded_failure_evidence, http_timing_arguments, native_trim_arguments, safepoint_jvm_option
 
 NMT = """1234:
 Native Memory Tracking:
@@ -20,6 +20,19 @@ def sample(elapsed, phase="running", native=42696704, rss=170000000, pid=1234):
         nativeThreadCount=25, rssBytes=rss, privateBytes=None)
 
 class ResourceSoakTest(unittest.TestCase):
+    def test_sampler_failure_preserves_only_bounded_owned_evidence(self):
+        output = io.StringIO()
+        text = ("Authorization=private-value\n"
+            "RESOURCE_UNEXPECTED_HTTP_FAILURE method=GET factory=simple mode=normal elapsedMs=2200.0\n"
+            "RESOURCE_TIMING kind=summary driverMaxLagMs=1200.0\n"
+            "Maven failure details contain secret=private-value")
+        emit_bounded_failure_evidence(text, "http-enabled", output)
+        value = output.getvalue()
+        self.assertIn("RESOURCE_UNEXPECTED_HTTP_FAILURE", value)
+        self.assertIn("RESOURCE_TIMING kind=summary", value)
+        self.assertNotIn("Authorization", value)
+        self.assertNotIn("secret=", value)
+
     def test_safepoint_logging_is_opt_in_and_uses_only_the_owned_maven_jvm_file(self):
         self.assertEqual(safepoint_jvm_option("http-enabled", False, "http-enabled-20261007Z"), "")
         value = safepoint_jvm_option("http-disabled", True, "http-disabled-20261007Z")
