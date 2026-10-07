@@ -37,7 +37,7 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         component: [http-disabled, http-enabled]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 80
+    timeout-minutes: ${{ github.event.inputs.seconds == '3600' && 80 || github.event.inputs.seconds == '1200' && 40 || github.event.inputs.seconds == '600' && 25 || 15 }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
