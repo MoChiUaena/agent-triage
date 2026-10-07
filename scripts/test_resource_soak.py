@@ -1,7 +1,7 @@
 """Guard diagnostic parsing, incomplete coverage and growth failures independently of workload code."""
 import unittest
 import io
-from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, http_timing_arguments
+from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, http_timing_arguments, native_trim_arguments
 
 NMT = """1234:
 Native Memory Tracking:
@@ -18,6 +18,15 @@ def sample(elapsed, phase="running", native=42696704, rss=170000000, pid=1234):
         nativeThreadCount=25, rssBytes=rss, privateBytes=None)
 
 class ResourceSoakTest(unittest.TestCase):
+    def test_native_trim_stays_inside_owned_detailed_linux_http_probe(self):
+        self.assertEqual(native_trim_arguments("http-enabled", False, False, "windows"), [])
+        self.assertEqual(native_trim_arguments("http-disabled", True, True, "linux"),
+            ["-Dtriage.resource.close-hold-seconds=75"])
+        for component, details, platform in (("agent", True, "linux"), ("http-enabled", False, "linux"),
+                                             ("http-enabled", True, "windows"), ("http-enabled", True, "darwin")):
+            with self.subTest(component=component, details=details, platform=platform), self.assertRaises(ValueError):
+                native_trim_arguments(component, True, details, platform)
+
     def test_timing_is_opt_in_for_the_owned_http_workload_only(self):
         self.assertEqual(http_timing_arguments("http-enabled", False), [])
         self.assertEqual(http_timing_arguments("http-disabled", True), ["-Dtriage.resource.timing=true"])

@@ -10,6 +10,7 @@ import re
 from http_resource_contract import HTTP_COMPONENTS, NATIVE_BREAKDOWN
 from resource_soak import MIB, parse_workload_result, summarize
 from resource_memory_details import verify_details_file, detail_growth
+from resource_native_trim import verify_trim_file
 
 FIELDS = {"phase", "pid", "elapsedSeconds", "nativeReservedBytes", "nativeCommittedBytes",
     "javaHeapCommittedBytes", "nativeNonHeapCommittedBytes", "nativeThreadCount", "heapUsedBytes",
@@ -67,6 +68,12 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
         raise ValueError("Unsupported component or operating system")
     if "httpTiming" in meta and (type(meta["httpTiming"]) is not bool or meta["component"] not in HTTP_COMPONENTS):
         raise ValueError("Invalid HTTP timing profile")
+    if "nativeHeapTrim" in meta and (meta["component"] not in HTTP_COMPONENTS or
+            meta["operatingSystem"] != "linux" or "memoryDetails" not in meta):
+        raise ValueError("Native heap trim requires Linux HTTP memory details")
+    if ("nativeHeapTrim" in meta) != ("workflowRunId" in meta) or ("workflowRunId" in meta and
+            meta["workflowRunId"] is not None and (type(meta["workflowRunId"]) is not int or meta["workflowRunId"] <= 0)):
+        raise ValueError("Invalid native trim workflow identity")
     rows = read_samples(summary_path.with_name("memory.csv"), meta["operatingSystem"])
     if meta["component"] in HTTP_COMPONENTS and any(not NATIVE_BREAKDOWN <= row.keys() for row in rows):
         raise ValueError("HTTP comparison requires numeric NMT categories")
@@ -100,6 +107,9 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
             raise ValueError("Memory details require the matching base NMT categories")
         result["_memoryDetailsRows"] = verify_details_file(summary_path.with_name("memory-details.csv"),
             meta["memoryDetails"], rows, meta["operatingSystem"])
+    if "nativeHeapTrim" in meta:
+        result["_nativeTrimRows"] = verify_trim_file(summary_path.with_name("native-heap-trim.csv"),
+            meta["nativeHeapTrim"], rows[-1], result["_memoryDetailsRows"][-1], meta["operatingSystem"])
     return result, rows
 
 
@@ -118,6 +128,8 @@ def verify_matrix(summary_paths, source_commit, seconds, workload="components"):
         raise ValueError("Resource matrix mixes detailed and legacy memory profiles")
     if len({meta.get("httpTiming", False) for meta, rows in datasets}) != 1:
         raise ValueError("Resource matrix mixes timing profiles")
+    if len({"nativeHeapTrim" in meta for meta, rows in datasets}) != 1:
+        raise ValueError("Resource matrix mixes native trim profiles")
     return sorted(datasets, key=lambda dataset: (dataset[0]["component"], dataset[0]["operatingSystem"]))
 
 

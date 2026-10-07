@@ -93,3 +93,15 @@ HTTP 采样可另加 `--http-timing`，工作流手动启动时对应 `timing` �
 HTTP 复核要求新增 NMT 分项、固定速率下的完整请求数、实际观测计数和关闭结果；Class、Thread、Code、GC 缺失时采集失败，NMT 未报告的 Other 按零处理。30 秒内的检查要求最终窗口含全部请求，较长检查为自然过期保留有限余量，并要求超时数与固定故障比例相符，不接受原组件循环的附件替代。输出包含资源增长和 NMT 分项；各分项峰值可能发生在不同时间，不能相加当作同一时刻的总峰值。
 
 这里测量的是同一 JVM 中的驱动、Servlet、观测器和回环下游。两组运行在不同 CI 虚拟机，GC 时点也不同，数值差不能直接当作 Starter 的生产开销。这是固定故障比例的资源验收，尚未覆盖真实业务吞吐、远程网络或数天运行。
+
+### Linux 原生堆整理实验
+
+Linux 上的受控 HTTP 测试可加 `--memory-details --native-heap-trim`。原有关闭样本采集完毕后，采样器才对同一测试 JVM 运行 JDK 21 的 `System.trim_native_heap`，在独立的 `native-heap-trim.csv` 中记录前后两次数值。实验会将 JVM 的关闭等待延长到 75 秒，为有界诊断留出时间；默认运行仍为 15 秒。原 `memory.csv`、关闭样本、资源增长门槛和工作负载不变。
+
+此开关只接受 Linux 上自己启动的 HTTP 测试 JVM，要求同时采集内存明细。`summary.json` 用哈希绑定实验 CSV，重放检查整理前一行与原关闭样本的 PID、时间、RSS、NMT 和 Linux 页数相同。GitHub 的 **Linux native heap trim probe** 工作流只在 Linux 运行关闭／开启两组，可手动选择 60 或 600 秒。下载同次运行的两个数值附件后，用工作流运行编号和完整源码 SHA 复核：
+
+```powershell
+python scripts/native_trim_report.py target/native-trim-artifacts --workflow-run-id 运行编号 --source-commit $resourceSourceCommit --seconds 600
+```
+
+原生堆整理后 RSS 若下降，只能说明当时有页可被回收，不能单凭差值断定具体分配来源或不存在泄漏；未下降也不等于这些页必然仍在使用。实验后的读数不参加原资源增长门槛。

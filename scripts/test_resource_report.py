@@ -3,10 +3,41 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import shutil
 from resource_report import verify_dataset, verify_matrix, render_table
 from resource_memory_details import NMT_CATEGORIES, make_details_sample, append_details_sample, details_receipt
+from resource_native_trim import make_trim_row, trim_receipt, write_trim_file
 
 class ResourceReportTest(unittest.TestCase):
+    def test_native_trim_receipt_replays_only_with_bound_linux_http_samples(self):
+        archived = Path(__file__).resolve().parents[1] / 'docs/validation/samples/2026-10-07-http-timing/60s/http-enabled-linux'
+        source_commit = '8f2df4b2a66b3cab90ab68dc85694f05953e4418'
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ('summary.json', 'memory.csv', 'memory-details.csv'):
+                shutil.copyfile(archived / name, root / name)
+            meta, base = verify_dataset(root / 'summary.json', source_commit, 60)
+            closed, detail = base[-1], meta['_memoryDetailsRows'][-1]
+            before = make_trim_row('before', closed, detail)
+            after_base = dict(closed, elapsedSeconds=closed['elapsedSeconds'] + 2, rssBytes=closed['rssBytes'] - 4096)
+            after_detail = dict(detail, rollupRssBytes=detail['rollupRssBytes'] - 4096,
+                rollupAnonymousBytes=detail['rollupAnonymousBytes'] - 4096)
+            after = make_trim_row('after', after_base, after_detail)
+            path = root / 'native-heap-trim.csv'
+            write_trim_file(path, (before, after))
+            meta['nativeHeapTrim'] = trim_receipt(path)
+            meta['workflowRunId'] = 123
+            meta.pop('_memoryDetailsRows', None)
+            (root / 'summary.json').write_text(json.dumps(meta), encoding='utf-8')
+            replayed, rows = verify_dataset(root / 'summary.json', source_commit, 60)
+            self.assertEqual(replayed['_nativeTrimRows'][1]['rssBytes'], after_base['rssBytes'])
+            path.write_bytes(path.read_bytes() + b'0')
+            with self.assertRaises(ValueError): verify_dataset(root / 'summary.json', source_commit, 60)
+            path.write_bytes(path.read_bytes()[:-1])
+            meta['workflowRunId'] = '123'
+            (root / 'summary.json').write_text(json.dumps(meta), encoding='utf-8')
+            with self.assertRaises(ValueError): verify_dataset(root / 'summary.json', source_commit, 60)
+
     def test_rejects_non_http_or_non_boolean_timing_profiles(self):
         for value in (True, 1, "true"):
             with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:

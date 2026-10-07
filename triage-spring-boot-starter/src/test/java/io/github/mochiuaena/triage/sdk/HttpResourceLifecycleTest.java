@@ -425,7 +425,11 @@ class HttpResourceLifecycleTest {
         Files.writeString(temporary, phase + "," + ProcessHandle.current().pid() + "," +
             (System.nanoTime() - started) / 1_000_000_000.0);
         Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        if (phase.equals("closed")) Thread.sleep(15_000);
+        if (phase.equals("closed")) {
+            int holdSeconds = Integer.getInteger("triage.resource.close-hold-seconds", 15);
+            assertThat(holdSeconds).isBetween(15, 75);
+            Thread.sleep(holdSeconds * 1_000L);
+        }
     }
     static final class Driver implements AutoCloseable {
         final ThreadPoolExecutor workers = new ThreadPoolExecutor(CONCURRENCY, CONCURRENCY, 0, TimeUnit.SECONDS,

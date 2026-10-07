@@ -1,0 +1,54 @@
+name: Linux native heap trim probe
+on:
+  push:
+    branches: ['feature/**']
+    paths:
+      - 'scripts/*resource*.py'
+      - 'scripts/native_trim_report.py'
+      - 'triage-spring-boot-starter/src/test/java/io/github/mochiuaena/triage/sdk/HttpResourceLifecycleTest.java'
+      - '.github/workflows/native-heap-trim.yml'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Owned HTTP traffic before native heap trim
+        required: true
+        type: choice
+        default: '60'
+        options: ['60', '600']
+permissions:
+  contents: read
+concurrency:
+  group: native-trim-${{ github.ref }}-${{ github.event.inputs.seconds || '60' }}
+  cancel-in-progress: true
+jobs:
+  probe:
+    name: Linux trim / ${{ matrix.component }}
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [http-disabled, http-enabled]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Check numeric receipts
+        run: python -m unittest discover -s scripts -p 'test_*resource*.py'
+      - name: Run owned workload and sample after native trim
+        run: python scripts/resource_soak.py --component ${{ matrix.component }} --seconds "${{ github.event.inputs.seconds || '60' }}" --memory-details --native-heap-trim
+      - name: Save numeric files only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-trim-${{ matrix.component }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            target/resource-soak/**/memory.csv
+            target/resource-soak/**/memory-details.csv
+            target/resource-soak/**/native-heap-trim.csv
+            target/resource-soak/**/summary.json
