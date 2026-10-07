@@ -16,7 +16,9 @@ class SafepointEvidenceTest(unittest.TestCase):
         second = parse_safepoint_line(event(15100, 1_200_000, colon=""))
         self.assertEqual((first["uptimeMs"], first["totalNs"]), (14600, 1_600_000_000))
         self.assertEqual((second["uptimeMs"], second["totalNs"]), (15100, 1_200_000))
-        self.assertIsNone(parse_safepoint_line(event(15200, 1_200_000) + " Authorization=private"))
+        variant = event(15200, 1_200_000).replace("Time since last: 1000000 ns, ", "VM metadata: 1000000 ns, ")
+        self.assertEqual(parse_safepoint_line(variant)["totalNs"], 1_200_000)
+        self.assertIsNone(parse_safepoint_line("[15200ms][info][safepoint] no numeric durations"))
 
     def test_reads_failure_uptime_only_from_owned_unexpected_http_line(self):
         text = ("unrelated jvmUptimeMs=1\n"

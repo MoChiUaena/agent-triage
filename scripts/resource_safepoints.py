@@ -2,10 +2,13 @@
 import heapq
 import re
 
-SAFEPOINT = re.compile(
-    r'^\[(\d+)ms\]\[info\]\[safepoint\] Safepoint "[^"\r\n]{1,80}", '
-    r'Time since last: \d+ ns, Reaching safepoint: (\d+) ns, Cleanup: (\d+) ns, '
-    r'At safepoint: (\d+) ns, Total:? (\d+) ns$')
+SAFEPOINT_PREFIX = re.compile(r'^\[(\d+)ms\]\[info\]\[safepoint\]')
+SAFEPOINT_FIELDS = {
+    'reachNs': re.compile(r'\bReaching safepoint:\s*(\d+)\s+ns\b'),
+    'cleanupNs': re.compile(r'\bCleanup:\s*(\d+)\s+ns\b'),
+    'atNs': re.compile(r'\bAt safepoint:\s*(\d+)\s+ns\b'),
+    'totalNs': re.compile(r'\bTotal:?\s*(\d+)\s+ns\b'),
+}
 NEAR_BEFORE_MS = 5000
 NEAR_AFTER_MS = 500
 MAX_NEAR_EVENTS = 8
@@ -32,13 +35,16 @@ def safepoint_format_counts(lines):
 def parse_safepoint_line(line):
     if len(line) > 512:
         return None
-    match = SAFEPOINT.fullmatch(line.rstrip('\r\n'))
-    if match is None:
+    head = SAFEPOINT_PREFIX.match(line)
+    if head is None:
         return None
-    uptime, reach, cleanup, at, total = (int(value) for value in match.groups())
-    if total < max(reach, cleanup, at):
+    fields = {key: expression.search(line) for key, expression in SAFEPOINT_FIELDS.items()}
+    if any(match is None for match in fields.values()):
         return None
-    return dict(uptimeMs=uptime, reachNs=reach, cleanupNs=cleanup, atNs=at, totalNs=total)
+    numbers = {key: int(match[1]) for key, match in fields.items()}
+    if numbers['totalNs'] < max(numbers[key] for key in ('reachNs', 'cleanupNs', 'atNs')):
+        return None
+    return dict(uptimeMs=int(head[1]), **numbers)
 
 
 def failure_uptime_ms(workload_text):
