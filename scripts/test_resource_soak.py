@@ -4,6 +4,7 @@ import io
 import tempfile
 from pathlib import Path
 from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, emit_bounded_failure_evidence, http_timing_arguments, native_trim_arguments, safepoint_jvm_option
+from resource_host_schedule import HostSchedulingProbe
 
 NMT = """1234:
 Native Memory Tracking:
@@ -20,6 +21,20 @@ def sample(elapsed, phase="running", native=42696704, rss=170000000, pid=1234):
         nativeThreadCount=25, rssBytes=rss, privateBytes=None)
 
 class ResourceSoakTest(unittest.TestCase):
+    def test_failure_report_aligns_owned_sampler_gaps_with_jvm_wall_time(self):
+        probe = HostSchedulingProbe()
+        probe.tick(0, 1000)
+        probe.tick(400_000_000, 1400)
+        output = io.StringIO()
+        emit_bounded_failure_evidence(
+            "RESOURCE_UNEXPECTED_HTTP_FAILURE method=GET mode=normal wallClockMs=1500\n",
+            "http-disabled", output, host_probe=probe)
+        value = output.getvalue()
+        self.assertIn("RESOURCE_HOST_SCHEDULE kind=summary", value)
+        self.assertIn("failureWallMs=1500", value)
+        self.assertIn("nearPeakGapMs=300.000", value)
+        self.assertNotIn("Authorization", value)
+
     def test_sampler_failure_preserves_only_bounded_owned_evidence(self):
         output = io.StringIO()
         text = ("Authorization=private-value\n"

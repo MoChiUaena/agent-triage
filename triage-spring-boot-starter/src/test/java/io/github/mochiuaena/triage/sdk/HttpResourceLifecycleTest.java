@@ -116,7 +116,7 @@ class HttpResourceLifecycleTest {
                     request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typedTimeout(failure),
                     Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure),
                     timing == null ? "" : " " + timing.summary() + " jvmUptimeMs=" +
-                        ManagementFactory.getRuntimeMXBean().getUptime()));
+                        ManagementFactory.getRuntimeMXBean().getUptime() + " wallClockMs=" + System.currentTimeMillis()));
                 if (firstUnexpected) {
                     dumpResourceTiming(timing);
                     var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());

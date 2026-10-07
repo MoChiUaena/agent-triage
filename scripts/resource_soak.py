@@ -19,6 +19,7 @@ from resource_memory_details import (parse_nmt_details, process_details, make_de
     append_details_sample, details_receipt, verify_details_file)
 from resource_native_trim import make_trim_row, write_trim_file, trim_receipt, verify_trim_file
 from resource_safepoints import parse_safepoint_line, failure_uptime_ms, safepoint_diagnostics, safepoint_format_counts
+from resource_host_schedule import HostSchedulingProbe, failure_wall_ms
 
 ROOT = Path(__file__).resolve().parents[1]
 MIB = 1024 * 1024
@@ -179,11 +180,13 @@ def native_trim_arguments(component, enabled, memory_details, platform):
     return ["-Dtriage.resource.close-hold-seconds=75"]
 
 
-def emit_bounded_failure_evidence(text, component, stream=None, safepoint_path=None):
+def emit_bounded_failure_evidence(text, component, stream=None, safepoint_path=None, host_probe=None):
     stream = sys.stdout if stream is None else stream
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(errors="backslashreplace")
     if component in HTTP_COMPONENTS:
+        if host_probe is not None:
+            print(host_probe.render(failure_wall_ms(text)), file=stream, flush=True)
         if safepoint_path is not None:
             try:
                 with safepoint_path.open(encoding="utf-8", errors="replace") as source:
@@ -195,9 +198,9 @@ def emit_bounded_failure_evidence(text, component, stream=None, safepoint_path=N
             print(evidence, file=stream, flush=True)
 
 
-def emit_failure_log(text, component, stream=None, safepoint_path=None):
+def emit_failure_log(text, component, stream=None, safepoint_path=None, host_probe=None):
     stream = sys.stdout if stream is None else stream
-    emit_bounded_failure_evidence(text, component, stream, safepoint_path)
+    emit_bounded_failure_evidence(text, component, stream, safepoint_path, host_probe)
     print(text[-5000:], file=stream, flush=True)
 
 
@@ -263,7 +266,10 @@ def main():
     starting_source = source_state()
     samples, detail_samples, child, pid, started = [], [], None, None, time.monotonic()
     reported_failure = False
+    host_probe = HostSchedulingProbe() if args.http_timing else None
     try:
+        if host_probe is not None:
+            host_probe.start()
         with (output / "maven.log").open("wb") as log:
             child = subprocess.Popen(command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                 creationflags=subprocess.CREATE_NO_WINDOW if windows else 0, start_new_session=not windows)
@@ -317,7 +323,7 @@ def main():
             workload_text = (output / "maven.log").read_text(encoding="utf-8", errors="replace")
             if child.returncode != 0:
                 emit_failure_log(workload_text, args.component,
-                    safepoint_path=safepoint_path if args.http_timing else None)
+                    safepoint_path=safepoint_path if args.http_timing else None, host_probe=host_probe)
                 reported_failure = True
                 raise RuntimeError(f"Maven workload failed with exit {child.returncode}; see {output / 'maven.log'}")
         if args.http_timing:
@@ -330,6 +336,12 @@ def main():
                             " fileBytes=" + str(safepoint_path.stat().st_size))
             except OSError as error:
                 raise ValueError("Missing owned timing JVM safepoint log") from error
+            if not host_probe.stop():
+                raise ValueError("Owned sampler heartbeat did not stop")
+            host_evidence = host_probe.render(None)
+            if "kind=unavailable" in host_evidence:
+                raise ValueError("Owned sampler heartbeat has no numeric ticks")
+            print(host_evidence, flush=True)
         summary = summarize(samples, args.seconds, warmup, interval)
         summary.update(component=args.component, operatingSystem="windows" if windows else "linux",
             workload=parse_workload_result(workload_text, args.component, args.seconds))
@@ -355,7 +367,7 @@ def main():
                 try:
                     partial = maven_log.read_text(encoding="utf-8", errors="replace")
                     emit_bounded_failure_evidence(partial, args.component,
-                        safepoint_path=safepoint_path if args.http_timing else None)
+                        safepoint_path=safepoint_path if args.http_timing else None, host_probe=host_probe)
                 except OSError:
                     pass
             maven_state = child.poll() if child is not None else "not_started"
@@ -370,6 +382,9 @@ def main():
         except Exception as cleanup_error:
             print("RESOURCE_CLEANUP_FAILED " + str(cleanup_error), flush=True)
         raise
+    finally:
+        if host_probe is not None:
+            host_probe.stop()
 
 
 if __name__ == "__main__":
