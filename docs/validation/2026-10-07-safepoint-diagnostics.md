@@ -6,4 +6,4 @@
 
 [60 秒四组](https://github.com/MoChiUaena/agent-triage/actions/runs/37628321381)在 Windows/Linux、Starter 关闭／开启状态全部通过。每组完成 480 次请求和 420 个响应关闭；四组数值附件按完整源码 SHA、原始内存明细哈希和关闭样本重放通过。原始附件见 [60 秒目录](samples/2026-10-07-safepoint-timing/60s/)，逐文件哈希见 [SHA256SUMS](samples/2026-10-07-safepoint-timing/SHA256SUMS)。
 
-两次更早的诊断短测（[37626194392](https://github.com/MoChiUaena/agent-triage/actions/runs/37626194392)、[37627399289](https://github.com/MoChiUaena/agent-triage/actions/runs/37627399289)）工作负载结束后被安全点解析校验拒绝，不能算通过。修正后的短测只确认诊断链路可用；Windows 一小时停顿的原因还需[固定源码的长时复跑](https://github.com/MoChiUaena/agent-triage/actions/runs/37628886514)核查。即使故障附近没有长安全点，也不能单凭这一点把原因归给操作系统。
+两次更早的诊断短测（[37626194392](https://github.com/MoChiUaena/agent-triage/actions/runs/37626194392)、[37627399289](https://github.com/MoChiUaena/agent-triage/actions/runs/37627399289)）工作负载结束后被安全点解析校验拒绝，不能算通过。修正后的短测只确认诊断链路可用；[固定源码的一小时复跑](2026-10-07-safepoint-hour.md)中 Linux 两组通过、Windows 两组失败，长时停顿原因仍未确定。
