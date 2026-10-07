@@ -108,11 +108,16 @@ class HttpResourceLifecycleTest {
                 return ResponseEntity.ok(client.exchange("/" + factory + "-" + mode, HttpMethod.valueOf(request.getMethod()),
                     new HttpEntity<>(body, headers), String.class).getBody());
             } catch (RestClientException failure) {
-                if (mode.equals("normal") || typedTimeout(failure) != factory.equals("simple"))
-                    System.out.printf("RESOURCE_UNEXPECTED_HTTP_FAILURE method=%s factory=%s mode=%s elapsedMs=%.1f typedTimeout=%b gcMillis=%d downstreamActive=%d downstreamQueue=%d causeTypes=%s%n",
+                boolean unexpected = mode.equals("normal") || typedTimeout(failure) != factory.equals("simple");
+                boolean firstUnexpected = unexpected && counters.dumpedFailure.compareAndSet(false, true);
+                var timing = firstUnexpected && downstream.timing != null ? downstream.timing.snapshot() : null;
+                if (unexpected)
+                    System.out.println(String.format(Locale.ROOT, "RESOURCE_UNEXPECTED_HTTP_FAILURE method=%s factory=%s mode=%s elapsedMs=%.1f typedTimeout=%b gcMillis=%d downstreamActive=%d downstreamQueue=%d causeTypes=%s%s",
                     request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typedTimeout(failure),
-                    Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure));
-                if ((mode.equals("normal") || typedTimeout(failure) != factory.equals("simple")) && counters.dumpedFailure.compareAndSet(false, true)) {
+                    Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure),
+                    timing == null ? "" : " " + timing.summary()));
+                if (firstUnexpected) {
+                    dumpResourceTiming(timing);
                     var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
                     for (Throwable cause = failure; cause != null && seen.add(cause); cause = cause.getCause()) {
                         System.out.println("RESOURCE_FAILURE_FRAMES cause=" + cause.getClass().getName());
@@ -161,7 +166,7 @@ class HttpResourceLifecycleTest {
         } while (changed);
         var ordered = Arrays.stream(threads).filter(thread -> selected.contains(thread.getThreadId())).sorted(Comparator.comparingInt(thread -> diagnosticPriority(thread.getThreadName()))).toList();
         for (var thread : ordered) {
-            System.out.printf("RESOURCE_THREAD name=%s id=%d state=%s lock=%s owner=%d%n", thread.getThreadName(), thread.getThreadId(), thread.getThreadState(), thread.getLockName(), thread.getLockOwnerId());
+            System.out.println(String.format(Locale.ROOT, "RESOURCE_THREAD name=%s id=%d state=%s lock=%s owner=%d", thread.getThreadName(), thread.getThreadId(), thread.getThreadState(), thread.getLockName(), thread.getLockOwnerId()));
             for (var frame : Arrays.stream(thread.getStackTrace()).limit(12).toList()) System.out.println("RESOURCE_FRAME " + frame);
         }
     }
@@ -173,6 +178,12 @@ class HttpResourceLifecycleTest {
     }
     static long gcMillis() {
         return ManagementFactory.getGarbageCollectorMXBeans().stream().mapToLong(bean -> Math.max(0, bean.getCollectionTime())).sum();
+    }
+    static void dumpResourceTiming(HttpResourceTiming.Snapshot timing) {
+        if (timing == null) return;
+        System.out.println("RESOURCE_TIMING kind=summary " + timing.summary());
+        for (var sample : timing.active()) System.out.println(sample.line(true));
+        for (var sample : timing.recent()) System.out.println(sample.line(false));
     }
     static String causeTypes(Throwable failure) {
         var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
@@ -192,11 +203,19 @@ class HttpResourceLifecycleTest {
         final HttpServer server;
         final AtomicBoolean closed = new AtomicBoolean();
         final HealthyConnectionProbe healthyConnections = new HealthyConnectionProbe();
+        final HttpResourceTiming timing = Boolean.getBoolean("triage.resource.timing") ? HttpResourceTiming.system() : null;
         Downstream() {
             try {
                 server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
                 server.setExecutor(workers);
                 server.createContext("/", new ResourceHttpHandler(exchange -> {
+                    long timingThread = timing == null ? 0 : Thread.currentThread().threadId();
+                    if (timing != null) {
+                        String mode = exchange.getRequestURI().getPath();
+                        var scenario = mode.contains("normal") ? HttpResourceTiming.Scenario.NORMAL :
+                            mode.contains("header-timeout") ? HttpResourceTiming.Scenario.HEADER_TIMEOUT : HttpResourceTiming.Scenario.BODY_TIMEOUT;
+                        timing.begin(timingThread, scenario);
+                    }
                     try {
                         var body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                         if (!(exchange.getRequestMethod().equals("GET") ? body.isEmpty() : body.equals(PAYLOAD))) payloadErrors.incrementAndGet();
@@ -205,22 +224,38 @@ class HttpResourceLifecycleTest {
                             faultConnections.incrementAndGet();
                         if (mode.contains("timeout")) exchange.getResponseHeaders().set("Connection", "close");
                         if (mode.contains("normal")) healthyConnections.accept(exchange.getRemoteAddress().getPort());
-                        if (mode.contains("normal")) Thread.sleep(Integer.getInteger("triage.resource.normal-delay-millis", 350));
-                        if (mode.contains("header-timeout")) Thread.sleep(1000);
+                        if (mode.contains("normal")) {
+                            int delay = Integer.getInteger("triage.resource.normal-delay-millis", 350);
+                            if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.DELAY_HEADERS, delay);
+                            Thread.sleep(delay);
+                        }
+                        if (mode.contains("header-timeout")) {
+                            if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.DELAY_HEADERS, 1000);
+                            Thread.sleep(1000);
+                        }
+                        if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_HEADERS, 0);
                         exchange.sendResponseHeaders(200, 2);
+                        if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_FIRST_BYTE, 0);
                         exchange.getResponseBody().write('o'); exchange.getResponseBody().flush();
-                        if (mode.contains("body-timeout")) Thread.sleep(1000);
+                        if (mode.contains("body-timeout")) {
+                            if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.DELAY_BODY, 1000);
+                            Thread.sleep(1000);
+                        }
+                        if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_LAST_BYTE, 0);
                         exchange.getResponseBody().write('k');
                     } catch (InterruptedException failure) {
                         Thread.currentThread().interrupt(); throw new IOException(failure);
-                    }
+                    } finally { if (timing != null) timing.end(timingThread); }
                 }, active, requests));
                 server.start();
             } catch (IOException failure) { workers.shutdownNow(); throw new UncheckedIOException(failure); }
         }
         String origin() { return "http://127.0.0.1:" + server.getAddress().getPort(); }
         @Override public void close() {
-            if (closed.compareAndSet(false, true)) { server.stop(0); workers.shutdownNow(); workers.close(); }
+            if (closed.compareAndSet(false, true)) {
+                try { server.stop(0); workers.shutdownNow(); workers.close(); }
+                finally { if (timing != null) timing.close(); }
+            }
         }
     }
     @AfterAll static void closeDownstream() { downstream.close(); }
@@ -243,6 +278,7 @@ class HttpResourceLifecycleTest {
         long baselineHeap = 0, peakHeap = 0;
         double nextHeap = Math.min(120, seconds / 5.0);
         var driver = new Driver(port, enabled);
+        if (downstream.timing != null) downstream.timing.driverStarted(started);
         var businessHttpClient = application.getBean(java.net.http.HttpClient.class);
         long observedRequests = 0; int observedTimeouts = 0, windowRequests = 0, windowTimeouts = 0;
         int expectedWindowRequests, expectedWindowTimeouts;
@@ -254,6 +290,7 @@ class HttpResourceLifecycleTest {
                 long remaining = scheduled - System.nanoTime();
                 if (remaining > 0) TimeUnit.NANOSECONDS.sleep(remaining);
                 driver.maxLagMillis.accumulateAndGet(Math.max(0, (System.nanoTime() - scheduled) / 1_000_000L), Math::max);
+                if (downstream.timing != null) downstream.timing.driverLag(Math.max(0, System.nanoTime() - scheduled));
                 driver.submit(index % RPS, scheduled);
                 double elapsed = (System.nanoTime() - started) / 1_000_000_000.0;
                 if (elapsed >= nextHeap) {
@@ -292,6 +329,11 @@ class HttpResourceLifecycleTest {
             assertThat(downstream.healthyConnections.reused()).as("Healthy requests must exercise connection reuse").isTrue();
             assertThat(downstream.faultConnections.get()).as("Simple fault requests must close their connection").isZero();
             assertThat(driver.maxLagMillis.get()).isLessThanOrEqualTo(2000);
+            if (downstream.timing != null) {
+                var timing = downstream.timing.snapshot();
+                assertThat(timing.active()).isEmpty();
+                assertThat(timing.delaySamples()).isEqualTo(seconds * RPS);
+            }
             var tail = checkWindow(enabled, seconds * RPS, previous);
             observedRequests = tail.observedRequests();
             observedTimeouts += tail.newTimeouts();
@@ -299,7 +341,9 @@ class HttpResourceLifecycleTest {
             expectedWindowRequests = tail.expectedRequests(); expectedWindowTimeouts = tail.expectedTimeouts();
             assertThat(observedTimeouts).isEqualTo(enabled ? seconds * 4 : 0);
         } catch (Exception | AssertionError failure) {
-            System.out.println("RESOURCE_FAILURE_FRAMES cause=" + failure.getClass().getName());
+            var timing = downstream.timing == null ? null : downstream.timing.snapshot();
+            System.out.println("RESOURCE_FAILURE_FRAMES cause=" + failure.getClass().getName() + (timing == null ? "" : " " + timing.summary()));
+            if (timing != null && counters.dumpedFailure.compareAndSet(false, true)) dumpResourceTiming(timing);
             for (var frame : Arrays.stream(failure.getStackTrace()).limit(12).toList()) System.out.println("RESOURCE_FRAME " + frame);
             throw failure;
         } finally {
@@ -312,6 +356,10 @@ class HttpResourceLifecycleTest {
         assertThat(businessHttpClient.isTerminated()).isTrue();
         assertThat(downstream.workers.isTerminated()).isTrue();
         assertThat(downstream.active.get()).isZero();
+        if (downstream.timing != null) {
+            assertThat(downstream.timing.snapshot().active()).isEmpty();
+            assertThat(downstream.timing.snapshot().recent()).isEmpty();
+        }
         assertThat(driver.workers.getQueue()).isEmpty();
         assertThat(downstream.workers.getQueue()).isEmpty();
         assertThat(application.isActive()).isFalse();
@@ -320,11 +368,11 @@ class HttpResourceLifecycleTest {
         long finalHeap = retainedHeap();
         assertThat(finalHeap).isLessThanOrEqualTo(baselineHeap + 64L * 1024 * 1024);
         String component = enabled ? "http-enabled" : "http-disabled";
-        System.out.printf("RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 connectionPolicy=2 healthyConnectionsReused=true faultConnectionsClosed=true requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d%n",
+        System.out.println(String.format(Locale.ROOT, "RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 connectionPolicy=2 healthyConnectionsReused=true faultConnectionsClosed=true requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d",
             component, seconds, seconds, seconds * RPS, driver.successes.get(), driver.failures.get(), counters.typedTimeouts.get(),
             counters.untypedFailures.get(), observedRequests, observedTimeouts, expectedWindowRequests, expectedWindowTimeouts,
             windowRequests, windowTimeouts, counters.responsesOpened.get(), counters.responsesClosed.get(), downstream.requests.get(),
-            driver.maxLagMillis.get(), baselineHeap, peakHeap, finalHeap);
+            driver.maxLagMillis.get(), baselineHeap, peakHeap, finalHeap));
         phase("closed", started);
     }
     static void assertPortClosed(int port) {
@@ -387,6 +435,7 @@ class HttpResourceLifecycleTest {
         void submit(int slot, long scheduled) {
             workers.execute(() -> {
                 maxLagMillis.accumulateAndGet(Math.max(0, (System.nanoTime() - scheduled) / 1_000_000L), Math::max);
+                if (downstream.timing != null) downstream.timing.driverLag(Math.max(0, System.nanoTime() - scheduled));
                 if (TriageRequestFilter.CURRENT.get() != null) workerContexts.incrementAndGet();
                 try {
                     int scenario = SCENARIOS[slot];
