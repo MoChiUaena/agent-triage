@@ -11,6 +11,24 @@ NEAR_AFTER_MS = 500
 MAX_NEAR_EVENTS = 8
 
 
+def safepoint_format_counts(lines):
+    counts = dict(lines=0, uptimeMs=0, uptimeSeconds=0, safepointTag=0,
+        totalNs=0, reach=0, cleanup=0, at=0, parsed=0)
+    for line in lines:
+        if not line.strip():
+            continue
+        counts['lines'] += 1
+        counts['uptimeMs'] += bool(re.match(r'^\[\d+ms\]', line))
+        counts['uptimeSeconds'] += bool(re.match(r'^\[\d+(?:\.\d+)?s\]', line))
+        counts['safepointTag'] += '[safepoint]' in line
+        counts['totalNs'] += bool(re.search(r'\bTotal:?\s+\d+\s+ns\b', line))
+        counts['reach'] += 'Reaching safepoint:' in line
+        counts['cleanup'] += 'Cleanup:' in line
+        counts['at'] += 'At safepoint:' in line
+        counts['parsed'] += parse_safepoint_line(line) is not None
+    return ' '.join(f'{key}={value}' for key, value in counts.items())
+
+
 def parse_safepoint_line(line):
     if len(line) > 512:
         return None

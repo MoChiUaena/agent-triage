@@ -18,7 +18,7 @@ from http_resource_contract import HTTP_COMPONENTS, parse_http_receipt
 from resource_memory_details import (parse_nmt_details, process_details, make_details_sample,
     append_details_sample, details_receipt, verify_details_file)
 from resource_native_trim import make_trim_row, write_trim_file, trim_receipt, verify_trim_file
-from resource_safepoints import parse_safepoint_line, failure_uptime_ms, safepoint_diagnostics
+from resource_safepoints import parse_safepoint_line, failure_uptime_ms, safepoint_diagnostics, safepoint_format_counts
 
 ROOT = Path(__file__).resolve().parents[1]
 MIB = 1024 * 1024
@@ -315,7 +315,10 @@ def main():
             try:
                 with safepoint_path.open(encoding="utf-8", errors="replace") as source:
                     if not any(parse_safepoint_line(line) is not None for line in source):
-                        raise ValueError("Owned timing JVM reported no numeric safepoint events")
+                        with safepoint_path.open(encoding="utf-8", errors="replace") as inspection:
+                            shape = safepoint_format_counts(inspection)
+                        raise ValueError("Owned timing JVM reported no numeric safepoint events: " + shape +
+                            " fileBytes=" + str(safepoint_path.stat().st_size))
             except OSError as error:
                 raise ValueError("Missing owned timing JVM safepoint log") from error
         summary = summarize(samples, args.seconds, warmup, interval)

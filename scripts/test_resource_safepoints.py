@@ -1,7 +1,7 @@
 """Safepoint evidence must stay numeric, bounded, and aligned with an owned failure."""
 import unittest
 
-from resource_safepoints import parse_safepoint_line, failure_uptime_ms, safepoint_diagnostics
+from resource_safepoints import parse_safepoint_line, failure_uptime_ms, safepoint_diagnostics, safepoint_format_counts
 
 
 def event(uptime, total, operation="G1PauseCleanup", colon=":"):
@@ -51,6 +51,15 @@ class SafepointEvidenceTest(unittest.TestCase):
         rendered = safepoint_diagnostics(["Authorization=private", "[10ms][info][safepoint] truncated"], 15000)
         self.assertIn("kind=unavailable", rendered)
         self.assertNotIn("Authorization", rendered)
+
+    def test_format_probe_reports_only_structural_counts_without_raw_vm_text(self):
+        counts = safepoint_format_counts([event(14600, 1_600_000_000, "PRIVATE_MARKER"),
+            "[14.7s][info][safepoint] unrecognized", "Authorization=private"])
+        for field in ("lines=3", "uptimeMs=1", "uptimeSeconds=1", "safepointTag=2",
+                      "totalNs=1", "reach=1", "cleanup=1", "at=1", "parsed=1"):
+            self.assertIn(field, counts)
+        self.assertNotIn("PRIVATE_MARKER", counts)
+        self.assertNotIn("Authorization", counts)
 
 
 if __name__ == "__main__":
