@@ -7,6 +7,12 @@ from resource_report import verify_dataset, verify_matrix, render_table
 from resource_memory_details import NMT_CATEGORIES, make_details_sample, append_details_sample, details_receipt
 
 class ResourceReportTest(unittest.TestCase):
+    def test_rejects_non_http_or_non_boolean_timing_profiles(self):
+        for value in (True, 1, "true"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory); meta = self.fixture(root); meta["httpTiming"] = value
+                (root / "summary.json").write_text(json.dumps(meta))
+                with self.assertRaises(ValueError): verify_dataset(root / "summary.json", "a" * 40, 60)
     def detailed_fixture(self, root):
         meta = self.fixture(root)
         core = dict(nativeClassCommittedBytes=6000000, nativeThreadCommittedBytes=1000000,

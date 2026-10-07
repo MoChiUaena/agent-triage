@@ -107,6 +107,14 @@ Total: reserved=180000KB, committed=140000KB
             summaries[0].write_text(json.dumps(first))
             with self.assertRaisesRegex(ValueError, "mixes connection policies"):
                 verify_matrix(summaries, "a"*40, 60, workload="http")
+            for key in ("connectionPolicy", "healthyConnectionsReused", "faultConnectionsClosed"):
+                first["workload"].pop(key)
+            first["httpTiming"] = True; summaries[0].write_text(json.dumps(first))
+            with self.assertRaisesRegex(ValueError, "timing profiles"):
+                verify_matrix(summaries, "a"*40, 60, workload="http")
+            for summary in summaries:
+                meta = json.loads(summary.read_text()); meta["httpTiming"] = True; summary.write_text(json.dumps(meta))
+            self.assertTrue(all(meta["httpTiming"] is True for meta, rows in verify_matrix(summaries, "a"*40, 60, "http")))
 
     def test_http_receipt_requires_native_breakdown_and_rejects_inconsistent_categories(self):
         with tempfile.TemporaryDirectory() as directory:

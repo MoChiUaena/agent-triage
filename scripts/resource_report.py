@@ -65,6 +65,8 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
         raise ValueError("Wrong source commit or modified source tree")
     if meta.get("component") not in ("agent", "starter", *HTTP_COMPONENTS) or meta.get("operatingSystem") not in ("linux", "windows"):
         raise ValueError("Unsupported component or operating system")
+    if "httpTiming" in meta and (type(meta["httpTiming"]) is not bool or meta["component"] not in HTTP_COMPONENTS):
+        raise ValueError("Invalid HTTP timing profile")
     rows = read_samples(summary_path.with_name("memory.csv"), meta["operatingSystem"])
     if meta["component"] in HTTP_COMPONENTS and any(not NATIVE_BREAKDOWN <= row.keys() for row in rows):
         raise ValueError("HTTP comparison requires numeric NMT categories")
@@ -114,6 +116,8 @@ def verify_matrix(summary_paths, source_commit, seconds, workload="components"):
         raise ValueError("HTTP matrix mixes connection policies")
     if len({"memoryDetails" in meta for meta, rows in datasets}) != 1:
         raise ValueError("Resource matrix mixes detailed and legacy memory profiles")
+    if len({meta.get("httpTiming", False) for meta, rows in datasets}) != 1:
+        raise ValueError("Resource matrix mixes timing profiles")
     return sorted(datasets, key=lambda dataset: (dataset[0]["component"], dataset[0]["operatingSystem"]))
 
 
@@ -177,6 +181,8 @@ def render_http_table(datasets):
         lines.append(f"| {meta['component'].removeprefix('http-')} | {meta['operatingSystem']} | " +
             " | ".join(f"{value:.2f}" for value in growth) + " |")
     lines += ["", "NMT category peaks are independent; their growth values do not sum to a simultaneous peak. Values are MiB."]
+    if datasets[0][0].get("httpTiming", False):
+        lines += ["", "Optional phase timing is enabled; measurements include the bounded observer."]
     return "\n".join(lines) + "\n"
 
 def main():

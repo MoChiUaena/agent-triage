@@ -150,9 +150,14 @@ def parse_workload_result(text, component, seconds):
 
 
 def failure_diagnostics(text):
-    prefixes = ("RESOURCE_UNEXPECTED_HTTP_FAILURE ", "RESOURCE_FAILURE_FRAMES ", "RESOURCE_THREAD ", "RESOURCE_FRAME ")
+    prefixes = ("RESOURCE_UNEXPECTED_HTTP_FAILURE ", "RESOURCE_FAILURE_FRAMES ", "RESOURCE_THREAD ", "RESOURCE_FRAME ", "RESOURCE_TIMING ")
     lines = [line[:1024] for line in text.splitlines() if line.startswith(prefixes)]
     return "\n".join(lines)[:32768]
+
+def http_timing_arguments(component, enabled):
+    if enabled and component not in HTTP_COMPONENTS:
+        raise ValueError("Timing diagnostics require an owned HTTP workload")
+    return ["-Dtriage.resource.timing=true"] if enabled else []
 
 
 def emit_failure_log(text, component, stream=None):
@@ -195,9 +200,12 @@ def main():
     parser.add_argument("--component", required=True, choices=("agent", "starter", *HTTP_COMPONENTS))
     parser.add_argument("--seconds", type=int, default=3600)
     parser.add_argument("--memory-details", action="store_true", help="Add numeric NMT and Linux resident-page details")
+    parser.add_argument("--http-timing", action="store_true", help="Enable bounded phase timing in the owned HTTP fixture")
     args = parser.parse_args()
     if not 10 <= args.seconds <= 7200:
         parser.error("seconds must be 10..7200")
+    if args.http_timing and args.component not in HTTP_COMPONENTS:
+        parser.error("http-timing requires an HTTP component")
     interval, warmup = min(30, args.seconds / 10), min(120, args.seconds / 5)
     output = ROOT / "target/resource-soak" / (args.component + "-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     output.mkdir(parents=True)
@@ -212,6 +220,7 @@ def main():
         "-DargLine=-Xms96m -Xmx256m -XX:+UseG1GC -XX:NativeMemoryTracking=summary", "test"]
     if args.component in HTTP_COMPONENTS:
         command.insert(-1, "-Dtriage.resource.http.enabled=" + str(args.component == "http-enabled").lower())
+    command[-1:-1] = http_timing_arguments(args.component, args.http_timing)
     starting_source = source_state()
     samples, detail_samples, child, pid, started = [], [], None, None, time.monotonic()
     try:
@@ -260,6 +269,7 @@ def main():
         summary.update(component=args.component, operatingSystem="windows" if windows else "linux",
             workload=parse_workload_result(workload_text, args.component, args.seconds))
         summary.update(source_provenance(starting_source, source_state()))
+        if args.http_timing: summary["httpTiming"] = True
         if args.memory_details:
             summary["memoryDetails"] = details_receipt(output / "memory-details.csv", len(detail_samples))
             verify_details_file(output / "memory-details.csv", summary["memoryDetails"], samples, summary["operatingSystem"])

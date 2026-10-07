@@ -1,7 +1,7 @@
 """Guard diagnostic parsing, incomplete coverage and growth failures independently of workload code."""
 import unittest
 import io
-from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log
+from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, http_timing_arguments
 
 NMT = """1234:
 Native Memory Tracking:
@@ -18,6 +18,18 @@ def sample(elapsed, phase="running", native=42696704, rss=170000000, pid=1234):
         nativeThreadCount=25, rssBytes=rss, privateBytes=None)
 
 class ResourceSoakTest(unittest.TestCase):
+    def test_timing_is_opt_in_for_the_owned_http_workload_only(self):
+        self.assertEqual(http_timing_arguments("http-enabled", False), [])
+        self.assertEqual(http_timing_arguments("http-disabled", True), ["-Dtriage.resource.timing=true"])
+        with self.assertRaises(ValueError): http_timing_arguments("agent", True)
+
+    def test_keeps_bounded_numeric_phase_timing_without_application_payload(self):
+        text = "RESOURCE_TIMING kind=active request=3 stage=DELAY_HEADERS elapsedMs=2100.0 cpuNanos=-1\n" + \
+            "requestPayload=never-export\nRESOURCE_FRAME Thread.sleep"
+        value = failure_diagnostics(text)
+        self.assertIn("RESOURCE_TIMING kind=active", value)
+        self.assertNotIn("requestPayload", value)
+        self.assertLessEqual(len(failure_diagnostics(text * 1000)), 32768)
     def test_windows_failure_output_does_not_mask_the_original_error_with_encoding_failure(self):
         raw = io.BytesIO()
         output = io.TextIOWrapper(raw, encoding="cp1252", errors="strict")
