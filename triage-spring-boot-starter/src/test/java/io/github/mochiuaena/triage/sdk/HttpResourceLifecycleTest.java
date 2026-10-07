@@ -261,7 +261,7 @@ class HttpResourceLifecycleTest {
     @AfterAll static void closeDownstream() { downstream.close(); }
 
     @Test void realServletWorkloadMaintainsCountsAndReturnsItsResources() throws Exception {
-        int seconds = Integer.getInteger("triage.resource.seconds", 2);
+        int seconds = Integer.getInteger("triage.resource.seconds", 12);
         application = new org.springframework.boot.builder.SpringApplicationBuilder(Application.class).properties(
             "server.port=0", "server.address=127.0.0.1", "triage.sdk.enabled=" + System.getProperty("triage.resource.http.enabled", "true"),
             "triage.sdk.service-id=resource-service", "triage.sdk.downstream-id=loopback-service",
@@ -302,7 +302,11 @@ class HttpResourceLifecycleTest {
                 }
                 if (index == 2 * RPS - 1) {
                     await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == 2 * RPS);
-                    assertThat(downstream.healthyConnections.reused()).as("Healthy connection reuse must occur in the first two seconds").isTrue();
+                }
+                // The probe accepts the first 32 normal requests; those arrive across 11 traffic cycles.
+                if (index == 11 * RPS - 1) {
+                    await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == 11 * RPS);
+                    assertThat(downstream.healthyConnections.reused()).as("Healthy connection reuse must occur within the probe's first 32 normal requests").isTrue();
                 }
                 if ((index + 1) % (30 * RPS) == 0 && index + 1 < seconds * RPS) {
                     int issued = index + 1;
