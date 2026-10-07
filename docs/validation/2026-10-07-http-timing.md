@@ -8,7 +8,7 @@
 
 原始附件见 [60 秒目录](samples/2026-10-07-http-timing/60s/)，逐文件校验见 [SHA256SUMS](samples/2026-10-07-http-timing/SHA256SUMS)。附件含 `memory.csv`、`memory-details.csv` 和 `summary.json`；该模式的测量包含探针开销，复核拒绝混合启用与关闭状态。
 
-最新主分支先前的[一小时 Windows 超时](2026-10-03-http-window-audit.md#最新主分支小时复跑)原因仍未确定。[一小时诊断复跑](https://github.com/MoChiUaena/agent-triage/actions/runs/37610246489)使用上述固定源码，结果需单独核查。短测通过、阶段墙钟与 CPU 时间差都不能证明长时停顿已经解决。
+最新主分支先前的[一小时 Windows 超时](2026-10-03-http-window-audit.md#最新主分支小时复跑)原因仍未确定。固定源码的[一小时阶段诊断](2026-10-07-http-hour-timing.md)复现了两条 Windows 失败，Linux 两组通过。短测通过、阶段墙钟与 CPU 时间差都不能证明长时停顿已经解决。
 
 本地检查另保留一次失败：完整集成测试中，`RestTemplateIntegrationTest` 的正常请求期望 200，实际收到 504。单独复跑及之后完整集成复跑通过，期间没有修改客户端预算或测试代码。目前只确认它是间歇性现象，不能据此认定原因或修复；它也不能与 CI 的 Windows 长时失败直接视为同一问题。
 
