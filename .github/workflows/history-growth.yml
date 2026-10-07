@@ -1,0 +1,67 @@
+name: History growth
+on:
+  push:
+    branches: [main, 'feature/**', 'fix/**']
+    paths:
+      - 'src/main/java/io/github/mochiuaena/triage/store/**'
+      - 'src/main/resources/db/migration/**'
+      - 'src/test/java/io/github/mochiuaena/triage/store/HistoryGrowth*'
+      - '.github/workflows/history-growth.yml'
+  pull_request:
+    paths:
+      - 'src/main/java/io/github/mochiuaena/triage/store/**'
+      - 'src/main/resources/db/migration/**'
+      - 'src/test/java/io/github/mochiuaena/triage/store/HistoryGrowth*'
+      - '.github/workflows/history-growth.yml'
+  workflow_dispatch:
+    inputs:
+      checkpoints:
+        description: Increasing row counts
+        type: choice
+        default: '120,240,360'
+        options:
+          - '120,240,360'
+          - '1000,2500,5000'
+          - '1000,5000,10000'
+permissions:
+  contents: read
+concurrency:
+  group: history-growth-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  history-growth:
+    name: H2 file and PostgreSQL 16
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16.10-alpine
+        env:
+          POSTGRES_DB: history_growth_ci
+          POSTGRES_USER: history_growth
+          POSTGRES_PASSWORD: history-growth-test-only
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U history_growth -d history_growth_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: Verify history at increasing sizes
+        run: ./mvnw -B -ntp -Dtest=HistoryGrowthTest -Dhistory.growth.postgres=true "-Dhistory.growth.checkpoints=$HISTORY_GROWTH_CHECKPOINTS" test
+        env:
+          HISTORY_GROWTH_CHECKPOINTS: ${{ inputs.checkpoints || '120,240,360' }}
+          HISTORY_GROWTH_DB_URL: jdbc:postgresql://127.0.0.1:5432/history_growth_ci
+          HISTORY_GROWTH_DB_USER: history_growth
+          HISTORY_GROWTH_DB_PASSWORD: history-growth-test-only
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: history-growth-numbers
+          path: target/history-growth/*.csv
+          if-no-files-found: warn
+          retention-days: 14
