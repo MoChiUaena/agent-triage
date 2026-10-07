@@ -18,6 +18,7 @@ from http_resource_contract import HTTP_COMPONENTS, parse_http_receipt
 from resource_memory_details import (parse_nmt_details, process_details, make_details_sample,
     append_details_sample, details_receipt, verify_details_file)
 from resource_native_trim import make_trim_row, write_trim_file, trim_receipt, verify_trim_file
+from resource_safepoints import parse_safepoint_line, failure_uptime_ms, safepoint_diagnostics
 
 ROOT = Path(__file__).resolve().parents[1]
 MIB = 1024 * 1024
@@ -161,6 +162,15 @@ def http_timing_arguments(component, enabled):
     return ["-Dtriage.resource.timing=true"] if enabled else []
 
 
+def safepoint_jvm_option(component, enabled, output_name):
+    if not enabled:
+        return ""
+    if component not in HTTP_COMPONENTS or re.fullmatch(r"[A-Za-z0-9-]{1,100}", output_name) is None:
+        raise ValueError("Safepoint log requires an owned HTTP output directory")
+    return (" -Xlog:safepoint=info:file=../target/resource-soak/" + output_name +
+        "/safepoints.log:uptimemillis,level,tags:filecount=0")
+
+
 def native_trim_arguments(component, enabled, memory_details, platform):
     if not enabled:
         return []
@@ -169,11 +179,17 @@ def native_trim_arguments(component, enabled, memory_details, platform):
     return ["-Dtriage.resource.close-hold-seconds=75"]
 
 
-def emit_failure_log(text, component, stream=None):
+def emit_failure_log(text, component, stream=None, safepoint_path=None):
     stream = sys.stdout if stream is None else stream
     if hasattr(stream, "reconfigure"):
         stream.reconfigure(errors="backslashreplace")
     if component in HTTP_COMPONENTS:
+        if safepoint_path is not None:
+            try:
+                with safepoint_path.open(encoding="utf-8", errors="replace") as source:
+                    print(safepoint_diagnostics(source, failure_uptime_ms(text)), file=stream, flush=True)
+            except OSError:
+                print("RESOURCE_SAFEPOINT kind=unavailable reason=missing_file", file=stream, flush=True)
         print(failure_diagnostics(text), file=stream, flush=True)
     print(text[-5000:], file=stream, flush=True)
 
@@ -224,6 +240,7 @@ def main():
     output = ROOT / "target/resource-soak" / (args.component + "-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     output.mkdir(parents=True)
     marker = output / "workload.state"
+    safepoint_path = output / "safepoints.log"
     windows = os.name == "nt"
     jcmd = Path(os.environ["JAVA_HOME"]) / "bin" / ("jcmd.exe" if windows else "jcmd")
     command = [str(ROOT / ("mvnw.cmd" if windows else "mvnw")), "-B", "-ntp"]
@@ -231,7 +248,8 @@ def main():
         command += ["-f", str(ROOT / "triage-spring-boot-starter/pom.xml")]
     command += ["-Dtest=" + ("RunResourceLifecycleTest" if args.component == "agent" else "HttpResourceLifecycleTest" if args.component in HTTP_COMPONENTS else "ResourceLifecycleTest"),
         f"-Dtriage.resource.seconds={args.seconds}", f"-Dtriage.resource.marker={marker}",
-        "-DargLine=-Xms96m -Xmx256m -XX:+UseG1GC -XX:NativeMemoryTracking=summary", "test"]
+        "-DargLine=-Xms96m -Xmx256m -XX:+UseG1GC -XX:NativeMemoryTracking=summary" +
+            safepoint_jvm_option(args.component, args.http_timing, output.name), "test"]
     if args.component in HTTP_COMPONENTS:
         command.insert(-1, "-Dtriage.resource.http.enabled=" + str(args.component == "http-enabled").lower())
     command[-1:-1] = http_timing_arguments(args.component, args.http_timing) + trim_arguments
@@ -290,8 +308,16 @@ def main():
                 time.sleep(.2)
             workload_text = (output / "maven.log").read_text(encoding="utf-8", errors="replace")
             if child.returncode != 0:
-                emit_failure_log(workload_text, args.component)
+                emit_failure_log(workload_text, args.component,
+                    safepoint_path=safepoint_path if args.http_timing else None)
                 raise RuntimeError(f"Maven workload failed with exit {child.returncode}; see {output / 'maven.log'}")
+        if args.http_timing:
+            try:
+                with safepoint_path.open(encoding="utf-8", errors="replace") as source:
+                    if not any(parse_safepoint_line(line) is not None for line in source):
+                        raise ValueError("Owned timing JVM reported no numeric safepoint events")
+            except OSError as error:
+                raise ValueError("Missing owned timing JVM safepoint log") from error
         summary = summarize(samples, args.seconds, warmup, interval)
         summary.update(component=args.component, operatingSystem="windows" if windows else "linux",
             workload=parse_workload_result(workload_text, args.component, args.seconds))

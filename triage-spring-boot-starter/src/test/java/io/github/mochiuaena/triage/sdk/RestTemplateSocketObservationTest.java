@@ -43,8 +43,11 @@ class RestTemplateSocketObservationTest {
                                 if (scenario.contains("timeout")) {
                                     var thrown = catchThrowable(() -> client.getForObject(url, String.class));
                                     businessFailure.set(thrown);
-                                    if (scenario.equals("body-timeout")) assertThat(thrown).isExactlyInstanceOf(RestClientException.class).hasCauseInstanceOf(IOException.class);
+                                    if (scenario.equals("body-timeout"))
+                                        assertThat(thrown).isInstanceOf(RestClientException.class).hasCauseInstanceOf(IOException.class);
                                     else assertThat(thrown).isInstanceOf(ResourceAccessException.class);
+                                    if (factory.equals("simple") && scenario.equals("body-timeout"))
+                                        assertThat(causeTypes(thrown)).contains(java.net.SocketTimeoutException.class.getName());
                                     response.setStatus(504);
                                 } else if (scenario.equals("server-error")) {
                                     assertThatThrownBy(() -> client.getForObject(url, String.class)).isInstanceOf(HttpServerErrorException.class);

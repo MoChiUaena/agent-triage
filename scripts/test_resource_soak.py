@@ -1,7 +1,9 @@
 """Guard diagnostic parsing, incomplete coverage and growth failures independently of workload code."""
 import unittest
 import io
-from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, http_timing_arguments, native_trim_arguments
+import tempfile
+from pathlib import Path
+from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, http_timing_arguments, native_trim_arguments, safepoint_jvm_option
 
 NMT = """1234:
 Native Memory Tracking:
@@ -18,6 +20,38 @@ def sample(elapsed, phase="running", native=42696704, rss=170000000, pid=1234):
         nativeThreadCount=25, rssBytes=rss, privateBytes=None)
 
 class ResourceSoakTest(unittest.TestCase):
+    def test_safepoint_logging_is_opt_in_and_uses_only_the_owned_maven_jvm_file(self):
+        self.assertEqual(safepoint_jvm_option("http-enabled", False, "http-enabled-20261007Z"), "")
+        value = safepoint_jvm_option("http-disabled", True, "http-disabled-20261007Z")
+        self.assertIn("-Xlog:safepoint=info:file=../target/resource-soak/http-disabled-20261007Z/safepoints.log", value)
+        self.assertIn("uptimemillis,level,tags:filecount=0", value)
+        self.assertNotIn("stdout", value)
+        for component, name in (("agent", "agent-20261007Z"), ("http-enabled", "../other"),
+                                ("http-enabled", "contains spaces")):
+            with self.subTest(component=component, name=name), self.assertRaises(ValueError):
+                safepoint_jvm_option(component, True, name)
+
+    def test_failed_http_report_includes_bounded_numeric_safepoints_not_raw_operations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "safepoints.log"
+            path.write_text('[14600ms][info][safepoint] Safepoint "PRIVATE_MARKER", Time since last: 100 ns, '
+                'Reaching safepoint: 100000 ns, Cleanup: 10000 ns, At safepoint: 1599890000 ns, Total: 1600000000 ns\n',
+                encoding="utf-8")
+            workload = ('RESOURCE_UNEXPECTED_HTTP_FAILURE method=PUT mode=normal jvmUptimeMs=15000\n'
+                'Maven assertion failed')
+            output = io.StringIO()
+            emit_failure_log(workload, "http-enabled", output, safepoint_path=path)
+            rendered = output.getvalue()
+            self.assertIn("RESOURCE_SAFEPOINT kind=summary", rendered)
+            self.assertIn("nearPeakTotalMs=1600.000", rendered)
+            self.assertNotIn("PRIVATE_MARKER", rendered)
+            self.assertIn("Maven assertion failed", rendered)
+            missing_output = io.StringIO()
+            emit_failure_log(workload, "http-enabled", missing_output,
+                safepoint_path=path.with_name("missing.log"))
+            self.assertIn("RESOURCE_SAFEPOINT kind=unavailable reason=missing_file", missing_output.getvalue())
+            self.assertIn("Maven assertion failed", missing_output.getvalue())
+
     def test_native_trim_stays_inside_owned_detailed_linux_http_probe(self):
         self.assertEqual(native_trim_arguments("http-enabled", False, False, "windows"), [])
         self.assertEqual(native_trim_arguments("http-disabled", True, True, "linux"),
