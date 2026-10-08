@@ -64,11 +64,17 @@ class ResourceCleanupTest(unittest.TestCase):
                 self.assertTrue(receipt.exists(), "Owned helper did not start")
                 owned_pids = json.loads(receipt.read_text())
                 self.assertTrue(all(is_running(pid) for pid in owned_pids))
-                stop_owned_processes(child)  # Failure before a Maven test PID was available.
+                try:
+                    stop_owned_processes(child)  # Failure before a Maven test PID was available.
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    # taskkill may report that the wrapper vanished after killing its children.
+                    # The owned process checks below, including the wrapper, decide cleanup.
+                    if os.name != "nt":
+                        raise
                 deadline = time.monotonic() + 3
-                while any(is_running(pid) for pid in owned_pids) and time.monotonic() < deadline:
+                while any(is_running(pid) for pid in (child.pid, *owned_pids)) and time.monotonic() < deadline:
                     time.sleep(.02)
-                self.assertFalse(any(is_running(pid) for pid in owned_pids), "Owned descendant outlived cleanup")
+                self.assertFalse(any(is_running(pid) for pid in (child.pid, *owned_pids)), "Owned process outlived cleanup")
                 self.assertIsNone(unrelated.poll(), "Cleanup touched an unrelated process")
             finally:
                 for pid in owned_pids:
