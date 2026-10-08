@@ -55,8 +55,12 @@ class RestTemplateSocketObservationTest {
                             });
                         var window = (ObservationRecorder.HttpWindow) recorder.snapshot(5, Instant.now());
                         assertThat(window.requestCount()).isEqualTo(1);
-                        // Spring's JDK factory may close a timed-out body with only an untyped IOException.
-                        boolean typedTimeout = scenario.contains("timeout") && !(factory.equals("default") && scenario.equals("body-timeout"));
+                        // Spring's JDK factory may report body failure with or without a typed timeout.
+                        boolean typedTimeout = causeTypes(businessFailure.get()).stream().anyMatch(type ->
+                            type.equals(java.net.SocketTimeoutException.class.getName()) ||
+                            type.equals(java.net.http.HttpTimeoutException.class.getName()));
+                        if (scenario.contains("timeout") && !(factory.equals("default") && scenario.equals("body-timeout")))
+                            assertThat(typedTimeout).isTrue();
                         assertThat(window.timeoutCount()).as("%s/%s failure: %s", factory, scenario, causeTypes(businessFailure.get())).isEqualTo(typedTimeout ? 1 : 0);
                         if (scenario.startsWith("slow")) assertThat(window.downstreamP95Ms()).isGreaterThanOrEqualTo(90);
                         if (scenario.contains("timeout")) {

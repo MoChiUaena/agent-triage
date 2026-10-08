@@ -111,15 +111,16 @@ class HttpResourceLifecycleTest {
                 boolean typed = typedTimeout(failure);
                 boolean unexpected = mode.equals("normal") || (factory.equals("simple") && !typed);
                 boolean firstUnexpected = unexpected && counters.dumpedFailure.compareAndSet(false, true);
+                long failureUptimeMs = firstUnexpected ? ManagementFactory.getRuntimeMXBean().getUptime() : -1;
+                long failureWallMs = firstUnexpected ? System.currentTimeMillis() : -1;
                 var timing = firstUnexpected && downstream.timing != null ? downstream.timing.snapshot() : null;
                 if (unexpected)
                     System.out.println(String.format(Locale.ROOT, "RESOURCE_UNEXPECTED_HTTP_FAILURE method=%s factory=%s mode=%s elapsedMs=%.1f typedTimeout=%b gcMillis=%d downstreamActive=%d downstreamQueue=%d causeTypes=%s%s",
                     request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typed,
                     Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure),
-                    timing == null ? "" : " " + timing.summary() + " jvmUptimeMs=" +
-                        ManagementFactory.getRuntimeMXBean().getUptime() + " wallClockMs=" + System.currentTimeMillis()));
+                    timing == null ? "" : " " + timing.summary() + " jvmUptimeMs=" + failureUptimeMs + " wallClockMs=" + failureWallMs));
                 if (firstUnexpected) {
-                    dumpResourceTiming(timing);
+                    dumpResourceTiming(timing, failureUptimeMs);
                     var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
                     for (Throwable cause = failure; cause != null && seen.add(cause); cause = cause.getCause()) {
                         System.out.println("RESOURCE_FAILURE_FRAMES cause=" + cause.getClass().getName());
@@ -183,11 +184,13 @@ class HttpResourceLifecycleTest {
     static long gcMillis() {
         return ManagementFactory.getGarbageCollectorMXBeans().stream().mapToLong(bean -> Math.max(0, bean.getCollectionTime())).sum();
     }
-    static void dumpResourceTiming(HttpResourceTiming.Snapshot timing) {
+    static void dumpResourceTiming(HttpResourceTiming.Snapshot timing, long failureUptimeMs) {
         if (timing == null) return;
         System.out.println("RESOURCE_TIMING kind=summary " + timing.summary());
         for (var sample : timing.active()) System.out.println(sample.line(true));
         for (var sample : timing.recent()) System.out.println(sample.line(false));
+        if (downstream.jvmSchedule != null)
+            System.out.println(downstream.jvmSchedule.render(failureUptimeMs));
     }
     static String causeTypes(Throwable failure) {
         var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
@@ -208,6 +211,7 @@ class HttpResourceLifecycleTest {
         final AtomicBoolean closed = new AtomicBoolean();
         final HealthyConnectionProbe healthyConnections = new HealthyConnectionProbe();
         final HttpResourceTiming timing = Boolean.getBoolean("triage.resource.timing") ? HttpResourceTiming.system() : null;
+        volatile HttpJvmScheduleProbe jvmSchedule;
         Downstream() {
             try {
                 server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -258,7 +262,10 @@ class HttpResourceLifecycleTest {
         @Override public void close() {
             if (closed.compareAndSet(false, true)) {
                 try { server.stop(0); workers.shutdownNow(); workers.close(); }
-                finally { if (timing != null) timing.close(); }
+                finally {
+                    if (jvmSchedule != null) jvmSchedule.stop();
+                    if (timing != null) timing.close();
+                }
             }
         }
     }
@@ -288,6 +295,7 @@ class HttpResourceLifecycleTest {
         int expectedWindowRequests, expectedWindowTimeouts;
         WindowCheck previous = null;
         try {
+            if (downstream.timing != null) downstream.jvmSchedule = HttpJvmScheduleProbe.start();
             phase("running", started);
             for (int index = 0; index < seconds * RPS; index++) {
                 long scheduled = started + index * 1_000_000_000L / RPS;
@@ -350,11 +358,12 @@ class HttpResourceLifecycleTest {
             expectedWindowRequests = tail.expectedRequests(); expectedWindowTimeouts = tail.expectedTimeouts();
             assertThat(observedTimeouts).isEqualTo(enabled ? counters.typedTimeouts.get() : 0);
         } catch (Exception | AssertionError failure) {
+            long failureUptimeMs = ManagementFactory.getRuntimeMXBean().getUptime();
+            long failureWallMs = System.currentTimeMillis();
             var timing = downstream.timing == null ? null : downstream.timing.snapshot();
-            System.out.println("RESOURCE_FAILURE_AT jvmUptimeMs=" + ManagementFactory.getRuntimeMXBean().getUptime() +
-                " wallClockMs=" + System.currentTimeMillis());
+            System.out.println("RESOURCE_FAILURE_AT jvmUptimeMs=" + failureUptimeMs + " wallClockMs=" + failureWallMs);
             System.out.println("RESOURCE_FAILURE_FRAMES cause=" + failure.getClass().getName() + (timing == null ? "" : " " + timing.summary()));
-            if (timing != null && counters.dumpedFailure.compareAndSet(false, true)) dumpResourceTiming(timing);
+            if (timing != null && counters.dumpedFailure.compareAndSet(false, true)) dumpResourceTiming(timing, failureUptimeMs);
             for (var frame : Arrays.stream(failure.getStackTrace()).limit(12).toList()) System.out.println("RESOURCE_FRAME " + frame);
             throw failure;
         } finally {
@@ -366,6 +375,7 @@ class HttpResourceLifecycleTest {
         assertThat(driver.http.isTerminated()).isTrue();
         assertThat(businessHttpClient.isTerminated()).isTrue();
         assertThat(downstream.workers.isTerminated()).isTrue();
+        if (downstream.jvmSchedule != null) assertThat(downstream.jvmSchedule.stopped()).isTrue();
         assertThat(downstream.active.get()).isZero();
         if (downstream.timing != null) {
             assertThat(downstream.timing.snapshot().active()).isEmpty();

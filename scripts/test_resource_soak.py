@@ -33,6 +33,13 @@ class ResourceSoakTest(unittest.TestCase):
             'RESOURCE_FAILURE_AT jvmUptimeMs=17000 wallClockMs=1760000000789\n')
         self.assertEqual(evidence, 'RESOURCE_FAILURE_AT jvmUptimeMs=17000 wallClockMs=1760000000789')
 
+    def test_jvm_scheduler_evidence_is_kept_without_unbounded_text(self):
+        evidence = failure_diagnostics('private data\n'
+            'RESOURCE_JVM_SCHEDULE kind=summary ticks=20 peakGapMs=250.000 failureUptimeMs=17000\n'
+            'RESOURCE_JVM_SCHEDULE kind=near uptimeMs=16950 gapMs=250.000\n')
+        self.assertIn('RESOURCE_JVM_SCHEDULE kind=near uptimeMs=16950 gapMs=250.000', evidence)
+        self.assertNotIn('private data', evidence)
+
     def test_failure_report_aligns_owned_sampler_gaps_with_jvm_wall_time(self):
         probe = HostSchedulingProbe()
         probe.tick(0, 1000)
