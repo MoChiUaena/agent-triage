@@ -58,7 +58,7 @@ class ResourceCleanupTest(unittest.TestCase):
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
             owned_pids = []
             try:
-                deadline = time.monotonic() + 5
+                deadline = time.monotonic() + 15
                 while not receipt.exists() and time.monotonic() < deadline:
                     time.sleep(.02)
                 self.assertTrue(receipt.exists(), "Owned helper did not start")

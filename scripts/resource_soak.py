@@ -222,7 +222,7 @@ def stop_owned_processes(child):
             # The wrapper is a command shell. Stop its still-owned tree before
             # terminating that root; otherwise its Maven/test JVMs can survive.
             subprocess.run(["taskkill", "/PID", str(child.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=45,
                 check=True, creationflags=subprocess.CREATE_NO_WINDOW)
         else:
             os.killpg(child.pid, signal.SIGTERM)
