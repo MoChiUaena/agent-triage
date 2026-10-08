@@ -183,7 +183,8 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 - [x] 核查固定源码一小时的阶段与安全点证据；Linux 两组通过，Windows 两组分别出现附加诊断失败和请求超时，原始数值与失败状态保留。[复跑记录](validation/2026-10-07-safepoint-hour.md)
 - [x] 增加测试 JVM 外的有界调度心跳；Windows/Linux 短测四组通过并重放数值附件。[核对记录](validation/2026-10-07-host-scheduling.md)
 - [x] 固定源码的 20 分钟 HTTP 四组复跑通过，原始附件按源码和数值重放；这一结果不替代小时级验收。[复跑记录](validation/2026-10-08-host-scheduling-1200.md)
-- [ ] 继续定位 Windows 长时请求超时及测试 JVM 附加诊断失败，再做最新源码的长时验收。[最近一次复跑](validation/2026-10-08-host-scheduling-hour.md)
+- [x] 在可选诊断中加入 JVM 内心跳，与外部心跳和安全点对齐；短测四组通过并重放附件。[一小时失败现场](validation/2026-10-08-jvm-scheduling-hour.md)
+- [ ] 继续定位 Windows 长时请求超时及测试 JVM 附加诊断失败，再做最新源码的长时验收。[最近一次复跑](validation/2026-10-08-jvm-scheduling-hour.md)
 - [ ] 进一步区分 Linux 匿名页增长中的堆、线程栈和原生分配来源。
 - [x] 在受控 Linux HTTP 测试 JVM 关闭后核对原生堆整理前后驻留页；60 秒和 600 秒双组通过并重放，显示部分页可回收，尚不能追溯具体分配来源。[核对记录](validation/2026-10-07-native-heap-trim.md)
 - [ ] 完成最新源码的两小时及更长连续验收，再整理下一版预览包和升级回归。
