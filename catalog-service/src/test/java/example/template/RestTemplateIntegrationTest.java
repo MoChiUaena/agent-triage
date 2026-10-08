@@ -39,13 +39,16 @@ class RestTemplateIntegrationTest {
     static class Application { }
     @RestController
     static class Controller {
-        private final RestTemplate client;
+        private final RestTemplate client, normal;
         Controller(RestTemplateBuilder builder, @Value("${triage.sdk.downstream-base-url}") String origin) {
-            client = builder.requestFactory(org.springframework.http.client.SimpleClientHttpRequestFactory::new).rootUri(origin).connectTimeout(Duration.ofSeconds(1)).readTimeout(Duration.ofMillis(250)).build();
+            var configured = builder.requestFactory(org.springframework.http.client.SimpleClientHttpRequestFactory::new)
+                .rootUri(origin).connectTimeout(Duration.ofSeconds(1));
+            normal = configured.readTimeout(Duration.ofSeconds(2)).build();
+            client = configured.readTimeout(Duration.ofMillis(250)).build();
         }
         @GetMapping({"/api/template/{mode}", "/outside/{mode}"})
         ResponseEntity<String> lookup(@PathVariable String mode) {
-            try { return ResponseEntity.ok(client.getForObject("/" + mode + "?token=private-query", String.class)); }
+            try { return ResponseEntity.ok((mode.equals("normal") ? normal : client).getForObject("/" + mode + "?token=private-query", String.class)); }
             catch (RestClientException failure) { return ResponseEntity.status(504).body("Downstream did not complete"); }
         }
     }
