@@ -32,7 +32,8 @@ class RegisteredSampleTest {
 
     @Test void exportsItsConfiguredIdentityAndRealRequestsWithoutLabEndpoints() {
         // Warm the client's first connection without recording an application request.
-        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> inventory.availability("test-warmup"));
+        await().atMost(Duration.ofSeconds(5)).ignoreException(java.net.http.HttpTimeoutException.class)
+            .untilAsserted(() -> inventory.availability("test-warmup"));
         assertThat(http.getForEntity("/api/requests/test", String.class).getStatusCode()).isEqualTo(HttpStatus.OK);
         Instant end = Instant.now();
         var value = http.getForObject("/triage/observations?windowMinutes=5&endTime={end}", ObservationsController.Observations.class, end);
