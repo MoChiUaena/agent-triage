@@ -21,6 +21,18 @@ def sample(elapsed, phase="running", native=42696704, rss=170000000, pid=1234):
         nativeThreadCount=25, rssBytes=rss, privateBytes=None)
 
 class ResourceSoakTest(unittest.TestCase):
+    def test_wrong_driver_status_is_kept_without_exporting_request_payload(self):
+        text = ('Authorization=private\n'
+            'RESOURCE_UNEXPECTED_DRIVER_RESPONSE scenario=5 status=200 expectedStatus=504 wallClockMs=1760000000456\n')
+        evidence = failure_diagnostics(text)
+        self.assertIn('RESOURCE_UNEXPECTED_DRIVER_RESPONSE scenario=5', evidence)
+        self.assertNotIn('Authorization', evidence)
+
+    def test_assertion_failure_marker_is_preserved_without_exception_message(self):
+        evidence = failure_diagnostics('secret failure body\n'
+            'RESOURCE_FAILURE_AT jvmUptimeMs=17000 wallClockMs=1760000000789\n')
+        self.assertEqual(evidence, 'RESOURCE_FAILURE_AT jvmUptimeMs=17000 wallClockMs=1760000000789')
+
     def test_failure_report_aligns_owned_sampler_gaps_with_jvm_wall_time(self):
         probe = HostSchedulingProbe()
         probe.tick(0, 1000)

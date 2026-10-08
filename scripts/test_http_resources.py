@@ -35,6 +35,24 @@ class HttpResourcesTest(unittest.TestCase):
             counters = receipt(component)
             self.assertEqual(parse_workload_result(line(component, counters), component, 60), counters)
 
+    def test_jdk_body_failure_with_typed_timeout_keeps_all_five_failures_accounted_for(self):
+        for component in ("http-disabled", "http-enabled"):
+            counters = receipt(component)
+            counters.update(jdkTypedTimeouts=1, typedTimeouts=241, untypedFailures=59,
+                observedTimeouts=241 if component == "http-enabled" else 0,
+                expectedWindowTimeouts=237, windowTimeouts=237 if component == "http-enabled" else 0)
+            self.assertEqual(parse_workload_result(line(component, counters), component, 60), counters)
+
+            counters["jdkTypedTimeouts"] = 0
+            with self.assertRaises(ValueError):
+                parse_workload_result(line(component, counters), component, 60)
+
+    def test_final_window_cannot_exceed_total_classified_timeouts(self):
+        counters = receipt("http-enabled")
+        counters.update(jdkTypedTimeouts=0, expectedWindowTimeouts=241, windowTimeouts=241)
+        with self.assertRaises(ValueError):
+            parse_workload_result(line("http-enabled", counters), "http-enabled", 60)
+
     def test_rejects_wrong_counts_open_responses_contexts_cleanup_and_rate(self):
         for key, bad in (("requests", 479), ("successes", 179), ("failures", 299),
                 ("typedTimeouts", 239), ("untypedFailures", 0), ("observedRequests", 479),

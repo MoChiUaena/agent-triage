@@ -153,7 +153,8 @@ def parse_workload_result(text, component, seconds):
 
 
 def failure_diagnostics(text):
-    prefixes = ("RESOURCE_UNEXPECTED_HTTP_FAILURE ", "RESOURCE_FAILURE_FRAMES ", "RESOURCE_THREAD ", "RESOURCE_FRAME ", "RESOURCE_TIMING ")
+    prefixes = ("RESOURCE_UNEXPECTED_HTTP_FAILURE ", "RESOURCE_UNEXPECTED_DRIVER_RESPONSE ", "RESOURCE_FAILURE_AT ",
+        "RESOURCE_FAILURE_FRAMES ", "RESOURCE_THREAD ", "RESOURCE_FRAME ", "RESOURCE_TIMING ")
     lines = [line[:1024] for line in text.splitlines() if line.startswith(prefixes)]
     return "\n".join(lines)[:32768]
 

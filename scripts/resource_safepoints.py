@@ -49,7 +49,7 @@ def parse_safepoint_line(line):
 
 def failure_uptime_ms(workload_text):
     for line in workload_text.splitlines():
-        if line.startswith('RESOURCE_UNEXPECTED_HTTP_FAILURE ') and len(line) <= 2048:
+        if line.startswith(('RESOURCE_UNEXPECTED_HTTP_FAILURE ', 'RESOURCE_UNEXPECTED_DRIVER_RESPONSE ', 'RESOURCE_FAILURE_AT ')) and len(line) <= 2048:
             match = re.search(r'\bjvmUptimeMs=(\d+)(?:\s|$)', line)
             if match is not None:
                 return int(match[1])

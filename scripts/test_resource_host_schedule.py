@@ -44,6 +44,11 @@ class HostSchedulingProbeTest(unittest.TestCase):
             'RESOURCE_UNEXPECTED_HTTP_FAILURE method=GET mode=normal '
             'elapsedMs=2200.0 jvmUptimeMs=14000 wallClockMs=1760000000123\n')
         self.assertEqual(failure_wall_ms(text), 1760000000123)
+        self.assertEqual(failure_wall_ms(
+            'RESOURCE_UNEXPECTED_DRIVER_RESPONSE scenario=5 status=200 expectedStatus=504 wallClockMs=1760000000456\n'),
+            1760000000456)
+        self.assertEqual(failure_wall_ms(
+            'RESOURCE_FAILURE_AT jvmUptimeMs=16000 wallClockMs=1760000000789\n'), 1760000000789)
         self.assertIsNone(failure_wall_ms('other wallClockMs=1760000000123'))
 
 

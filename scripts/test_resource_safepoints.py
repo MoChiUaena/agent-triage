@@ -25,6 +25,10 @@ class SafepointEvidenceTest(unittest.TestCase):
             "RESOURCE_UNEXPECTED_HTTP_FAILURE method=PUT factory=simple mode=normal elapsedMs=2028.0 "
             "typedTimeout=true jvmUptimeMs=15000\n")
         self.assertEqual(failure_uptime_ms(text), 15000)
+        self.assertEqual(failure_uptime_ms(
+            'RESOURCE_UNEXPECTED_DRIVER_RESPONSE scenario=5 status=200 expectedStatus=504 jvmUptimeMs=16000\n'), 16000)
+        self.assertEqual(failure_uptime_ms(
+            'RESOURCE_FAILURE_AT jvmUptimeMs=17000 wallClockMs=1760000000789\n'), 17000)
         self.assertIsNone(failure_uptime_ms("no owned failure jvmUptimeMs=15000"))
 
     def test_summarizes_nearby_pause_without_exposing_raw_vm_text(self):

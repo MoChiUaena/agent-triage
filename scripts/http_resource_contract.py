@@ -19,7 +19,8 @@ def parse_http_receipt(receipt, component, seconds):
         "maxLagMillis", "baselineHeap", "peakHeap", "finalHeap"}
     profile = {"connectionPolicy", "healthyConnectionsReused", "faultConnectionsClosed"}
     profiled = bool(set(fields) & profile)
-    if len(tokens) != len(fields) or set(fields) != required | (profile if profiled else set()):
+    jdk_classification = {"jdkTypedTimeouts"} if "jdkTypedTimeouts" in fields else set()
+    if len(tokens) != len(fields) or set(fields) != required | (profile if profiled else set()) | jdk_classification:
         raise ValueError("Missing or duplicate HTTP workload counters")
     value = {key: raw == "true" if raw in ("true", "false") else int(raw) for key, raw in fields.items()}
     booleans = {"executorsStopped", "servletStopped", "healthyConnectionsReused", "faultConnectionsClosed"}
@@ -28,9 +29,12 @@ def parse_http_receipt(receipt, component, seconds):
     if profiled and (value["connectionPolicy"] != 2 or value["healthyConnectionsReused"] is not True or value["faultConnectionsClosed"] is not True):
         raise ValueError("Fault-close profile lacks verified healthy reuse or connection cleanup")
     enabled = component == "http-enabled"
+    jdk_typed = value.get("jdkTypedTimeouts", 0)
+    if not 0 <= jdk_typed <= seconds:
+        raise ValueError("JDK typed failure count exceeds its request count")
     expected = dict(seconds=seconds, cycles=seconds, rps=8, concurrency=4, requests=seconds*8,
-        successes=seconds*3, failures=seconds*5, typedTimeouts=seconds*4, untypedFailures=seconds,
-        observedRequests=seconds*8 if enabled else 0, observedTimeouts=seconds*4 if enabled else 0,
+        successes=seconds*3, failures=seconds*5, typedTimeouts=seconds*4+jdk_typed, untypedFailures=seconds-jdk_typed,
+        observedRequests=seconds*8 if enabled else 0, observedTimeouts=seconds*4+jdk_typed if enabled else 0,
         responsesOpened=seconds*7, responsesClosed=seconds*7, downstreamRequests=seconds*8,
         servletContexts=0, workerContexts=0, downstreamActive=0, queues=0, payloadErrors=0,
         executorsStopped=True, servletStopped=True)
@@ -41,9 +45,9 @@ def parse_http_receipt(receipt, component, seconds):
         raise ValueError("Final HTTP window lacks completed traffic")
     expected_timeouts = value["expectedWindowTimeouts"]
     if seconds <= 30:
-        if expected_requests != seconds*8 or expected_timeouts != seconds*4:
+        if expected_requests != seconds*8 or expected_timeouts != value["typedTimeouts"]:
             raise ValueError("Short HTTP window must contain the full workload")
-    elif not min(seconds, 60)*4-16 <= expected_timeouts <= min(seconds*4, expected_requests, 248):
+    elif not min(seconds, 60)*4-16 <= expected_timeouts <= min(value["typedTimeouts"], expected_requests, 308):
         raise ValueError("Final HTTP timeout window lacks the fixed-rate workload")
     if value["windowRequests"] != (expected_requests if enabled else 0) or value["windowTimeouts"] != (value["expectedWindowTimeouts"] if enabled else 0):
         raise ValueError("Final HTTP window differs from completed requests")

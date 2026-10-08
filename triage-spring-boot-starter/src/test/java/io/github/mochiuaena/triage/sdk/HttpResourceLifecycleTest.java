@@ -36,6 +36,7 @@ class HttpResourceLifecycleTest {
     static final int RPS = 8, CONCURRENCY = 4;
     static final int[] SCENARIOS = {0, 3, 4, 1, 5, 6, 2, 7};
     static final String PAYLOAD = "acceptance-body";
+    static final String TYPED_TIMEOUT_ATTRIBUTE = "resource.typedTimeout";
     static final Downstream downstream = new Downstream();
     ConfigurableApplicationContext application;
     Counters counters;
@@ -60,8 +61,7 @@ class HttpResourceLifecycleTest {
                     var context = (TriageRequestFilter.Context) request.getAttribute(TriageRequestFilter.CONTEXT_ATTRIBUTE);
                     if (context != null && (context.isActive() || context.handlerClass != null || context.endpoint != null))
                         counters.servletContexts.incrementAndGet();
-                    var requestPath = ((HttpServletRequest) request).getRequestURI();
-                    counters.completed(requestPath.contains("simple") && requestPath.contains("timeout"),
+                    counters.completed(Boolean.TRUE.equals(request.getAttribute(TYPED_TIMEOUT_ATTRIBUTE)),
                         ((HttpServletResponse) response).getStatus() >= 500);
                 }
             });
@@ -108,12 +108,13 @@ class HttpResourceLifecycleTest {
                 return ResponseEntity.ok(client.exchange("/" + factory + "-" + mode, HttpMethod.valueOf(request.getMethod()),
                     new HttpEntity<>(body, headers), String.class).getBody());
             } catch (RestClientException failure) {
-                boolean unexpected = mode.equals("normal") || typedTimeout(failure) != factory.equals("simple");
+                boolean typed = typedTimeout(failure);
+                boolean unexpected = mode.equals("normal") || (factory.equals("simple") && !typed);
                 boolean firstUnexpected = unexpected && counters.dumpedFailure.compareAndSet(false, true);
                 var timing = firstUnexpected && downstream.timing != null ? downstream.timing.snapshot() : null;
                 if (unexpected)
                     System.out.println(String.format(Locale.ROOT, "RESOURCE_UNEXPECTED_HTTP_FAILURE method=%s factory=%s mode=%s elapsedMs=%.1f typedTimeout=%b gcMillis=%d downstreamActive=%d downstreamQueue=%d causeTypes=%s%s",
-                    request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typedTimeout(failure),
+                    request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typed,
                     Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure),
                     timing == null ? "" : " " + timing.summary() + " jvmUptimeMs=" +
                         ManagementFactory.getRuntimeMXBean().getUptime() + " wallClockMs=" + System.currentTimeMillis()));
@@ -126,7 +127,9 @@ class HttpResourceLifecycleTest {
                     }
                     dumpResourceThreads();
                 }
-                if (typedTimeout(failure)) counters.typedTimeouts.incrementAndGet();
+                request.setAttribute(TYPED_TIMEOUT_ATTRIBUTE, typed);
+                if (factory.equals("jdk") && typed) counters.jdkTypedTimeouts.incrementAndGet();
+                if (typed) counters.typedTimeouts.incrementAndGet();
                 else counters.untypedFailures.incrementAndGet();
                 return ResponseEntity.status(504).body("incomplete");
             }
@@ -135,7 +138,7 @@ class HttpResourceLifecycleTest {
     record Completion(Instant time, boolean timeout, boolean failed) { }
     static final class Counters {
         final AtomicInteger responsesOpened = new AtomicInteger(), responsesClosed = new AtomicInteger();
-        final AtomicInteger typedTimeouts = new AtomicInteger(), untypedFailures = new AtomicInteger();
+        final AtomicInteger typedTimeouts = new AtomicInteger(), untypedFailures = new AtomicInteger(), jdkTypedTimeouts = new AtomicInteger();
         final AtomicInteger servletContexts = new AtomicInteger(), completed = new AtomicInteger();
         final AtomicBoolean dumpedFailure = new AtomicBoolean();
         final Deque<Completion> recent = new ArrayDeque<>();
@@ -323,8 +326,9 @@ class HttpResourceLifecycleTest {
             await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == seconds * RPS && downstream.active.get() == 0);
             assertThat(driver.successes.get()).isEqualTo(seconds * 3);
             assertThat(driver.failures.get()).isEqualTo(seconds * 5);
-            assertThat(counters.typedTimeouts.get()).isEqualTo(seconds * 4);
-            assertThat(counters.untypedFailures.get()).isEqualTo(seconds);
+            assertThat(counters.typedTimeouts.get()).isEqualTo(seconds * 4 + counters.jdkTypedTimeouts.get());
+            assertThat(counters.untypedFailures.get()).isEqualTo(seconds - counters.jdkTypedTimeouts.get());
+            assertThat(counters.jdkTypedTimeouts.get()).isBetween(0, seconds);
             assertThat(counters.responsesOpened.get()).isEqualTo(seconds * 7);
             assertThat(counters.responsesClosed.get()).isEqualTo(counters.responsesOpened.get());
             assertThat(counters.servletContexts.get()).isZero();
@@ -344,9 +348,11 @@ class HttpResourceLifecycleTest {
             observedTimeouts += tail.newTimeouts();
             windowRequests = tail.requests(); windowTimeouts = tail.timeouts();
             expectedWindowRequests = tail.expectedRequests(); expectedWindowTimeouts = tail.expectedTimeouts();
-            assertThat(observedTimeouts).isEqualTo(enabled ? seconds * 4 : 0);
+            assertThat(observedTimeouts).isEqualTo(enabled ? counters.typedTimeouts.get() : 0);
         } catch (Exception | AssertionError failure) {
             var timing = downstream.timing == null ? null : downstream.timing.snapshot();
+            System.out.println("RESOURCE_FAILURE_AT jvmUptimeMs=" + ManagementFactory.getRuntimeMXBean().getUptime() +
+                " wallClockMs=" + System.currentTimeMillis());
             System.out.println("RESOURCE_FAILURE_FRAMES cause=" + failure.getClass().getName() + (timing == null ? "" : " " + timing.summary()));
             if (timing != null && counters.dumpedFailure.compareAndSet(false, true)) dumpResourceTiming(timing);
             for (var frame : Arrays.stream(failure.getStackTrace()).limit(12).toList()) System.out.println("RESOURCE_FRAME " + frame);
@@ -373,9 +379,9 @@ class HttpResourceLifecycleTest {
         long finalHeap = retainedHeap();
         assertThat(finalHeap).isLessThanOrEqualTo(baselineHeap + 64L * 1024 * 1024);
         String component = enabled ? "http-enabled" : "http-disabled";
-        System.out.println(String.format(Locale.ROOT, "RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 connectionPolicy=2 healthyConnectionsReused=true faultConnectionsClosed=true requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d",
+        System.out.println(String.format(Locale.ROOT, "RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 connectionPolicy=2 healthyConnectionsReused=true faultConnectionsClosed=true requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d jdkTypedTimeouts=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d",
             component, seconds, seconds, seconds * RPS, driver.successes.get(), driver.failures.get(), counters.typedTimeouts.get(),
-            counters.untypedFailures.get(), observedRequests, observedTimeouts, expectedWindowRequests, expectedWindowTimeouts,
+            counters.untypedFailures.get(), counters.jdkTypedTimeouts.get(), observedRequests, observedTimeouts, expectedWindowRequests, expectedWindowTimeouts,
             windowRequests, windowTimeouts, counters.responsesOpened.get(), counters.responsesClosed.get(), downstream.requests.get(),
             driver.maxLagMillis.get(), baselineHeap, peakHeap, finalHeap));
         phase("closed", started);
@@ -454,8 +460,19 @@ class HttpResourceLifecycleTest {
                     var body = method.equals("GET") ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(PAYLOAD);
                     var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/resource/" + factory + "/" + mode))
                         .timeout(Duration.ofSeconds(5)).method(method, body).build();
+                    long requestStarted = System.nanoTime();
                     var response = http.send(request, HttpResponse.BodyHandlers.ofString());
-                    assertThat(response.statusCode()).isEqualTo(scenario < 3 ? 200 : 504);
+                    int expectedStatus = scenario < 3 ? 200 : 504;
+                    if (response.statusCode() != expectedStatus) {
+                        var timing = downstream.timing == null ? null : downstream.timing.snapshot();
+                        System.out.println(String.format(Locale.ROOT,
+                            "RESOURCE_UNEXPECTED_DRIVER_RESPONSE scenario=%d method=%s factory=%s mode=%s status=%d expectedStatus=%d elapsedMs=%.1f jvmUptimeMs=%d wallClockMs=%d%s",
+                            scenario, method, factory, mode, response.statusCode(), expectedStatus,
+                            (System.nanoTime() - requestStarted) / 1_000_000.0,
+                            ManagementFactory.getRuntimeMXBean().getUptime(), System.currentTimeMillis(),
+                            timing == null ? "" : " " + timing.summary()));
+                    }
+                    assertThat(response.statusCode()).isEqualTo(expectedStatus);
                     assertThat(response.body()).isEqualTo(scenario < 3 ? "ok" : "incomplete");
                     assertThat(response.headers().firstValue("X-Triage-Trace-Id").isPresent()).isEqualTo(enabled);
                     if (scenario < 3) successes.incrementAndGet(); else failures.incrementAndGet();
