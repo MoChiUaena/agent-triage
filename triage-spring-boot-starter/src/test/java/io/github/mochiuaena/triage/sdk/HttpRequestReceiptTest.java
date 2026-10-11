@@ -80,4 +80,27 @@ class HttpRequestReceiptTest {
         assertThat(receipts.stageAt(0)).isNull();
         assertThat(receipts.stageAt(2)).isNull();
     }
+
+    @Test void accountsForIoAbortAfterBodyReadWithoutHidingOtherStageGaps() {
+        var receipts = new HttpRequestReceipt(3);
+        for (int index = 0; index < 3; index++) {
+            receipts.started(index, 5_000 + index * 125, 1_000 + index * 125);
+            receipts.received(index);
+        }
+        assertThat(receipts.ioAbortedBeforeDelay(0)).isFalse();
+        receipts.bodyRead(0);
+        assertThat(receipts.ioAbortedBeforeDelay(0)).isTrue();
+        assertThat(receipts.ioAbortedBeforeDelay(0)).isFalse();
+        assertThat(receipts.delayEntered(0)).isFalse();
+        receipts.bodyRead(1);
+        receipts.delayEntered(1);
+        assertThat(receipts.ioAbortedBeforeDelay(1)).isFalse();
+
+        var snapshot = receipts.snapshot(3);
+        assertThat(snapshot.bodyReadCount()).isEqualTo(2);
+        assertThat(snapshot.delayEnteredCount()).isEqualTo(1);
+        assertThat(snapshot.earlyIoAbortCount()).isEqualTo(1);
+        assertThat(snapshot.firstStageGaps()).containsExactly(
+            new HttpRequestReceipt.StageGap(2, false, false, 5_250, 1_250));
+    }
 }
