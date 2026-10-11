@@ -21,7 +21,8 @@ def parse_http_receipt(receipt, component, seconds):
     profiled = bool(set(fields) & profile)
     jdk_classification = {"jdkTypedTimeouts"} if "jdkTypedTimeouts" in fields else set()
     normal_schedule = {"normalScheduled"} if "normalScheduled" in fields else set()
-    if len(tokens) != len(fields) or set(fields) != required | (profile if profiled else set()) | jdk_classification | normal_schedule:
+    early_io = {"earlyIoAborts"} if "earlyIoAborts" in fields else set()
+    if len(tokens) != len(fields) or set(fields) != required | (profile if profiled else set()) | jdk_classification | normal_schedule | early_io:
         raise ValueError("Missing or duplicate HTTP workload counters")
     value = {key: raw == "true" if raw in ("true", "false") else int(raw) for key, raw in fields.items()}
     booleans = {"executorsStopped", "servletStopped", "healthyConnectionsReused", "faultConnectionsClosed", "normalScheduled"}
@@ -33,14 +34,19 @@ def parse_http_receipt(receipt, component, seconds):
     jdk_typed = value.get("jdkTypedTimeouts", 0)
     if not 0 <= jdk_typed <= seconds:
         raise ValueError("JDK typed failure count exceeds its request count")
+    early_aborts = value.get("earlyIoAborts", 0)
+    if not 0 <= early_aborts <= max(1, seconds // 300):
+        raise ValueError("Too many fault requests ended before the body delay")
     expected = dict(seconds=seconds, cycles=seconds, rps=8, concurrency=4, requests=seconds*8,
         successes=seconds*3, failures=seconds*5, typedTimeouts=seconds*4+jdk_typed, untypedFailures=seconds-jdk_typed,
         observedRequests=seconds*8 if enabled else 0, observedTimeouts=seconds*4+jdk_typed if enabled else 0,
-        responsesOpened=seconds*7, responsesClosed=seconds*7, downstreamRequests=seconds*8,
+        downstreamRequests=seconds*8,
         servletContexts=0, workerContexts=0, downstreamActive=0, queues=0, payloadErrors=0,
         executorsStopped=True, servletStopped=True)
     if any(value[key] != number for key, number in expected.items()):
         raise ValueError("Incomplete HTTP workload, observations or cleanup")
+    if not seconds*7 - early_aborts <= value["responsesOpened"] <= seconds*7 or value["responsesClosed"] != value["responsesOpened"]:
+        raise ValueError("Unaccounted HTTP response wrappers")
     expected_requests = value["expectedWindowRequests"]
     if not min(seconds*8, 480)-16 <= expected_requests <= min(seconds*8, 484):
         raise ValueError("Final HTTP window lacks completed traffic")

@@ -3,6 +3,7 @@ package io.github.mochiuaena.triage.sdk;
 import java.io.IOException;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Delayed;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -10,12 +11,12 @@ import java.util.concurrent.TimeUnit;
 /** Keeps an owned HttpExchange open while timer workers write a healthy response. */
 final class NormalResponseScheduler implements AutoCloseable {
     @FunctionalInterface interface Action { void run() throws IOException; }
-    record State(int poolSize, int activeCount, int queuedTaskCount, long taskCount,
+    record State(int poolSize, int activeCount, int queuedTaskCount, long nextDelayMillis, long taskCount,
                  long completedTaskCount, boolean shutdown) {
         String line() {
             return String.format(Locale.ROOT,
-                "RESOURCE_NORMAL_TIMER enabled=true poolSize=%d active=%d queued=%d tasks=%d completed=%d shutdown=%b",
-                poolSize, activeCount, queuedTaskCount, taskCount, completedTaskCount, shutdown);
+                "RESOURCE_NORMAL_TIMER enabled=true poolSize=%d active=%d queued=%d nextDelayMs=%d tasks=%d completed=%d shutdown=%b",
+                poolSize, activeCount, queuedTaskCount, nextDelayMillis, taskCount, completedTaskCount, shutdown);
         }
     }
 
@@ -44,7 +45,9 @@ final class NormalResponseScheduler implements AutoCloseable {
 
     boolean stopped() { return timers.isTerminated() && timers.getQueue().isEmpty(); }
     State state() {
-        return new State(timers.getPoolSize(), timers.getActiveCount(), timers.getQueue().size(),
+        var next = timers.getQueue().peek();
+        long nextDelayMillis = next instanceof Delayed delayed ? delayed.getDelay(TimeUnit.MILLISECONDS) : 0;
+        return new State(timers.getPoolSize(), timers.getActiveCount(), timers.getQueue().size(), nextDelayMillis,
             timers.getTaskCount(), timers.getCompletedTaskCount(), timers.isShutdown());
     }
 

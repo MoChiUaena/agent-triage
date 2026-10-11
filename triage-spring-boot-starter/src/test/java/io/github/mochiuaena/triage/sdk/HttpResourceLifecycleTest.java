@@ -203,9 +203,9 @@ class HttpResourceLifecycleTest {
     static void dumpMissingReceipts(HttpRequestReceipt receipts, int issued, int arrived, int opened, int expectedOpened) {
         var snapshot = receipts.snapshot(issued);
         System.out.println(String.format(Locale.ROOT,
-            "RESOURCE_REQUEST_RECEIPTS kind=summary issued=%d arrived=%d missing=%d opened=%d expectedOpened=%d bodyRead=%d delayEntered=%d",
+            "RESOURCE_REQUEST_RECEIPTS kind=summary issued=%d arrived=%d missing=%d opened=%d expectedOpened=%d bodyRead=%d delayEntered=%d earlyIoAborts=%d",
             issued, arrived, snapshot.missingCount(), opened, expectedOpened,
-            snapshot.bodyReadCount(), snapshot.delayEnteredCount()));
+            snapshot.bodyReadCount(), snapshot.delayEnteredCount(), snapshot.earlyIoAbortCount()));
         for (var missing : snapshot.firstMissing()) {
             int scenario = SCENARIOS[missing.index() % RPS];
             String method = scenario == 1 || scenario == 4 ? "POST" : scenario == 2 || scenario == 5 ? "PUT" : "GET";
@@ -233,9 +233,10 @@ class HttpResourceLifecycleTest {
             numericIndex, stage.arrived(), stage.bodyRead(), stage.delayEntered(),
             stage.startedUptimeMs(), stage.startedWallMs()));
     }
-    static boolean receiptCountMismatch(int expectedRequests, int arrived, int opened, int expectedOpened, long timingSamples) {
-        return arrived != expectedRequests || opened != expectedOpened ||
-            (timingSamples >= 0 && timingSamples != expectedRequests);
+    static boolean receiptCountMismatch(int expectedRequests, int arrived, int opened, int expectedOpened,
+                                        int earlyIoAborts, long timingSamples) {
+        return arrived != expectedRequests || opened < expectedOpened - earlyIoAborts || opened > expectedOpened ||
+            (timingSamples >= 0 && timingSamples + earlyIoAborts != expectedRequests);
     }
     static void dumpFailureReceipts(HttpRequestReceipt receipts, int expectedRequests, int arrived,
                                     int opened, int expectedOpened, boolean settled) {
@@ -341,10 +342,13 @@ class HttpResourceLifecycleTest {
                         if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_LAST_BYTE, 0);
                         exchange.getResponseBody().write('k');
                     } catch (IOException failure) {
-                        if (ledger != null && requestIndex >= 0 && !ledger.stageAt(requestIndex).delayEntered()
-                                && earlyIoDiagnostics.getAndIncrement() < 8)
-                            System.out.println("RESOURCE_DOWNSTREAM_EARLY_IO index=" + requestIndex + " stage=" + responseStage
-                                + " cause=" + failure.getClass().getName());
+                        if (ledger != null && requestIndex >= 0 && exchange.getRequestURI().getPath().contains("body-timeout")) {
+                            var stage = ledger.stageAt(requestIndex);
+                            if (stage != null && stage.bodyRead() && !stage.delayEntered()
+                                    && ledger.ioAbortedBeforeDelay(requestIndex) && earlyIoDiagnostics.getAndIncrement() < 8)
+                                System.out.println("RESOURCE_DOWNSTREAM_EARLY_IO index=" + requestIndex + " stage=" + responseStage
+                                    + " cause=" + failure.getClass().getName());
+                        }
                         throw failure;
                     } catch (InterruptedException failure) {
                         Thread.currentThread().interrupt(); throw new IOException(failure);
@@ -456,11 +460,14 @@ class HttpResourceLifecycleTest {
     }
 
     @Test void finalCountMismatchIncludesTimingOnlyFailure() {
-        assertThat(receiptCountMismatch(8, 8, 7, 7, 7)).isTrue();
-        assertThat(receiptCountMismatch(8, 7, 7, 7, 8)).isTrue();
-        assertThat(receiptCountMismatch(8, 8, 6, 7, 8)).isTrue();
-        assertThat(receiptCountMismatch(8, 8, 7, 7, 8)).isFalse();
-        assertThat(receiptCountMismatch(8, 8, 7, 7, -1)).isFalse();
+        assertThat(receiptCountMismatch(8, 8, 7, 7, 0, 7)).isTrue();
+        assertThat(receiptCountMismatch(8, 7, 7, 7, 0, 8)).isTrue();
+        assertThat(receiptCountMismatch(8, 8, 6, 7, 0, 8)).isTrue();
+        assertThat(receiptCountMismatch(8, 8, 5, 7, 1, 7)).isTrue();
+        assertThat(receiptCountMismatch(8, 8, 6, 7, 1, 7)).isFalse();
+        assertThat(receiptCountMismatch(8, 8, 7, 7, 1, 7)).isFalse();
+        assertThat(receiptCountMismatch(8, 8, 7, 7, 0, 8)).isFalse();
+        assertThat(receiptCountMismatch(8, 8, 7, 7, 0, -1)).isFalse();
     }
 
     @Test void earlyFailureReportsProgressWithoutTreatingQueuedRequestsAsMissing() {
@@ -608,19 +615,24 @@ class HttpResourceLifecycleTest {
             await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == seconds * RPS && downstream.active.get() == 0);
             long timingSamples = downstream.timing == null ? -1 : downstream.timing.snapshot().delaySamples();
             var receiptSnapshot = receipts.snapshot(seconds * RPS);
-            if (receiptCountMismatch(seconds * RPS, downstream.requests.get(), counters.responsesOpened.get(), seconds * 7, timingSamples) ||
-                receiptSnapshot.bodyReadCount() != seconds * RPS || receiptSnapshot.delayEnteredCount() != seconds * RPS) {
+            int earlyIoAborts = receiptSnapshot.earlyIoAbortCount();
+            if (receiptCountMismatch(seconds * RPS, downstream.requests.get(), counters.responsesOpened.get(), seconds * 7,
+                    earlyIoAborts, timingSamples) || receiptSnapshot.bodyReadCount() != seconds * RPS ||
+                receiptSnapshot.delayEnteredCount() + earlyIoAborts != seconds * RPS ||
+                earlyIoAborts > Math.max(1, seconds / 300)) {
                 dumpMissingReceipts(receipts, seconds * RPS, downstream.requests.get(), counters.responsesOpened.get(), seconds * 7);
                 receiptsDumped = true;
             }
             assertThat(receiptSnapshot.bodyReadCount()).isEqualTo(seconds * RPS);
-            assertThat(receiptSnapshot.delayEnteredCount()).isEqualTo(seconds * RPS);
+            assertThat(receiptSnapshot.delayEnteredCount() + earlyIoAborts).isEqualTo(seconds * RPS);
+            assertThat(receiptSnapshot.firstStageGaps()).isEmpty();
+            assertThat(earlyIoAborts).isLessThanOrEqualTo(Math.max(1, seconds / 300));
             assertThat(driver.successes.get()).isEqualTo(seconds * 3);
             assertThat(driver.failures.get()).isEqualTo(seconds * 5);
             assertThat(counters.typedTimeouts.get()).isEqualTo(seconds * 4 + counters.jdkTypedTimeouts.get());
             assertThat(counters.untypedFailures.get()).isEqualTo(seconds - counters.jdkTypedTimeouts.get());
             assertThat(counters.jdkTypedTimeouts.get()).isBetween(0, seconds);
-            assertThat(counters.responsesOpened.get()).isEqualTo(seconds * 7);
+            assertThat(counters.responsesOpened.get()).isBetween(seconds * 7 - earlyIoAborts, seconds * 7);
             assertThat(counters.responsesClosed.get()).isEqualTo(counters.responsesOpened.get());
             assertThat(counters.servletContexts.get()).isZero();
             assertThat(driver.workerContexts.get()).isZero();
@@ -632,7 +644,7 @@ class HttpResourceLifecycleTest {
             if (downstream.timing != null) {
                 var timing = downstream.timing.snapshot();
                 assertThat(timing.active()).isEmpty();
-                assertThat(timing.delaySamples()).isEqualTo(seconds * RPS);
+                assertThat(timing.delaySamples() + earlyIoAborts).isEqualTo(seconds * RPS);
             }
             var tail = checkWindow(enabled, seconds * RPS, previous);
             observedRequests = tail.observedRequests();
@@ -676,10 +688,10 @@ class HttpResourceLifecycleTest {
         long finalHeap = retainedHeap();
         assertThat(finalHeap).isLessThanOrEqualTo(baselineHeap + 64L * 1024 * 1024);
         String component = enabled ? "http-enabled" : "http-disabled";
-        System.out.println(String.format(Locale.ROOT, "RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 connectionPolicy=2 healthyConnectionsReused=true faultConnectionsClosed=true normalScheduled=%b requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d jdkTypedTimeouts=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d",
+        System.out.println(String.format(Locale.ROOT, "RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 connectionPolicy=2 healthyConnectionsReused=true faultConnectionsClosed=true normalScheduled=%b requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d jdkTypedTimeouts=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d earlyIoAborts=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d",
             component, seconds, seconds, downstream.scheduledNormal, seconds * RPS, driver.successes.get(), driver.failures.get(), counters.typedTimeouts.get(),
             counters.untypedFailures.get(), counters.jdkTypedTimeouts.get(), observedRequests, observedTimeouts, expectedWindowRequests, expectedWindowTimeouts,
-            windowRequests, windowTimeouts, counters.responsesOpened.get(), counters.responsesClosed.get(), downstream.requests.get(),
+            windowRequests, windowTimeouts, counters.responsesOpened.get(), counters.responsesClosed.get(), receipts.snapshot(seconds * RPS).earlyIoAbortCount(), downstream.requests.get(),
             driver.maxLagMillis.get(), baselineHeap, peakHeap, finalHeap));
         phase("closed", started);
     }

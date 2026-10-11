@@ -13,8 +13,22 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
+import static org.awaitility.Awaitility.await;
 
 class NormalResponseSchedulerTest {
+    @Test void reportsWhetherAQueuedNormalResponseIsOverdue() throws Exception {
+        try (var scheduler = new NormalResponseScheduler(); var caller = Executors.newSingleThreadExecutor()) {
+            var result = CompletableFuture.runAsync(() -> {
+                try { scheduler.afterDelay(3000, () -> { }); }
+                catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+            }, caller);
+            await().atMost(Duration.ofSeconds(2)).until(() -> scheduler.state().queuedTaskCount() == 1);
+            var state = scheduler.state();
+            assertThat(state.nextDelayMillis()).isBetween(1L, 3000L);
+            result.get(4, TimeUnit.SECONDS);
+        }
+    }
+
     @Test void reportsAResponseWriterBlockedInsideTheTimer() throws Exception {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -32,6 +46,7 @@ class NormalResponseSchedulerTest {
             var state = scheduler.state();
             assertThat(state.poolSize()).isGreaterThanOrEqualTo(1);
             assertThat(state.activeCount()).isEqualTo(1);
+            assertThat(state.nextDelayMillis()).isZero();
             assertThat(state.shutdown()).isFalse();
             release.countDown();
             result.get(1, TimeUnit.SECONDS);

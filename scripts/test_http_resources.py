@@ -42,6 +42,17 @@ class HttpResourcesTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_workload_result(line("http-enabled", counters), "http-enabled", 60)
 
+    def test_audited_early_io_abort_may_account_for_one_missing_response_wrapper(self):
+        counters = dict(receipt(), earlyIoAborts=1, responsesOpened=419, responsesClosed=419)
+        self.assertEqual(parse_workload_result(line("http-enabled", counters), "http-enabled", 60), counters)
+        counters["earlyIoAborts"] = 0
+        with self.assertRaises(ValueError):
+            parse_workload_result(line("http-enabled", counters), "http-enabled", 60)
+        counters["earlyIoAborts"] = 1
+        counters["responsesOpened"] = counters["responsesClosed"] = 418
+        with self.assertRaises(ValueError):
+            parse_workload_result(line("http-enabled", counters), "http-enabled", 60)
+
     def test_jdk_body_failure_with_typed_timeout_keeps_all_five_failures_accounted_for(self):
         for component in ("http-disabled", "http-enabled"):
             counters = receipt(component)
