@@ -260,6 +260,7 @@ class HttpResourceLifecycleTest {
     static final class Downstream implements AutoCloseable {
         final ThreadPoolExecutor workers = new ThreadPoolExecutor(8, 8, 0, TimeUnit.SECONDS, new ArrayBlockingQueue<>(16), namedThreads("resource-downstream-"));
         final AtomicInteger active = new AtomicInteger(), requests = new AtomicInteger(), payloadErrors = new AtomicInteger(), faultConnections = new AtomicInteger();
+        final AtomicInteger earlyIoDiagnostics = new AtomicInteger();
         final HttpServer server;
         final AtomicBoolean closed = new AtomicBoolean();
         final HealthyConnectionProbe healthyConnections = new HealthyConnectionProbe();
@@ -283,9 +284,10 @@ class HttpResourceLifecycleTest {
                             mode.contains("header-timeout") ? HttpResourceTiming.Scenario.HEADER_TIMEOUT : HttpResourceTiming.Scenario.BODY_TIMEOUT;
                         timing.begin(timingThread, scenario);
                     }
+                    var ledger = receipts;
+                    int requestIndex = -1;
+                    String responseStage = "read-request";
                     try {
-                        var ledger = receipts;
-                        int requestIndex = -1;
                         if (ledger != null) {
                             try {
                                 int index = Integer.parseInt(exchange.getRequestHeaders().getFirst("X-Resource-Index"));
@@ -323,8 +325,10 @@ class HttpResourceLifecycleTest {
                             if (ledger != null && requestIndex >= 0 && !ledger.delayEntered(requestIndex)) payloadErrors.incrementAndGet();
                             Thread.sleep(1000);
                         }
+                        responseStage = "send-headers";
                         if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_HEADERS, 0);
                         exchange.sendResponseHeaders(200, 2);
+                        responseStage = "write-first-byte";
                         if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_FIRST_BYTE, 0);
                         exchange.getResponseBody().write('o'); exchange.getResponseBody().flush();
                         if (mode.contains("body-timeout")) {
@@ -334,6 +338,12 @@ class HttpResourceLifecycleTest {
                         }
                         if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_LAST_BYTE, 0);
                         exchange.getResponseBody().write('k');
+                    } catch (IOException failure) {
+                        if (ledger != null && requestIndex >= 0 && !ledger.stageAt(requestIndex).delayEntered()
+                                && earlyIoDiagnostics.getAndIncrement() < 8)
+                            System.out.println("RESOURCE_DOWNSTREAM_EARLY_IO index=" + requestIndex + " stage=" + responseStage
+                                + " cause=" + failure.getClass().getName());
+                        throw failure;
                     } catch (InterruptedException failure) {
                         Thread.currentThread().interrupt(); throw new IOException(failure);
                     } finally { if (timing != null) timing.end(timingThread); }
