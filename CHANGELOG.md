@@ -2,6 +2,7 @@
 
 ## 未发布
 
+- Spring MVC 项目中，Boot 注入的 WebClient.Builder 可选观测匹配下游的响应头、正文等待及有类型超时；跨线程订阅保留原请求上下文，取消和迟到信号不改写结果。
 - 增加 Windows/Linux 的 Agent 与 Starter 小时级受控资源验收，采集同一 JVM 的堆、NMT、RSS 和关闭样本，保留可复算的数值与曲线。[验收记录](docs/validation/2026-10-02-hourly-resources.md)
 - 增加完整矩阵与 CSV 重放校验；关闭样本、GC 峰值和采样空缺进入门槛，失败时清理自己启动的 Maven 进程树。旧汇总先核对原定义，再按新门槛复算。
 

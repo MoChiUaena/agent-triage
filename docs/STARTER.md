@@ -42,11 +42,11 @@ triage:
     capacity: 10000
 ```
 
-配置开启后，过滤器记录 `/api/` 下请求的完成时间、耗时和生成的 traceId。Spring MVC 异步请求会等到 Servlet 完成回调后记录一次，耗时包含异步等待；最终 5xx 状态记为请求错误。业务代码可注入 Boot 提供的 `RestClient.Builder` 或 `RestTemplateBuilder`，两者共用下游拦截器，只记录有效请求上下文中、目标 origin 匹配的调用。自行创建的客户端、WebClient 和 Feign 不会自动接入。HTTP 状态码错误不会被当作下游超时，只有超时异常链才增加下游超时计数。
+配置开启后，过滤器记录 `/api/` 下请求的完成时间、耗时和生成的 traceId。Spring MVC 异步请求会等到 Servlet 完成回调后记录一次，耗时包含异步等待；最终 5xx 状态记为请求错误。业务代码可注入 Boot 提供的 `RestClient.Builder`、`RestTemplateBuilder` 或 `WebClient.Builder`，只记录有效请求上下文中、目标 origin 匹配的调用。自行创建的客户端和 Feign 不会自动接入。HTTP 状态码错误不会被当作下游超时，只有明确的超时异常类型才增加下游超时计数。
 
 每个窗口中的请求数包含匹配路径下已完成的同步和 Spring MVC 异步请求；下游 p95 是每条请求内指定下游调用累计耗时的 p95，没有该调用时记为零。一次请求有多个超时仍只计一次。组件不推断正常基线，`baselineRequestP95Ms` 为 `null`。
 
-商品请求响应中的 `X-Triage-Trace-Id` 对应 SDK 错误事件标识。SDK 不接收外部 traceId，也不会自动与业务日志已有链路关联。工作线程需要按下文显式包装任务；未包装的任务不会自动归属请求。WebFlux 和多个下游暂未支持。
+商品请求响应中的 `X-Triage-Trace-Id` 对应 SDK 错误事件标识。SDK 不接收外部 traceId，也不会自动与业务日志已有链路关联。普通工作线程需要按下文显式包装任务；Boot WebClient 在请求创建时捕获有效上下文，订阅可在其他线程完成。WebFlux 服务端和多个下游暂未支持。
 
 ### 使用 RestTemplateBuilder
 
@@ -64,9 +64,23 @@ RestTemplate inventoryClient(RestTemplateBuilder builder,
 }
 ```
 
-Starter 追加观测拦截器，保留应用的超时、拦截器和错误处理器，不更换请求工厂。上例显式选用 `SimpleClientHttpRequestFactory`，其正文 socket 超时可通过 `SocketTimeoutException` 识别。Boot 默认选择的 JDK 工厂也能观测调用与正文读取耗时、识别响应头阶段超时；但 Spring 6.2.19 可能在正文超时到期后仅关闭输入流，留下普通 `IOException`。这种情况不会根据错误消息猜测为下游超时。连接超时目前验证了异常分类，未模拟真实网络中的连接黑洞。
+Starter 追加观测拦截器，保留应用的超时、拦截器和错误处理器，不更换请求工厂。上例显式选用 `SimpleClientHttpRequestFactory`，其正文 socket 超时可通过 `SocketTimeoutException` 识别。Boot 的默认请求工厂随类路径变化；JDK 与 Reactor Netty 路径均已核对，后者的 `ReadTimeoutException` 按有类型超时处理。Spring 6.2.19 的 JDK 路径可能在正文超时到期后仅关闭输入流，留下普通 `IOException`；这种情况不会根据错误消息猜测为下游超时。连接超时目前验证了异常分类，未模拟真实网络中的连接黑洞。
 
 耗时包含执行请求，以及应用实际获取状态、响应头和读取正文的等待。组件不会预读或缓存正文。读取失败保持 Spring 原来的异常包装；正文转换阶段可能抛出 `RestClientException`，不一定是 `ResourceAccessException`。普通 4xx/5xx 仍由应用错误处理器处理。`HTTP_REQUESTS` 模式不安装下游拦截器。
+
+### 使用 WebClient.Builder
+
+这项接入仅在当前源码中提供，已发布的 v0.11.0 附件不包含它。业务应用需自行添加 `spring-boot-starter-webflux`，然后使用 Boot 注入的 builder；Starter 对 `spring-webflux` 的依赖是可选的，不会给未使用 WebClient 的应用加入 Reactor Netty。
+
+```java
+@Bean
+WebClient inventoryWebClient(WebClient.Builder builder,
+                             @Value("${triage.sdk.downstream-base-url}") String origin) {
+    return builder.baseUrl(origin).build();
+}
+```
+
+在仍有效的 MVC 请求中创建 WebClient 请求时，Starter 在客户端内部属性里保存观测上下文；即使订阅移到其他线程，匹配下游的耗时与有类型超时仍归属原请求。响应头和已订阅的正文分别计时，取消不计为超时；响应完成后的订阅或迟到信号不会改写已保存窗口。组件不保存 URL、请求头或正文，也不改变应用设置的连接器和超时。请求在 MVC 上下文之外创建且订阅时也没有上下文时，不产生下游观测。普通 4xx/5xx 与连接拒绝不算下游超时。
 
 ## 显式包装工作线程
 
