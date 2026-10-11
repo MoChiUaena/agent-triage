@@ -102,12 +102,13 @@ class HttpResourceLifecycleTest {
         ResponseEntity<String> call(@PathVariable String factory, @PathVariable String mode, HttpServletRequest request,
                                     @RequestBody(required = false) String body) {
             long started = System.nanoTime(), gcBefore = gcMillis();
+            String requestIndex = request.getHeader("X-Resource-Index");
+            String diagnosticIndex = requestIndex != null && requestIndex.matches("[0-9]{1,5}") ? requestIndex : "unreported";
             try {
                 var client = factory.equals("simple") ? mode.equals("normal") ? simpleNormal : simple : jdk;
                 var headers = new HttpHeaders();
                 if (factory.equals("simple") && mode.contains("timeout")) headers.setConnection("close");
-                String requestIndex = request.getHeader("X-Resource-Index");
-                if (requestIndex != null && requestIndex.matches("[0-9]{1,5}")) headers.set("X-Resource-Index", requestIndex);
+                if (!diagnosticIndex.equals("unreported")) headers.set("X-Resource-Index", diagnosticIndex);
                 return ResponseEntity.ok(client.exchange("/" + factory + "-" + mode, HttpMethod.valueOf(request.getMethod()),
                     new HttpEntity<>(body, headers), String.class).getBody());
             } catch (RestClientException failure) {
@@ -118,8 +119,8 @@ class HttpResourceLifecycleTest {
                 long failureWallMs = firstUnexpected ? System.currentTimeMillis() : -1;
                 var timing = firstUnexpected && downstream.timing != null ? downstream.timing.snapshot() : null;
                 if (unexpected)
-                    System.out.println(String.format(Locale.ROOT, "RESOURCE_UNEXPECTED_HTTP_FAILURE method=%s factory=%s mode=%s elapsedMs=%.1f typedTimeout=%b gcMillis=%d downstreamActive=%d downstreamQueue=%d causeTypes=%s%s",
-                    request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typed,
+                    System.out.println(String.format(Locale.ROOT, "RESOURCE_UNEXPECTED_HTTP_FAILURE index=%s method=%s factory=%s mode=%s elapsedMs=%.1f typedTimeout=%b gcMillis=%d downstreamActive=%d downstreamQueue=%d causeTypes=%s%s",
+                    diagnosticIndex, request.getMethod(), factory, mode, ObservationRecorder.elapsed(started), typed,
                     Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure),
                     timing == null ? "" : " " + timing.summary() + " jvmUptimeMs=" + failureUptimeMs + " wallClockMs=" + failureWallMs));
                 if (firstUnexpected) {
@@ -372,6 +373,51 @@ class HttpResourceLifecycleTest {
         assertThat(output).doesNotContain("kind=missing", "kind=summary");
     }
 
+    @Test void unexpectedNormalFailureReportsOnlyValidatedRequestIndex() throws Exception {
+        int unavailablePort;
+        try (var reserved = new ServerSocket(0)) { unavailablePort = reserved.getLocalPort(); }
+        try (var client = java.net.http.HttpClient.newHttpClient()) {
+            var controller = new Controller(new RestTemplateBuilder(), client, new Counters(),
+                "http://127.0.0.1:" + unavailablePort);
+            var request = new MockHttpServletRequest("GET", "/api/resource/simple/normal");
+            request.addHeader("X-Resource-Index", "317");
+            var originalOut = System.out;
+            var capture = new ByteArrayOutputStream();
+            try (var printed = new PrintStream(capture, true, java.nio.charset.StandardCharsets.UTF_8)) {
+                System.setOut(printed);
+                assertThat(controller.call("simple", "normal", request, null).getStatusCode().value()).isEqualTo(504);
+            } finally { System.setOut(originalOut); }
+            assertThat(capture.toString(java.nio.charset.StandardCharsets.UTF_8))
+                .contains("RESOURCE_UNEXPECTED_HTTP_FAILURE index=317 method=GET");
+        }
+    }
+
+    @Test void driverStatusFailureReportsItsExactRequestIndex() throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            exchange.sendResponseHeaders(504, -1);
+            exchange.close();
+        });
+        server.start();
+        var receipts = new HttpRequestReceipt(8);
+        var driver = new Driver(server.getAddress().getPort(), false, receipts);
+        var originalOut = System.out;
+        var capture = new ByteArrayOutputStream();
+        try (var printed = new PrintStream(capture, true, java.nio.charset.StandardCharsets.UTF_8)) {
+            System.setOut(printed);
+            driver.submit(6, System.nanoTime());
+            driver.workers.shutdown();
+            assertThat(driver.workers.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(driver.failure.get()).isNotNull();
+        } finally {
+            System.setOut(originalOut);
+            driver.close();
+            server.stop(0);
+        }
+        assertThat(capture.toString(java.nio.charset.StandardCharsets.UTF_8))
+            .contains("RESOURCE_UNEXPECTED_DRIVER_RESPONSE index=6 scenario=2");
+    }
+
     @Test void realServletWorkloadMaintainsCountsAndReturnsItsResources() throws Exception {
         int seconds = Integer.getInteger("triage.resource.seconds", 12);
         application = new org.springframework.boot.builder.SpringApplicationBuilder(Application.class).properties(
@@ -591,8 +637,8 @@ class HttpResourceLifecycleTest {
                     if (response.statusCode() != expectedStatus) {
                         var timing = downstream.timing == null ? null : downstream.timing.snapshot();
                         System.out.println(String.format(Locale.ROOT,
-                            "RESOURCE_UNEXPECTED_DRIVER_RESPONSE scenario=%d method=%s factory=%s mode=%s status=%d expectedStatus=%d elapsedMs=%.1f jvmUptimeMs=%d wallClockMs=%d%s",
-                            scenario, method, factory, mode, response.statusCode(), expectedStatus,
+                            "RESOURCE_UNEXPECTED_DRIVER_RESPONSE index=%d scenario=%d method=%s factory=%s mode=%s status=%d expectedStatus=%d elapsedMs=%.1f jvmUptimeMs=%d wallClockMs=%d%s",
+                            index, scenario, method, factory, mode, response.statusCode(), expectedStatus,
                             (System.nanoTime() - requestStarted) / 1_000_000.0,
                             ManagementFactory.getRuntimeMXBean().getUptime(), System.currentTimeMillis(),
                             timing == null ? "" : " " + timing.summary()));
