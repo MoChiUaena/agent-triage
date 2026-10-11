@@ -7,6 +7,7 @@ import java.util.List;
 /** Numeric driver-to-downstream receipt for the owned HTTP workload only. */
 final class HttpRequestReceipt {
     record Missing(int index, long startedUptimeMs, long startedWallMs) { }
+    record Stage(boolean arrived, boolean bodyRead, boolean delayEntered, long startedUptimeMs, long startedWallMs) { }
     record StageGap(int index, boolean bodyRead, boolean delayEntered, long startedUptimeMs, long startedWallMs) { }
     record Snapshot(int missingCount, List<Missing> firstMissing, int bodyReadCount, int delayEnteredCount,
                     List<StageGap> firstStageGaps) { }
@@ -56,6 +57,12 @@ final class HttpRequestReceipt {
     }
 
     synchronized int arrivedCount() { return received.cardinality(); }
+
+    synchronized Stage stageAt(int index) {
+        if (index < 0 || index >= startedWallMs.length || startedWallMs[index] == 0) return null;
+        return new Stage(received.get(index), bodyRead.get(index), delayEntered.get(index),
+            startedUptimeMs[index], startedWallMs[index]);
+    }
 
     synchronized Snapshot snapshot(int issued) {
         if (issued < 0 || issued > startedWallMs.length) throw new IllegalArgumentException("Invalid issued count");

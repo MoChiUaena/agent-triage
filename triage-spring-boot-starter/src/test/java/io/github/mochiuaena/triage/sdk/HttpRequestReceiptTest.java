@@ -69,4 +69,15 @@ class HttpRequestReceiptTest {
             new HttpRequestReceipt.StageGap(1, true, false, 5_125, 1_125),
             new HttpRequestReceipt.StageGap(2, false, false, 5_250, 1_250));
     }
+
+    @Test void snapshotsOneRequestWithoutCallingAnInFlightStageMissing() {
+        var receipts = new HttpRequestReceipt(2);
+        receipts.started(1, 5_125, 1_125);
+        assertThat(receipts.stageAt(1)).isEqualTo(new HttpRequestReceipt.Stage(false, false, false, 5_125, 1_125));
+        receipts.received(1);
+        receipts.bodyRead(1);
+        assertThat(receipts.stageAt(1)).isEqualTo(new HttpRequestReceipt.Stage(true, true, false, 5_125, 1_125));
+        assertThat(receipts.stageAt(0)).isNull();
+        assertThat(receipts.stageAt(2)).isNull();
+    }
 }

@@ -124,6 +124,7 @@ class HttpResourceLifecycleTest {
                     Math.max(0, gcMillis() - gcBefore), downstream.active.get(), downstream.workers.getQueue().size(), causeTypes(failure),
                     timing == null ? "" : " " + timing.summary() + " jvmUptimeMs=" + failureUptimeMs + " wallClockMs=" + failureWallMs));
                 if (firstUnexpected) {
+                    dumpRequestStage(counters.receipts, diagnosticIndex);
                     dumpResourceTiming(timing, failureUptimeMs);
                     var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
                     for (Throwable cause = failure; cause != null && seen.add(cause); cause = cause.getCause()) {
@@ -146,6 +147,7 @@ class HttpResourceLifecycleTest {
         final AtomicInteger typedTimeouts = new AtomicInteger(), untypedFailures = new AtomicInteger(), jdkTypedTimeouts = new AtomicInteger();
         final AtomicInteger servletContexts = new AtomicInteger(), completed = new AtomicInteger();
         final AtomicBoolean dumpedFailure = new AtomicBoolean();
+        volatile HttpRequestReceipt receipts;
         final Deque<Completion> recent = new ArrayDeque<>();
         synchronized void completed(boolean timeout, boolean failed) {
             recent.addLast(new Completion(Instant.now(), timeout, failed));
@@ -219,6 +221,15 @@ class HttpResourceLifecycleTest {
                 "RESOURCE_REQUEST_RECEIPTS kind=stage-gap index=%d scenario=%d bodyRead=%b delayEntered=%b jvmUptimeMs=%d wallClockMs=%d",
                 gap.index(), scenario, gap.bodyRead(), gap.delayEntered(), gap.startedUptimeMs(), gap.startedWallMs()));
         }
+    }
+    static void dumpRequestStage(HttpRequestReceipt receipts, String numericIndex) {
+        if (receipts == null || numericIndex == null || !numericIndex.matches("[0-9]{1,5}")) return;
+        var stage = receipts.stageAt(Integer.parseInt(numericIndex));
+        if (stage == null) return;
+        System.out.println(String.format(Locale.ROOT,
+            "RESOURCE_REQUEST_RECEIPTS kind=request-stage index=%s arrived=%b bodyRead=%b delayEntered=%b jvmUptimeMs=%d wallClockMs=%d",
+            numericIndex, stage.arrived(), stage.bodyRead(), stage.delayEntered(),
+            stage.startedUptimeMs(), stage.startedWallMs()));
     }
     static boolean receiptCountMismatch(int expectedRequests, int arrived, int opened, int expectedOpened, long timingSamples) {
         return arrived != expectedRequests || opened != expectedOpened ||
@@ -419,7 +430,11 @@ class HttpResourceLifecycleTest {
         int unavailablePort;
         try (var reserved = new ServerSocket(0)) { unavailablePort = reserved.getLocalPort(); }
         try (var client = java.net.http.HttpClient.newHttpClient()) {
-            var controller = new Controller(new RestTemplateBuilder(), client, new Counters(),
+            var counters = new Counters();
+            var receipts = new HttpRequestReceipt(318);
+            receipts.started(317, 5_125, 1_125);
+            counters.receipts = receipts;
+            var controller = new Controller(new RestTemplateBuilder(), client, counters,
                 "http://127.0.0.1:" + unavailablePort);
             var request = new MockHttpServletRequest("GET", "/api/resource/simple/normal");
             request.addHeader("X-Resource-Index", "317");
@@ -430,8 +445,21 @@ class HttpResourceLifecycleTest {
                 assertThat(controller.call("simple", "normal", request, null).getStatusCode().value()).isEqualTo(504);
             } finally { System.setOut(originalOut); }
             assertThat(capture.toString(java.nio.charset.StandardCharsets.UTF_8))
-                .contains("RESOURCE_UNEXPECTED_HTTP_FAILURE index=317 method=GET");
+                .contains("RESOURCE_UNEXPECTED_HTTP_FAILURE index=317 method=GET",
+                    "RESOURCE_REQUEST_RECEIPTS kind=request-stage index=317 arrived=false bodyRead=false delayEntered=false jvmUptimeMs=5125 wallClockMs=1125");
         }
+    }
+
+    @Test void malformedDiagnosticIndexDoesNotMaskOriginalFailure() {
+        var receipts = new HttpRequestReceipt(2);
+        receipts.started(1, 5_125, 1_125);
+        var originalOut = System.out;
+        var capture = new ByteArrayOutputStream();
+        try (var printed = new PrintStream(capture, true, java.nio.charset.StandardCharsets.UTF_8)) {
+            System.setOut(printed);
+            assertThatCode(() -> dumpRequestStage(receipts, "1 Authorization=private")).doesNotThrowAnyException();
+        } finally { System.setOut(originalOut); }
+        assertThat(capture.toString(java.nio.charset.StandardCharsets.UTF_8)).isEmpty();
     }
 
     @Test void driverStatusFailureReportsItsExactRequestIndex() throws Exception {
@@ -475,6 +503,7 @@ class HttpResourceLifecycleTest {
         boolean enabled = application.getEnvironment().getProperty("triage.sdk.enabled", Boolean.class, false);
         assertThat(seconds).isBetween(2, 7200);
         var receipts = new HttpRequestReceipt(seconds * RPS);
+        counters.receipts = receipts;
         downstream.receipts = receipts;
         long started = System.nanoTime();
         long baselineHeap = 0, peakHeap = 0;
