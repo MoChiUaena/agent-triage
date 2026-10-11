@@ -153,11 +153,16 @@ def parse_workload_result(text, component, seconds):
 
 
 def failure_diagnostics(text):
-    prefixes = ("RESOURCE_UNEXPECTED_HTTP_FAILURE ", "RESOURCE_UNEXPECTED_DRIVER_RESPONSE ", "RESOURCE_FAILURE_AT ",
+    prefixes = ("RESOURCE_UNEXPECTED_HTTP_FAILURE ", "RESOURCE_UNEXPECTED_DRIVER_RESPONSE ",
+        "RESOURCE_REQUEST_RECEIPTS ", "RESOURCE_FAILURE_AT ",
         "RESOURCE_JVM_SCHEDULE ",
         "RESOURCE_FAILURE_FRAMES ", "RESOURCE_THREAD ", "RESOURCE_FRAME ", "RESOURCE_TIMING ")
     lines = [line[:1024] for line in text.splitlines() if line.startswith(prefixes)]
-    return "\n".join(lines)[:32768]
+    receipts = "\n".join(line for line in lines if line.startswith("RESOURCE_REQUEST_RECEIPTS "))[:4096]
+    other = "\n".join(line for line in lines if not line.startswith("RESOURCE_REQUEST_RECEIPTS "))
+    if not receipts:
+        return other[:32768]
+    return other[:32767 - len(receipts)] + "\n" + receipts
 
 def http_timing_arguments(component, enabled):
     if enabled and component not in HTTP_COMPONENTS:

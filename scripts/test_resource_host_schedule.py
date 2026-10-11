@@ -48,6 +48,10 @@ class HostSchedulingProbeTest(unittest.TestCase):
             'RESOURCE_UNEXPECTED_DRIVER_RESPONSE scenario=5 status=200 expectedStatus=504 wallClockMs=1760000000456\n'),
             1760000000456)
         self.assertEqual(failure_wall_ms(
+            'RESOURCE_REQUEST_RECEIPTS kind=summary issued=8 arrived=7 missing=1\n'
+            'RESOURCE_REQUEST_RECEIPTS kind=missing index=4 jvmUptimeMs=5500 wallClockMs=1760000000678\n'
+            'RESOURCE_FAILURE_AT jvmUptimeMs=9000 wallClockMs=1760000009000\n'), 1760000000678)
+        self.assertEqual(failure_wall_ms(
             'RESOURCE_FAILURE_AT jvmUptimeMs=16000 wallClockMs=1760000000789\n'), 1760000000789)
         self.assertIsNone(failure_wall_ms('other wallClockMs=1760000000123'))
 

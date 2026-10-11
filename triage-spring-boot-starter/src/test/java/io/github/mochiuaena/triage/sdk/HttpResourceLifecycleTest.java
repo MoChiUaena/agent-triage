@@ -26,6 +26,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.core.Ordered;
 import org.springframework.http.*;
 import org.springframework.http.client.*;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.*;
 import static org.assertj.core.api.Assertions.*;
@@ -105,6 +106,8 @@ class HttpResourceLifecycleTest {
                 var client = factory.equals("simple") ? mode.equals("normal") ? simpleNormal : simple : jdk;
                 var headers = new HttpHeaders();
                 if (factory.equals("simple") && mode.contains("timeout")) headers.setConnection("close");
+                String requestIndex = request.getHeader("X-Resource-Index");
+                if (requestIndex != null && requestIndex.matches("[0-9]{1,5}")) headers.set("X-Resource-Index", requestIndex);
                 return ResponseEntity.ok(client.exchange("/" + factory + "-" + mode, HttpMethod.valueOf(request.getMethod()),
                     new HttpEntity<>(body, headers), String.class).getBody());
             } catch (RestClientException failure) {
@@ -192,6 +195,37 @@ class HttpResourceLifecycleTest {
         if (downstream.jvmSchedule != null)
             System.out.println(downstream.jvmSchedule.render(failureUptimeMs));
     }
+    static void dumpMissingReceipts(HttpRequestReceipt receipts, int issued, int arrived, int opened, int expectedOpened) {
+        var snapshot = receipts.snapshot(issued);
+        System.out.println(String.format(Locale.ROOT,
+            "RESOURCE_REQUEST_RECEIPTS kind=summary issued=%d arrived=%d missing=%d opened=%d expectedOpened=%d",
+            issued, arrived, snapshot.missingCount(), opened, expectedOpened));
+        for (var missing : snapshot.firstMissing()) {
+            int scenario = SCENARIOS[missing.index() % RPS];
+            String method = scenario == 1 || scenario == 4 ? "POST" : scenario == 2 || scenario == 5 ? "PUT" : "GET";
+            String factory = scenario == 7 ? "jdk" : "simple";
+            String mode = scenario < 3 ? "normal" : scenario < 6 ? "header-timeout" : "body-timeout";
+            System.out.println(String.format(Locale.ROOT,
+                "RESOURCE_REQUEST_RECEIPTS kind=missing index=%d scenario=%d method=%s factory=%s mode=%s jvmUptimeMs=%s wallClockMs=%s",
+                missing.index(), scenario, method, factory, mode,
+                missing.startedUptimeMs() == 0 ? "unreported" : Long.toString(missing.startedUptimeMs()),
+                missing.startedWallMs() == 0 ? "unreported" : Long.toString(missing.startedWallMs())));
+        }
+    }
+    static boolean receiptCountMismatch(int expectedRequests, int arrived, int opened, int expectedOpened, long timingSamples) {
+        return arrived != expectedRequests || opened != expectedOpened ||
+            (timingSamples >= 0 && timingSamples != expectedRequests);
+    }
+    static void dumpFailureReceipts(HttpRequestReceipt receipts, int expectedRequests, int arrived,
+                                    int opened, int expectedOpened, boolean settled) {
+        if (settled) {
+            dumpMissingReceipts(receipts, expectedRequests, arrived, opened, expectedOpened);
+        } else {
+            System.out.println(String.format(Locale.ROOT,
+                "RESOURCE_REQUEST_RECEIPTS kind=progress started=%d arrived=%d expected=%d",
+                receipts.startedCount(), receipts.arrivedCount(), expectedRequests));
+        }
+    }
     static String causeTypes(Throwable failure) {
         var seen = Collections.newSetFromMap(new IdentityHashMap<Throwable, Boolean>());
         var types = new ArrayList<String>();
@@ -212,6 +246,7 @@ class HttpResourceLifecycleTest {
         final HealthyConnectionProbe healthyConnections = new HealthyConnectionProbe();
         final HttpResourceTiming timing = Boolean.getBoolean("triage.resource.timing") ? HttpResourceTiming.system() : null;
         volatile HttpJvmScheduleProbe jvmSchedule;
+        volatile HttpRequestReceipt receipts;
         Downstream() {
             try {
                 server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -225,6 +260,13 @@ class HttpResourceLifecycleTest {
                         timing.begin(timingThread, scenario);
                     }
                     try {
+                        var ledger = receipts;
+                        if (ledger != null) {
+                            try {
+                                int index = Integer.parseInt(exchange.getRequestHeaders().getFirst("X-Resource-Index"));
+                                if (!ledger.received(index)) payloadErrors.incrementAndGet();
+                            } catch (NumberFormatException invalid) { payloadErrors.incrementAndGet(); }
+                        }
                         var body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
                         if (!(exchange.getRequestMethod().equals("GET") ? body.isEmpty() : body.equals(PAYLOAD))) payloadErrors.incrementAndGet();
                         var mode = exchange.getRequestURI().getPath();
@@ -263,6 +305,7 @@ class HttpResourceLifecycleTest {
             if (closed.compareAndSet(false, true)) {
                 try { server.stop(0); workers.shutdownNow(); workers.close(); }
                 finally {
+                    receipts = null;
                     if (jvmSchedule != null) jvmSchedule.stop();
                     if (timing != null) timing.close();
                 }
@@ -270,6 +313,64 @@ class HttpResourceLifecycleTest {
         }
     }
     @AfterAll static void closeDownstream() { downstream.close(); }
+
+    @Test void numericRequestIndexReachesOwnedDownstream() throws Exception {
+        try (var owned = new Downstream(); var client = java.net.http.HttpClient.newHttpClient()) {
+            var receipts = new HttpRequestReceipt(8);
+            owned.receipts = receipts;
+            receipts.started(3, 5_375, 1_375);
+            var controller = new Controller(new RestTemplateBuilder(), client, new Counters(), owned.origin());
+            var request = new MockHttpServletRequest("GET", "/api/resource/simple/normal");
+            request.addHeader("X-Resource-Index", "3");
+
+            assertThat(controller.call("simple", "normal", request, null).getStatusCode().value()).isEqualTo(200);
+            assertThat(receipts.snapshot(4).firstMissing()).extracting(HttpRequestReceipt.Missing::index)
+                .doesNotContain(3);
+        }
+    }
+
+    @Test void missingDownstreamReceiptReportsExactScenarioAndStartTime() {
+        var receipts = new HttpRequestReceipt(8);
+        for (int index = 0; index < 8; index++) {
+            receipts.started(index, 5_000 + index * 125, 1_000 + index * 125);
+            if (index != 4) receipts.received(index);
+        }
+        var originalOut = System.out;
+        var capture = new ByteArrayOutputStream();
+        try (var printed = new PrintStream(capture, true, java.nio.charset.StandardCharsets.UTF_8)) {
+            System.setOut(printed);
+            dumpMissingReceipts(receipts, 8, 7, 6, 7);
+        } finally { System.setOut(originalOut); }
+
+        var text = capture.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(text).contains("RESOURCE_REQUEST_RECEIPTS kind=summary issued=8 arrived=7 missing=1 opened=6 expectedOpened=7",
+            "RESOURCE_REQUEST_RECEIPTS kind=missing index=4 scenario=5 method=PUT factory=simple mode=header-timeout jvmUptimeMs=5500 wallClockMs=1500");
+        assertThat(text).doesNotContain(PAYLOAD, "/api/resource", "http://");
+    }
+
+    @Test void finalCountMismatchIncludesTimingOnlyFailure() {
+        assertThat(receiptCountMismatch(8, 8, 7, 7, 7)).isTrue();
+        assertThat(receiptCountMismatch(8, 7, 7, 7, 8)).isTrue();
+        assertThat(receiptCountMismatch(8, 8, 6, 7, 8)).isTrue();
+        assertThat(receiptCountMismatch(8, 8, 7, 7, 8)).isFalse();
+        assertThat(receiptCountMismatch(8, 8, 7, 7, -1)).isFalse();
+    }
+
+    @Test void earlyFailureReportsProgressWithoutTreatingQueuedRequestsAsMissing() {
+        var receipts = new HttpRequestReceipt(8);
+        receipts.started(0, 5_000, 1_000);
+        receipts.started(1, 5_125, 1_125);
+        receipts.received(0);
+        var originalOut = System.out;
+        var capture = new ByteArrayOutputStream();
+        try (var printed = new PrintStream(capture, true, java.nio.charset.StandardCharsets.UTF_8)) {
+            System.setOut(printed);
+            dumpFailureReceipts(receipts, 8, 1, 1, 7, false);
+        } finally { System.setOut(originalOut); }
+        var output = capture.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output).contains("RESOURCE_REQUEST_RECEIPTS kind=progress started=2 arrived=1 expected=8");
+        assertThat(output).doesNotContain("kind=missing", "kind=summary");
+    }
 
     @Test void realServletWorkloadMaintainsCountsAndReturnsItsResources() throws Exception {
         int seconds = Integer.getInteger("triage.resource.seconds", 12);
@@ -285,14 +386,17 @@ class HttpResourceLifecycleTest {
         int downstreamPort = downstream.server.getAddress().getPort();
         boolean enabled = application.getEnvironment().getProperty("triage.sdk.enabled", Boolean.class, false);
         assertThat(seconds).isBetween(2, 7200);
+        var receipts = new HttpRequestReceipt(seconds * RPS);
+        downstream.receipts = receipts;
         long started = System.nanoTime();
         long baselineHeap = 0, peakHeap = 0;
         double nextHeap = Math.min(120, seconds / 5.0);
-        var driver = new Driver(port, enabled);
+        var driver = new Driver(port, enabled, receipts);
         if (downstream.timing != null) downstream.timing.driverStarted(started);
         var businessHttpClient = application.getBean(java.net.http.HttpClient.class);
         long observedRequests = 0; int observedTimeouts = 0, windowRequests = 0, windowTimeouts = 0;
         int expectedWindowRequests, expectedWindowTimeouts;
+        boolean receiptsDumped = false;
         WindowCheck previous = null;
         try {
             if (downstream.timing != null) downstream.jvmSchedule = HttpJvmScheduleProbe.start();
@@ -303,7 +407,7 @@ class HttpResourceLifecycleTest {
                 if (remaining > 0) TimeUnit.NANOSECONDS.sleep(remaining);
                 driver.maxLagMillis.accumulateAndGet(Math.max(0, (System.nanoTime() - scheduled) / 1_000_000L), Math::max);
                 if (downstream.timing != null) downstream.timing.driverLag(Math.max(0, System.nanoTime() - scheduled));
-                driver.submit(index % RPS, scheduled);
+                driver.submit(index, scheduled);
                 double elapsed = (System.nanoTime() - started) / 1_000_000_000.0;
                 if (elapsed >= nextHeap) {
                     long heap = retainedHeap();
@@ -332,6 +436,11 @@ class HttpResourceLifecycleTest {
             assertThat(driver.workers.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
             assertThat(driver.failure.get()).isNull();
             await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == seconds * RPS && downstream.active.get() == 0);
+            long timingSamples = downstream.timing == null ? -1 : downstream.timing.snapshot().delaySamples();
+            if (receiptCountMismatch(seconds * RPS, downstream.requests.get(), counters.responsesOpened.get(), seconds * 7, timingSamples)) {
+                dumpMissingReceipts(receipts, seconds * RPS, downstream.requests.get(), counters.responsesOpened.get(), seconds * 7);
+                receiptsDumped = true;
+            }
             assertThat(driver.successes.get()).isEqualTo(seconds * 3);
             assertThat(driver.failures.get()).isEqualTo(seconds * 5);
             assertThat(counters.typedTimeouts.get()).isEqualTo(seconds * 4 + counters.jdkTypedTimeouts.get());
@@ -358,6 +467,9 @@ class HttpResourceLifecycleTest {
             expectedWindowRequests = tail.expectedRequests(); expectedWindowTimeouts = tail.expectedTimeouts();
             assertThat(observedTimeouts).isEqualTo(enabled ? counters.typedTimeouts.get() : 0);
         } catch (Exception | AssertionError failure) {
+            if (!receiptsDumped) dumpFailureReceipts(receipts, seconds * RPS, downstream.requests.get(),
+                counters.responsesOpened.get(), seconds * 7,
+                driver.workers.isTerminated() && counters.completed.get() == seconds * RPS);
             long failureUptimeMs = ManagementFactory.getRuntimeMXBean().getUptime();
             long failureWallMs = System.currentTimeMillis();
             var timing = downstream.timing == null ? null : downstream.timing.snapshot();
@@ -455,21 +567,24 @@ class HttpResourceLifecycleTest {
         final AtomicReference<Throwable> failure = new AtomicReference<>();
         final AtomicInteger successes = new AtomicInteger(), failures = new AtomicInteger(), workerContexts = new AtomicInteger();
         final AtomicLong maxLagMillis = new AtomicLong();
-        final int port; final boolean enabled;
-        Driver(int port, boolean enabled) { this.port = port; this.enabled = enabled; }
-        void submit(int slot, long scheduled) {
+        final int port; final boolean enabled; final HttpRequestReceipt receipts;
+        Driver(int port, boolean enabled, HttpRequestReceipt receipts) {
+            this.port = port; this.enabled = enabled; this.receipts = receipts;
+        }
+        void submit(int index, long scheduled) {
             workers.execute(() -> {
                 maxLagMillis.accumulateAndGet(Math.max(0, (System.nanoTime() - scheduled) / 1_000_000L), Math::max);
                 if (downstream.timing != null) downstream.timing.driverLag(Math.max(0, System.nanoTime() - scheduled));
                 if (TriageRequestFilter.CURRENT.get() != null) workerContexts.incrementAndGet();
                 try {
-                    int scenario = SCENARIOS[slot];
+                    int scenario = SCENARIOS[index % RPS];
                     String method = scenario == 1 || scenario == 4 ? "POST" : scenario == 2 || scenario == 5 ? "PUT" : "GET";
                     String factory = scenario == 7 ? "jdk" : "simple";
                     String mode = scenario < 3 ? "normal" : scenario < 6 ? "header-timeout" : "body-timeout";
                     var body = method.equals("GET") ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(PAYLOAD);
                     var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/api/resource/" + factory + "/" + mode))
-                        .timeout(Duration.ofSeconds(5)).method(method, body).build();
+                        .timeout(Duration.ofSeconds(5)).header("X-Resource-Index", Integer.toString(index)).method(method, body).build();
+                    receipts.started(index, ManagementFactory.getRuntimeMXBean().getUptime(), System.currentTimeMillis());
                     long requestStarted = System.nanoTime();
                     var response = http.send(request, HttpResponse.BodyHandlers.ofString());
                     int expectedStatus = scenario < 3 ? 200 : 504;

@@ -40,6 +40,25 @@ class ResourceSoakTest(unittest.TestCase):
         self.assertIn('RESOURCE_JVM_SCHEDULE kind=near uptimeMs=16950 gapMs=250.000', evidence)
         self.assertNotIn('private data', evidence)
 
+    def test_missing_downstream_receipt_keeps_numeric_identity_without_request_text(self):
+        evidence = failure_diagnostics('private request data\n'
+            'RESOURCE_REQUEST_RECEIPTS kind=summary issued=8 arrived=7 missing=1 opened=6 expectedOpened=7\n'
+            'RESOURCE_REQUEST_RECEIPTS kind=missing index=4 scenario=5 method=PUT factory=simple '
+            'mode=header-timeout jvmUptimeMs=5500 wallClockMs=1760000000678\n')
+        self.assertIn('RESOURCE_REQUEST_RECEIPTS kind=missing index=4 scenario=5', evidence)
+        self.assertNotIn('private request data', evidence)
+
+    def test_late_receipt_survives_many_earlier_diagnostic_frames(self):
+        frames = 'RESOURCE_FRAME owned.stack.Frame\n' * 2000
+        receipt = ('RESOURCE_REQUEST_RECEIPTS kind=summary issued=480 arrived=479 missing=1 opened=419 expectedOpened=420\n'
+            'RESOURCE_REQUEST_RECEIPTS kind=missing index=317 scenario=6 method=GET factory=simple '
+            'mode=body-timeout jvmUptimeMs=40455 wallClockMs=1760000000678\n')
+        evidence = failure_diagnostics(frames + receipt + 'Authorization=private\n')
+        self.assertIn('RESOURCE_REQUEST_RECEIPTS kind=summary issued=480', evidence)
+        self.assertIn('RESOURCE_REQUEST_RECEIPTS kind=missing index=317', evidence)
+        self.assertLessEqual(len(evidence), 32768)
+        self.assertNotIn('Authorization', evidence)
+
     def test_failure_report_aligns_owned_sampler_gaps_with_jvm_wall_time(self):
         probe = HostSchedulingProbe()
         probe.tick(0, 1000)

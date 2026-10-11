@@ -28,6 +28,10 @@ class SafepointEvidenceTest(unittest.TestCase):
         self.assertEqual(failure_uptime_ms(
             'RESOURCE_UNEXPECTED_DRIVER_RESPONSE scenario=5 status=200 expectedStatus=504 jvmUptimeMs=16000\n'), 16000)
         self.assertEqual(failure_uptime_ms(
+            'RESOURCE_REQUEST_RECEIPTS kind=summary issued=8 arrived=7 missing=1\n'
+            'RESOURCE_REQUEST_RECEIPTS kind=missing index=4 jvmUptimeMs=5500 wallClockMs=1760000000678\n'
+            'RESOURCE_FAILURE_AT jvmUptimeMs=9000 wallClockMs=1760000009000\n'), 5500)
+        self.assertEqual(failure_uptime_ms(
             'RESOURCE_FAILURE_AT jvmUptimeMs=17000 wallClockMs=1760000000789\n'), 17000)
         self.assertIsNone(failure_uptime_ms("no owned failure jvmUptimeMs=15000"))
 
