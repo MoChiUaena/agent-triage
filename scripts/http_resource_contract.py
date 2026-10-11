@@ -20,10 +20,11 @@ def parse_http_receipt(receipt, component, seconds):
     profile = {"connectionPolicy", "healthyConnectionsReused", "faultConnectionsClosed"}
     profiled = bool(set(fields) & profile)
     jdk_classification = {"jdkTypedTimeouts"} if "jdkTypedTimeouts" in fields else set()
-    if len(tokens) != len(fields) or set(fields) != required | (profile if profiled else set()) | jdk_classification:
+    normal_schedule = {"normalScheduled"} if "normalScheduled" in fields else set()
+    if len(tokens) != len(fields) or set(fields) != required | (profile if profiled else set()) | jdk_classification | normal_schedule:
         raise ValueError("Missing or duplicate HTTP workload counters")
     value = {key: raw == "true" if raw in ("true", "false") else int(raw) for key, raw in fields.items()}
-    booleans = {"executorsStopped", "servletStopped", "healthyConnectionsReused", "faultConnectionsClosed"}
+    booleans = {"executorsStopped", "servletStopped", "healthyConnectionsReused", "faultConnectionsClosed", "normalScheduled"}
     if any(type(number) is not (bool if key in booleans else int) for key, number in value.items()):
         raise ValueError("Wrong HTTP counter type")
     if profiled and (value["connectionPolicy"] != 2 or value["healthyConnectionsReused"] is not True or value["faultConnectionsClosed"] is not True):

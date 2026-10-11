@@ -3,7 +3,7 @@ import unittest
 import io
 import tempfile
 from pathlib import Path
-from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, emit_bounded_failure_evidence, http_timing_arguments, native_trim_arguments, safepoint_jvm_option
+from resource_soak import parse_native_memory, parse_heap, summarize, parse_workload_result, failure_diagnostics, source_provenance, emit_failure_log, emit_bounded_failure_evidence, http_timing_arguments, normal_schedule_arguments, native_trim_arguments, safepoint_jvm_option
 from resource_host_schedule import HostSchedulingProbe
 
 NMT = """1234:
@@ -131,6 +131,13 @@ class ResourceSoakTest(unittest.TestCase):
         self.assertEqual(http_timing_arguments("http-enabled", False), [])
         self.assertEqual(http_timing_arguments("http-disabled", True), ["-Dtriage.resource.timing=true"])
         with self.assertRaises(ValueError): http_timing_arguments("agent", True)
+
+    def test_scheduled_normal_response_requires_owned_http_timing_profile(self):
+        self.assertEqual(normal_schedule_arguments("http-enabled", False, False), [])
+        self.assertEqual(normal_schedule_arguments("http-disabled", True, True),
+            ["-Dtriage.resource.normal-scheduled=true"])
+        for component, timing in (("agent", True), ("http-enabled", False)):
+            with self.assertRaises(ValueError): normal_schedule_arguments(component, True, timing)
 
     def test_keeps_bounded_numeric_phase_timing_without_application_payload(self):
         text = "RESOURCE_TIMING kind=active request=3 stage=DELAY_HEADERS elapsedMs=2100.0 cpuNanos=-1\n" + \

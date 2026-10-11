@@ -264,9 +264,14 @@ class HttpResourceLifecycleTest {
         final AtomicBoolean closed = new AtomicBoolean();
         final HealthyConnectionProbe healthyConnections = new HealthyConnectionProbe();
         final HttpResourceTiming timing = Boolean.getBoolean("triage.resource.timing") ? HttpResourceTiming.system() : null;
+        final boolean scheduledNormal;
+        final NormalResponseScheduler normalResponses;
         volatile HttpJvmScheduleProbe jvmSchedule;
         volatile HttpRequestReceipt receipts;
-        Downstream() {
+        Downstream() { this(Boolean.getBoolean("triage.resource.normal-scheduled")); }
+        Downstream(boolean scheduledNormal) {
+            this.scheduledNormal = scheduledNormal;
+            normalResponses = scheduledNormal ? new NormalResponseScheduler() : null;
             try {
                 server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
                 server.setExecutor(workers);
@@ -300,6 +305,17 @@ class HttpResourceLifecycleTest {
                             int delay = Integer.getInteger("triage.resource.normal-delay-millis", 350);
                             if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.DELAY_HEADERS, delay);
                             if (ledger != null && requestIndex >= 0 && !ledger.delayEntered(requestIndex)) payloadErrors.incrementAndGet();
+                            if (scheduledNormal) {
+                                normalResponses.afterDelay(delay, () -> {
+                                    if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_HEADERS, 0);
+                                    exchange.sendResponseHeaders(200, 2);
+                                    if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_FIRST_BYTE, 0);
+                                    exchange.getResponseBody().write('o'); exchange.getResponseBody().flush();
+                                    if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_LAST_BYTE, 0);
+                                    exchange.getResponseBody().write('k'); exchange.getResponseBody().flush();
+                                });
+                                return;
+                            }
                             Thread.sleep(delay);
                         }
                         if (mode.contains("header-timeout")) {
@@ -323,12 +339,19 @@ class HttpResourceLifecycleTest {
                     } finally { if (timing != null) timing.end(timingThread); }
                 }, active, requests));
                 server.start();
-            } catch (IOException failure) { workers.shutdownNow(); throw new UncheckedIOException(failure); }
+            } catch (IOException failure) {
+                if (normalResponses != null) normalResponses.close();
+                workers.shutdownNow(); throw new UncheckedIOException(failure);
+            }
         }
         String origin() { return "http://127.0.0.1:" + server.getAddress().getPort(); }
         @Override public void close() {
             if (closed.compareAndSet(false, true)) {
-                try { server.stop(0); workers.shutdownNow(); workers.close(); }
+                try {
+                    server.stop(0);
+                    if (normalResponses != null) normalResponses.close();
+                    workers.shutdownNow(); workers.close();
+                }
                 finally {
                     receipts = null;
                     if (jvmSchedule != null) jvmSchedule.stop();
@@ -355,6 +378,24 @@ class HttpResourceLifecycleTest {
             assertThat(snapshot.bodyReadCount()).isEqualTo(1);
             assertThat(snapshot.delayEnteredCount()).isEqualTo(1);
         }
+    }
+
+    @Test void scheduledNormalProfileKeepsTheSameReceiptAndReturnsItsTimer() throws Exception {
+        var owned = new Downstream(true);
+        try (owned; var client = java.net.http.HttpClient.newHttpClient()) {
+            var receipts = new HttpRequestReceipt(1);
+            owned.receipts = receipts;
+            receipts.started(0, 5_000, 1_000);
+            var request = HttpRequest.newBuilder(URI.create(owned.origin() + "/simple-normal"))
+                .timeout(Duration.ofSeconds(2)).header("X-Resource-Index", "0").GET().build();
+            var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.body()).isEqualTo("ok");
+            assertThat(receipts.snapshot(1).bodyReadCount()).isEqualTo(1);
+            assertThat(receipts.snapshot(1).delayEnteredCount()).isEqualTo(1);
+        }
+        assertThat(owned.normalResponses.stopped()).isTrue();
+        assertThat(owned.workers.isTerminated()).isTrue();
     }
 
     @Test void missingDownstreamReceiptReportsExactScenarioAndStartTime() {
@@ -608,6 +649,7 @@ class HttpResourceLifecycleTest {
         assertThat(driver.http.isTerminated()).isTrue();
         assertThat(businessHttpClient.isTerminated()).isTrue();
         assertThat(downstream.workers.isTerminated()).isTrue();
+        if (downstream.normalResponses != null) assertThat(downstream.normalResponses.stopped()).isTrue();
         if (downstream.jvmSchedule != null) assertThat(downstream.jvmSchedule.stopped()).isTrue();
         assertThat(downstream.active.get()).isZero();
         if (downstream.timing != null) {
@@ -622,8 +664,8 @@ class HttpResourceLifecycleTest {
         long finalHeap = retainedHeap();
         assertThat(finalHeap).isLessThanOrEqualTo(baselineHeap + 64L * 1024 * 1024);
         String component = enabled ? "http-enabled" : "http-disabled";
-        System.out.println(String.format(Locale.ROOT, "RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 connectionPolicy=2 healthyConnectionsReused=true faultConnectionsClosed=true requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d jdkTypedTimeouts=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d",
-            component, seconds, seconds, seconds * RPS, driver.successes.get(), driver.failures.get(), counters.typedTimeouts.get(),
+        System.out.println(String.format(Locale.ROOT, "RESOURCE_RESULT %s seconds=%d cycles=%d rps=8 concurrency=4 connectionPolicy=2 healthyConnectionsReused=true faultConnectionsClosed=true normalScheduled=%b requests=%d successes=%d failures=%d typedTimeouts=%d untypedFailures=%d jdkTypedTimeouts=%d observedRequests=%d observedTimeouts=%d expectedWindowRequests=%d expectedWindowTimeouts=%d windowRequests=%d windowTimeouts=%d responsesOpened=%d responsesClosed=%d downstreamRequests=%d servletContexts=0 workerContexts=0 downstreamActive=0 queues=0 payloadErrors=0 executorsStopped=true servletStopped=true maxLagMillis=%d baselineHeap=%d peakHeap=%d finalHeap=%d",
+            component, seconds, seconds, downstream.scheduledNormal, seconds * RPS, driver.successes.get(), driver.failures.get(), counters.typedTimeouts.get(),
             counters.untypedFailures.get(), counters.jdkTypedTimeouts.get(), observedRequests, observedTimeouts, expectedWindowRequests, expectedWindowTimeouts,
             windowRequests, windowTimeouts, counters.responsesOpened.get(), counters.responsesClosed.get(), downstream.requests.get(),
             driver.maxLagMillis.get(), baselineHeap, peakHeap, finalHeap));

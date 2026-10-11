@@ -28,10 +28,14 @@ on:
         type: choice
         default: both
         options: [both, windows]
+      normalScheduled:
+        description: Use the opt-in scheduled healthy response fixture (requires timing)
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: http-resources-${{ github.ref }}-${{ github.event.inputs.seconds || '60' }}-${{ github.event.inputs.timing || 'false' }}-${{ github.event.inputs.platform || 'both' }}
+  group: http-resources-${{ github.ref }}-${{ github.event.inputs.seconds || '60' }}-${{ github.event.inputs.timing || 'false' }}-${{ github.event.inputs.platform || 'both' }}-${{ github.event.inputs.normalScheduled || 'false' }}
   cancel-in-progress: true
 jobs:
   comparison:
@@ -53,7 +57,7 @@ jobs:
       - name: Verify numeric receipts and replay gates
         run: python -m unittest discover -s scripts -p 'test_*resource*.py'
       - name: Drive owned Servlet and loopback downstream
-        run: python scripts/resource_soak.py --component ${{ matrix.component }} --seconds "${{ github.event.inputs.seconds || '60' }}" --memory-details ${{ github.event.inputs.timing == 'true' && '--http-timing' || '' }}
+        run: python scripts/resource_soak.py --component ${{ matrix.component }} --seconds "${{ github.event.inputs.seconds || '60' }}" --memory-details ${{ github.event.inputs.timing == 'true' && '--http-timing' || '' }} ${{ github.event.inputs.normalScheduled == 'true' && '--normal-scheduled' || '' }}
       - name: Keep numeric diagnostics only
         if: always()
         uses: actions/upload-artifact@v4

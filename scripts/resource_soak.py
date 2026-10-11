@@ -170,6 +170,12 @@ def http_timing_arguments(component, enabled):
     return ["-Dtriage.resource.timing=true"] if enabled else []
 
 
+def normal_schedule_arguments(component, enabled, timing):
+    if enabled and (component not in HTTP_COMPONENTS or not timing):
+        raise ValueError("Scheduled normal responses require an owned HTTP timing workload")
+    return ["-Dtriage.resource.normal-scheduled=true"] if enabled else []
+
+
 def safepoint_jvm_option(component, enabled, output_name):
     if not enabled:
         return ""
@@ -243,6 +249,7 @@ def main():
     parser.add_argument("--seconds", type=int, default=3600)
     parser.add_argument("--memory-details", action="store_true", help="Add numeric NMT and Linux resident-page details")
     parser.add_argument("--http-timing", action="store_true", help="Enable bounded phase timing in the owned HTTP fixture")
+    parser.add_argument("--normal-scheduled", action="store_true", help="Use the opt-in owned normal-response scheduler")
     parser.add_argument("--native-heap-trim", action="store_true", help="Measure Linux resident pages after trimming the closed owned JVM")
     args = parser.parse_args()
     if not 10 <= args.seconds <= 7200:
@@ -251,6 +258,7 @@ def main():
         parser.error("http-timing requires an HTTP component")
     try:
         trim_arguments = native_trim_arguments(args.component, args.native_heap_trim, args.memory_details, sys.platform)
+        schedule_arguments = normal_schedule_arguments(args.component, args.normal_scheduled, args.http_timing)
     except ValueError as error:
         parser.error(str(error))
     interval, warmup = min(30, args.seconds / 10), min(120, args.seconds / 5)
@@ -269,7 +277,7 @@ def main():
             safepoint_jvm_option(args.component, args.http_timing, output.name), "test"]
     if args.component in HTTP_COMPONENTS:
         command.insert(-1, "-Dtriage.resource.http.enabled=" + str(args.component == "http-enabled").lower())
-    command[-1:-1] = http_timing_arguments(args.component, args.http_timing) + trim_arguments
+    command[-1:-1] = http_timing_arguments(args.component, args.http_timing) + schedule_arguments + trim_arguments
     starting_source = source_state()
     samples, detail_samples, child, pid, started = [], [], None, None, time.monotonic()
     reported_failure = False
@@ -350,8 +358,10 @@ def main():
                 raise ValueError("Owned sampler heartbeat has no numeric ticks")
             print(host_evidence, flush=True)
         summary = summarize(samples, args.seconds, warmup, interval)
-        summary.update(component=args.component, operatingSystem="windows" if windows else "linux",
-            workload=parse_workload_result(workload_text, args.component, args.seconds))
+        workload = parse_workload_result(workload_text, args.component, args.seconds)
+        if workload.get("normalScheduled", False) is not args.normal_scheduled:
+            raise ValueError("Owned normal-response profile differs from requested workload")
+        summary.update(component=args.component, operatingSystem="windows" if windows else "linux", workload=workload)
         summary.update(source_provenance(starting_source, source_state()))
         if args.http_timing: summary["httpTiming"] = True
         if args.memory_details:

@@ -93,7 +93,8 @@ def verify_dataset(summary_path: Path, source_commit: str, seconds: int):
             raise ValueError("Summary does not match numeric replay: " + key)
     workload = meta.get("workload")
     if not isinstance(workload, dict) or any(not isinstance(key, str) or
-        (type(value) is not int and not (key in ("samplerStopped", "executorsStopped", "servletStopped", "healthyConnectionsReused", "faultConnectionsClosed") and value is True)) for key, value in workload.items()):
+        (type(value) is not int and not (key in ("samplerStopped", "executorsStopped", "servletStopped", "healthyConnectionsReused", "faultConnectionsClosed") and value is True)
+            and not (key == "normalScheduled" and type(value) is bool)) for key, value in workload.items()):
         raise ValueError("Invalid workload counters")
     if any(type(value) is int and value < 0 for value in workload.values()):
         raise ValueError("Negative workload counters")
@@ -124,6 +125,8 @@ def verify_matrix(summary_paths, source_commit, seconds, workload="components"):
         raise ValueError("Expected each workload mode exactly once on Linux and Windows")
     if workload == "http" and len({meta["workload"].get("connectionPolicy", 1) for meta, rows in datasets}) != 1:
         raise ValueError("HTTP matrix mixes connection policies")
+    if workload == "http" and len({meta["workload"].get("normalScheduled", False) for meta, rows in datasets}) != 1:
+        raise ValueError("HTTP matrix mixes normal response schedules")
     if len({"memoryDetails" in meta for meta, rows in datasets}) != 1:
         raise ValueError("Resource matrix mixes detailed and legacy memory profiles")
     if len({meta.get("httpTiming", False) for meta, rows in datasets}) != 1:
@@ -181,7 +184,10 @@ def render_http_table(datasets):
             f"{(workload['finalHeap'] - workload['baselineHeap']) / MIB:.2f} | "
             f"{meta['postWarmupPeakNativeGrowthBytes'] / MIB:.2f} | {meta['postWarmupPeakResidentGrowthBytes'] / MIB:.2f} |")
     policy = datasets[0][0]["workload"].get("connectionPolicy", 1)
-    lines += ["", "Connection policy: " + ("fault-close with verified healthy connection reuse." if policy == 2 else "original shared pool."), "", "All measurements include the JUnit driver, Servlet and loopback downstream in one JVM. "
+    scheduled = datasets[0][0]["workload"].get("normalScheduled", False)
+    lines += ["", "Connection policy: " + ("fault-close with verified healthy connection reuse." if policy == 2 else "original shared pool."),
+        "Healthy response timing: " + ("scheduled fixture." if scheduled else "handler sleep fixture."), "",
+        "All measurements include the JUnit driver, Servlet and loopback downstream in one JVM. "
         "Separate CI runners and GC timing prevent attributing paired differences solely to Starter.", "",
         "| Starter | OS | Class growth | Thread growth | Code growth | GC growth | Other growth | Remaining NMT growth |",
         "|---|---|---:|---:|---:|---:|---:|---:|"]

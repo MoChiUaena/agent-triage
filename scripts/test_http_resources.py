@@ -35,6 +35,13 @@ class HttpResourcesTest(unittest.TestCase):
             counters = receipt(component)
             self.assertEqual(parse_workload_result(line(component, counters), component, 60), counters)
 
+    def test_scheduled_normal_profile_is_explicit_in_receipt(self):
+        counters = dict(receipt(), normalScheduled=True)
+        self.assertEqual(parse_workload_result(line("http-enabled", counters), "http-enabled", 60), counters)
+        counters["normalScheduled"] = 1
+        with self.assertRaises(ValueError):
+            parse_workload_result(line("http-enabled", counters), "http-enabled", 60)
+
     def test_jdk_body_failure_with_typed_timeout_keeps_all_five_failures_accounted_for(self):
         for component in ("http-disabled", "http-enabled"):
             counters = receipt(component)
@@ -133,6 +140,12 @@ Total: reserved=180000KB, committed=140000KB
             for summary in summaries:
                 meta = json.loads(summary.read_text()); meta["httpTiming"] = True; summary.write_text(json.dumps(meta))
             self.assertTrue(all(meta["httpTiming"] is True for meta, rows in verify_matrix(summaries, "a"*40, 60, "http")))
+            first = json.loads(summaries[0].read_text()); first["workload"]["normalScheduled"] = True
+            summaries[0].write_text(json.dumps(first))
+            with self.assertRaisesRegex(ValueError, "normal response schedules"):
+                verify_matrix(summaries, "a"*40, 60, "http")
+            first["workload"]["normalScheduled"] = False; summaries[0].write_text(json.dumps(first))
+            self.assertEqual(len(verify_matrix(summaries, "a"*40, 60, "http")), 4)
 
     def test_http_receipt_requires_native_breakdown_and_rejects_inconsistent_categories(self):
         with tempfile.TemporaryDirectory() as directory:
