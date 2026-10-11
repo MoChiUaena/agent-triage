@@ -49,4 +49,24 @@ class HttpRequestReceiptTest {
         assertThat(receipts.received(0)).isTrue();
         assertThat(receipts.received(0)).isFalse();
     }
+
+    @Test void identifiesWhichArrivedRequestsStoppedBeforeBodyOrDelay() {
+        var receipts = new HttpRequestReceipt(3);
+        for (int index = 0; index < 3; index++) {
+            receipts.started(index, 5_000 + index * 125, 1_000 + index * 125);
+            receipts.received(index);
+        }
+        assertThat(receipts.delayEntered(1)).isFalse();
+        receipts.bodyRead(0);
+        receipts.delayEntered(0);
+        receipts.bodyRead(1);
+
+        var snapshot = receipts.snapshot(3);
+        assertThat(snapshot.missingCount()).isZero();
+        assertThat(snapshot.bodyReadCount()).isEqualTo(2);
+        assertThat(snapshot.delayEnteredCount()).isEqualTo(1);
+        assertThat(snapshot.firstStageGaps()).containsExactly(
+            new HttpRequestReceipt.StageGap(1, true, false, 5_125, 1_125),
+            new HttpRequestReceipt.StageGap(2, false, false, 5_250, 1_250));
+    }
 }

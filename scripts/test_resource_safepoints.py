@@ -32,6 +32,11 @@ class SafepointEvidenceTest(unittest.TestCase):
             'RESOURCE_REQUEST_RECEIPTS kind=missing index=4 jvmUptimeMs=5500 wallClockMs=1760000000678\n'
             'RESOURCE_FAILURE_AT jvmUptimeMs=9000 wallClockMs=1760000009000\n'), 5500)
         self.assertEqual(failure_uptime_ms(
+            'RESOURCE_REQUEST_RECEIPTS kind=summary issued=8 arrived=8 missing=0 bodyRead=7\n'
+            'RESOURCE_REQUEST_RECEIPTS kind=stage-gap index=4 bodyRead=false delayEntered=false '
+            'jvmUptimeMs=5500 wallClockMs=1760000000678\n'
+            'RESOURCE_FAILURE_AT jvmUptimeMs=9000 wallClockMs=1760000009000\n'), 5500)
+        self.assertEqual(failure_uptime_ms(
             'RESOURCE_FAILURE_AT jvmUptimeMs=17000 wallClockMs=1760000000789\n'), 17000)
         self.assertIsNone(failure_uptime_ms("no owned failure jvmUptimeMs=15000"))
 

@@ -199,8 +199,9 @@ class HttpResourceLifecycleTest {
     static void dumpMissingReceipts(HttpRequestReceipt receipts, int issued, int arrived, int opened, int expectedOpened) {
         var snapshot = receipts.snapshot(issued);
         System.out.println(String.format(Locale.ROOT,
-            "RESOURCE_REQUEST_RECEIPTS kind=summary issued=%d arrived=%d missing=%d opened=%d expectedOpened=%d",
-            issued, arrived, snapshot.missingCount(), opened, expectedOpened));
+            "RESOURCE_REQUEST_RECEIPTS kind=summary issued=%d arrived=%d missing=%d opened=%d expectedOpened=%d bodyRead=%d delayEntered=%d",
+            issued, arrived, snapshot.missingCount(), opened, expectedOpened,
+            snapshot.bodyReadCount(), snapshot.delayEnteredCount()));
         for (var missing : snapshot.firstMissing()) {
             int scenario = SCENARIOS[missing.index() % RPS];
             String method = scenario == 1 || scenario == 4 ? "POST" : scenario == 2 || scenario == 5 ? "PUT" : "GET";
@@ -211,6 +212,12 @@ class HttpResourceLifecycleTest {
                 missing.index(), scenario, method, factory, mode,
                 missing.startedUptimeMs() == 0 ? "unreported" : Long.toString(missing.startedUptimeMs()),
                 missing.startedWallMs() == 0 ? "unreported" : Long.toString(missing.startedWallMs())));
+        }
+        for (var gap : snapshot.firstStageGaps()) {
+            int scenario = SCENARIOS[gap.index() % RPS];
+            System.out.println(String.format(Locale.ROOT,
+                "RESOURCE_REQUEST_RECEIPTS kind=stage-gap index=%d scenario=%d bodyRead=%b delayEntered=%b jvmUptimeMs=%d wallClockMs=%d",
+                gap.index(), scenario, gap.bodyRead(), gap.delayEntered(), gap.startedUptimeMs(), gap.startedWallMs()));
         }
     }
     static boolean receiptCountMismatch(int expectedRequests, int arrived, int opened, int expectedOpened, long timingSamples) {
@@ -262,13 +269,16 @@ class HttpResourceLifecycleTest {
                     }
                     try {
                         var ledger = receipts;
+                        int requestIndex = -1;
                         if (ledger != null) {
                             try {
                                 int index = Integer.parseInt(exchange.getRequestHeaders().getFirst("X-Resource-Index"));
-                                if (!ledger.received(index)) payloadErrors.incrementAndGet();
+                                if (ledger.received(index)) requestIndex = index;
+                                else payloadErrors.incrementAndGet();
                             } catch (NumberFormatException invalid) { payloadErrors.incrementAndGet(); }
                         }
                         var body = new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+                        if (ledger != null && requestIndex >= 0 && !ledger.bodyRead(requestIndex)) payloadErrors.incrementAndGet();
                         if (!(exchange.getRequestMethod().equals("GET") ? body.isEmpty() : body.equals(PAYLOAD))) payloadErrors.incrementAndGet();
                         var mode = exchange.getRequestURI().getPath();
                         if (mode.contains("simple") && mode.contains("timeout") && !"close".equalsIgnoreCase(exchange.getRequestHeaders().getFirst("Connection")))
@@ -278,10 +288,12 @@ class HttpResourceLifecycleTest {
                         if (mode.contains("normal")) {
                             int delay = Integer.getInteger("triage.resource.normal-delay-millis", 350);
                             if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.DELAY_HEADERS, delay);
+                            if (ledger != null && requestIndex >= 0 && !ledger.delayEntered(requestIndex)) payloadErrors.incrementAndGet();
                             Thread.sleep(delay);
                         }
                         if (mode.contains("header-timeout")) {
                             if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.DELAY_HEADERS, 1000);
+                            if (ledger != null && requestIndex >= 0 && !ledger.delayEntered(requestIndex)) payloadErrors.incrementAndGet();
                             Thread.sleep(1000);
                         }
                         if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_HEADERS, 0);
@@ -290,6 +302,7 @@ class HttpResourceLifecycleTest {
                         exchange.getResponseBody().write('o'); exchange.getResponseBody().flush();
                         if (mode.contains("body-timeout")) {
                             if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.DELAY_BODY, 1000);
+                            if (ledger != null && requestIndex >= 0 && !ledger.delayEntered(requestIndex)) payloadErrors.incrementAndGet();
                             Thread.sleep(1000);
                         }
                         if (timing != null) timing.phase(timingThread, HttpResourceTiming.Phase.WRITE_LAST_BYTE, 0);
@@ -325,8 +338,11 @@ class HttpResourceLifecycleTest {
             request.addHeader("X-Resource-Index", "3");
 
             assertThat(controller.call("simple", "normal", request, null).getStatusCode().value()).isEqualTo(200);
-            assertThat(receipts.snapshot(4).firstMissing()).extracting(HttpRequestReceipt.Missing::index)
+            var snapshot = receipts.snapshot(4);
+            assertThat(snapshot.firstMissing()).extracting(HttpRequestReceipt.Missing::index)
                 .doesNotContain(3);
+            assertThat(snapshot.bodyReadCount()).isEqualTo(1);
+            assertThat(snapshot.delayEnteredCount()).isEqualTo(1);
         }
     }
 
@@ -334,7 +350,11 @@ class HttpResourceLifecycleTest {
         var receipts = new HttpRequestReceipt(8);
         for (int index = 0; index < 8; index++) {
             receipts.started(index, 5_000 + index * 125, 1_000 + index * 125);
-            if (index != 4) receipts.received(index);
+            if (index != 4) {
+                receipts.received(index);
+                receipts.bodyRead(index);
+                receipts.delayEntered(index);
+            }
         }
         var originalOut = System.out;
         var capture = new ByteArrayOutputStream();
@@ -347,6 +367,28 @@ class HttpResourceLifecycleTest {
         assertThat(text).contains("RESOURCE_REQUEST_RECEIPTS kind=summary issued=8 arrived=7 missing=1 opened=6 expectedOpened=7",
             "RESOURCE_REQUEST_RECEIPTS kind=missing index=4 scenario=5 method=PUT factory=simple mode=header-timeout jvmUptimeMs=5500 wallClockMs=1500");
         assertThat(text).doesNotContain(PAYLOAD, "/api/resource", "http://");
+    }
+
+    @Test void arrivedRequestWithoutDelayReportsItsIndexAndStage() {
+        var receipts = new HttpRequestReceipt(8);
+        for (int index = 0; index < 8; index++) {
+            receipts.started(index, 5_000 + index * 125, 1_000 + index * 125);
+            receipts.received(index);
+            if (index != 4) {
+                receipts.bodyRead(index);
+                receipts.delayEntered(index);
+            }
+        }
+        var originalOut = System.out;
+        var capture = new ByteArrayOutputStream();
+        try (var printed = new PrintStream(capture, true, java.nio.charset.StandardCharsets.UTF_8)) {
+            System.setOut(printed);
+            dumpMissingReceipts(receipts, 8, 8, 6, 7);
+        } finally { System.setOut(originalOut); }
+        var output = capture.toString(java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(output).contains("arrived=8 missing=0 opened=6 expectedOpened=7 bodyRead=7 delayEntered=7",
+            "RESOURCE_REQUEST_RECEIPTS kind=stage-gap index=4 scenario=5 bodyRead=false delayEntered=false jvmUptimeMs=5500 wallClockMs=1500");
+        assertThat(output).doesNotContain(PAYLOAD, "/api/resource", "http://");
     }
 
     @Test void finalCountMismatchIncludesTimingOnlyFailure() {
@@ -483,10 +525,14 @@ class HttpResourceLifecycleTest {
             assertThat(driver.failure.get()).isNull();
             await().atMost(Duration.ofSeconds(5)).until(() -> counters.completed.get() == seconds * RPS && downstream.active.get() == 0);
             long timingSamples = downstream.timing == null ? -1 : downstream.timing.snapshot().delaySamples();
-            if (receiptCountMismatch(seconds * RPS, downstream.requests.get(), counters.responsesOpened.get(), seconds * 7, timingSamples)) {
+            var receiptSnapshot = receipts.snapshot(seconds * RPS);
+            if (receiptCountMismatch(seconds * RPS, downstream.requests.get(), counters.responsesOpened.get(), seconds * 7, timingSamples) ||
+                receiptSnapshot.bodyReadCount() != seconds * RPS || receiptSnapshot.delayEnteredCount() != seconds * RPS) {
                 dumpMissingReceipts(receipts, seconds * RPS, downstream.requests.get(), counters.responsesOpened.get(), seconds * 7);
                 receiptsDumped = true;
             }
+            assertThat(receiptSnapshot.bodyReadCount()).isEqualTo(seconds * RPS);
+            assertThat(receiptSnapshot.delayEnteredCount()).isEqualTo(seconds * RPS);
             assertThat(driver.successes.get()).isEqualTo(seconds * 3);
             assertThat(driver.failures.get()).isEqualTo(seconds * 5);
             assertThat(counters.typedTimeouts.get()).isEqualTo(seconds * 4 + counters.jdkTypedTimeouts.get());
