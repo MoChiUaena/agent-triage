@@ -141,9 +141,13 @@ class ResourceSoakTest(unittest.TestCase):
 
     def test_keeps_bounded_numeric_phase_timing_without_application_payload(self):
         text = "RESOURCE_TIMING kind=active request=3 stage=DELAY_HEADERS elapsedMs=2100.0 cpuNanos=-1\n" + \
+            "RESOURCE_NORMAL_TIMER enabled=true poolSize=2 active=1 queued=3 tasks=7 completed=3 shutdown=false\n" + \
+            "RESOURCE_DOWNSTREAM_EARLY_IO index=9 stage=send-headers cause=java.io.IOException\n" + \
             "requestPayload=never-export\nRESOURCE_FRAME Thread.sleep"
         value = failure_diagnostics(text)
         self.assertIn("RESOURCE_TIMING kind=active", value)
+        self.assertIn("RESOURCE_NORMAL_TIMER enabled=true", value)
+        self.assertIn("RESOURCE_DOWNSTREAM_EARLY_IO index=9", value)
         self.assertNotIn("requestPayload", value)
         self.assertLessEqual(len(failure_diagnostics(text * 1000)), 32768)
     def test_windows_failure_output_does_not_mask_the_original_error_with_encoding_failure(self):
