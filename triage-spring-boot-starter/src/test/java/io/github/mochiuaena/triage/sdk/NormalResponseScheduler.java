@@ -1,6 +1,7 @@
 package io.github.mochiuaena.triage.sdk;
 
 import java.io.IOException;
+import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -9,6 +10,14 @@ import java.util.concurrent.TimeUnit;
 /** Keeps an owned HttpExchange open while timer workers write a healthy response. */
 final class NormalResponseScheduler implements AutoCloseable {
     @FunctionalInterface interface Action { void run() throws IOException; }
+    record State(int poolSize, int activeCount, int queuedTaskCount, long taskCount,
+                 long completedTaskCount, boolean shutdown) {
+        String line() {
+            return String.format(Locale.ROOT,
+                "RESOURCE_NORMAL_TIMER enabled=true poolSize=%d active=%d queued=%d tasks=%d completed=%d shutdown=%b",
+                poolSize, activeCount, queuedTaskCount, taskCount, completedTaskCount, shutdown);
+        }
+    }
 
     private final ScheduledThreadPoolExecutor timers = new ScheduledThreadPoolExecutor(2,
         Thread.ofPlatform().name("resource-normal-timer-", 0).factory());
@@ -34,6 +43,10 @@ final class NormalResponseScheduler implements AutoCloseable {
     }
 
     boolean stopped() { return timers.isTerminated() && timers.getQueue().isEmpty(); }
+    State state() {
+        return new State(timers.getPoolSize(), timers.getActiveCount(), timers.getQueue().size(),
+            timers.getTaskCount(), timers.getCompletedTaskCount(), timers.isShutdown());
+    }
 
     @Override public void close() { timers.shutdown(); timers.close(); }
 }

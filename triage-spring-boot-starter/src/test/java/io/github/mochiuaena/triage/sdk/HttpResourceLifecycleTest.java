@@ -193,6 +193,8 @@ class HttpResourceLifecycleTest {
     static void dumpResourceTiming(HttpResourceTiming.Snapshot timing, long failureUptimeMs) {
         if (timing == null) return;
         System.out.println("RESOURCE_TIMING kind=summary " + timing.summary());
+        System.out.println(downstream.normalResponses == null ? "RESOURCE_NORMAL_TIMER enabled=false"
+            : downstream.normalResponses.state().line());
         for (var sample : timing.active()) System.out.println(sample.line(true));
         for (var sample : timing.recent()) System.out.println(sample.line(false));
         if (downstream.jvmSchedule != null)

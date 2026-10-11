@@ -10,10 +10,34 @@ import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
 
 class NormalResponseSchedulerTest {
+    @Test void reportsAResponseWriterBlockedInsideTheTimer() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var scheduler = new NormalResponseScheduler(); var caller = Executors.newSingleThreadExecutor()) {
+            var result = CompletableFuture.runAsync(() -> {
+                try {
+                    scheduler.afterDelay(0, () -> {
+                        entered.countDown();
+                        try { if (!release.await(2, TimeUnit.SECONDS)) throw new java.io.IOException("Timer was not released"); }
+                        catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new java.io.IOException(failure); }
+                    });
+                } catch (java.io.IOException failure) { throw new java.io.UncheckedIOException(failure); }
+            }, caller);
+            assertThat(entered.await(1, TimeUnit.SECONDS)).isTrue();
+            var state = scheduler.state();
+            assertThat(state.poolSize()).isGreaterThanOrEqualTo(1);
+            assertThat(state.activeCount()).isEqualTo(1);
+            assertThat(state.shutdown()).isFalse();
+            release.countDown();
+            result.get(1, TimeUnit.SECONDS);
+        } finally { release.countDown(); }
+    }
+
     @Test void completeResponseDoesNotWaitForHandlerThreadToResume() throws Exception {
         var releaseHandler = new CountDownLatch(1);
         var handlerWaiting = new CountDownLatch(1);
