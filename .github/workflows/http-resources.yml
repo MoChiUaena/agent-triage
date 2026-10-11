@@ -23,10 +23,15 @@ on:
         description: Enable bounded failure-only HTTP phase diagnostics
         type: boolean
         default: false
+      platform:
+        description: Run both platforms or only Windows for focused diagnosis
+        type: choice
+        default: both
+        options: [both, windows]
 permissions:
   contents: read
 concurrency:
-  group: http-resources-${{ github.ref }}-${{ github.event.inputs.seconds || '60' }}-${{ github.event.inputs.timing || 'false' }}
+  group: http-resources-${{ github.ref }}-${{ github.event.inputs.seconds || '60' }}-${{ github.event.inputs.timing || 'false' }}-${{ github.event.inputs.platform || 'both' }}
   cancel-in-progress: true
 jobs:
   comparison:
@@ -34,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: ${{ fromJSON(github.event.inputs.platform == 'windows' && '["windows-latest"]' || '["ubuntu-latest","windows-latest"]') }}
         component: [http-disabled, http-enabled]
     runs-on: ${{ matrix.os }}
     timeout-minutes: ${{ github.event.inputs.seconds == '3600' && 80 || github.event.inputs.seconds == '1200' && 40 || github.event.inputs.seconds == '600' && 25 || 15 }}
