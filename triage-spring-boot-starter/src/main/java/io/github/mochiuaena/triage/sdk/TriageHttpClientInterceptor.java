@@ -1,8 +1,6 @@
 package io.github.mochiuaena.triage.sdk;
 
 import java.io.IOException;
-import java.net.SocketTimeoutException;
-import java.net.http.HttpTimeoutException;
 import java.io.FilterInputStream;
 import java.io.InputStream;
 import org.springframework.http.HttpHeaders;
@@ -70,11 +68,7 @@ final class TriageHttpClientInterceptor implements ClientHttpRequestInterceptor 
         } finally { context.addDownstreamMillis(ObservationRecorder.elapsed(start)); }
     }
     private void markTimeout(TriageRequestFilter.Context context, Throwable error) {
-        boolean timedOut = false;
-        var seen = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<Throwable, Boolean>());
-        for (Throwable cause = error; cause != null && seen.add(cause); cause = cause.getCause()) {
-            if (cause instanceof SocketTimeoutException || cause instanceof HttpTimeoutException) { timedOut = true; break; }
-        }
-        context.recordFailure(timedOut, () -> FailureLocations.capture(error, properties, "HTTP_CLIENT_FAILURE"));
+        context.recordFailure(TriageHttpTimeouts.isTimeout(error),
+            () -> FailureLocations.capture(error, properties, "HTTP_CLIENT_FAILURE"));
     }
 }

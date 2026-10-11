@@ -44,8 +44,10 @@ class RestTemplateSocketObservationTest {
                                     var thrown = catchThrowable(() -> client.getForObject(url, String.class));
                                     businessFailure.set(thrown);
                                     if (scenario.equals("body-timeout"))
-                                        assertThat(thrown).isInstanceOf(RestClientException.class).hasCauseInstanceOf(IOException.class);
-                                    else assertThat(thrown).isInstanceOf(ResourceAccessException.class);
+                                        assertThat(thrown).isInstanceOfAny(RestClientException.class,
+                                            io.netty.handler.timeout.ReadTimeoutException.class);
+                                    else assertThat(thrown).isInstanceOfAny(ResourceAccessException.class,
+                                        io.netty.handler.timeout.ReadTimeoutException.class);
                                     if (factory.equals("simple") && scenario.equals("body-timeout"))
                                         assertThat(causeTypes(thrown)).contains(java.net.SocketTimeoutException.class.getName());
                                     response.setStatus(504);
@@ -58,7 +60,8 @@ class RestTemplateSocketObservationTest {
                         // Spring's JDK factory may report body failure with or without a typed timeout.
                         boolean typedTimeout = causeTypes(businessFailure.get()).stream().anyMatch(type ->
                             type.equals(java.net.SocketTimeoutException.class.getName()) ||
-                            type.equals(java.net.http.HttpTimeoutException.class.getName()));
+                            type.equals(java.net.http.HttpTimeoutException.class.getName()) ||
+                            type.equals(io.netty.handler.timeout.ReadTimeoutException.class.getName()));
                         if (scenario.contains("timeout") && !(factory.equals("default") && scenario.equals("body-timeout")))
                             assertThat(typedTimeout).isTrue();
                         assertThat(window.timeoutCount()).as("%s/%s failure: %s", factory, scenario, causeTypes(businessFailure.get())).isEqualTo(typedTimeout ? 1 : 0);

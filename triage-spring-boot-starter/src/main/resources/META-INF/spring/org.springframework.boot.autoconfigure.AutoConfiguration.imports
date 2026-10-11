@@ -1,1 +1,2 @@
 io.github.mochiuaena.triage.sdk.TriageObservationAutoConfiguration
+io.github.mochiuaena.triage.sdk.TriageWebClientAutoConfiguration
