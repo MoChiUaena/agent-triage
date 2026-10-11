@@ -82,6 +82,8 @@ WebClient inventoryWebClient(WebClient.Builder builder,
 
 在仍有效的 MVC 请求中创建 WebClient 请求时，Starter 在客户端内部属性里保存观测上下文；即使订阅移到其他线程，匹配下游的耗时与有类型超时仍归属原请求。响应头和已订阅的正文分别计时，取消不计为超时；响应完成后的订阅或迟到信号不会改写已保存窗口。组件不保存 URL、请求头或正文，也不改变应用设置的连接器和超时。请求在 MVC 上下文之外创建且订阅时也没有上下文时，不产生下游观测。普通 4xx/5xx 与连接拒绝不算下游超时。
 
+[独立商品服务验收](validation/2026-10-11-webclient.md)使用实际 Servlet 请求和回环下游核对正常、响应头超时和正文超时。
+
 ## 显式包装工作线程
 
 在仍处于请求线程时调用 `TriageObservationContext.capture()`，再用快照包装即将交给执行器的 Runnable 或 Callable。例如 DeferredResult 的生产任务：
