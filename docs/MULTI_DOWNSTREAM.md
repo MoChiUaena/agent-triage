@@ -59,3 +59,5 @@ Agent 只读取登记地址的 `GET /triage/endpoint-observations`。V5 响应�
 页面、证据和历史保留各行数据。固定规则与模型模式只把超时指向 `timeoutCount` 大于零的下游；零超时仅代表该窗口未观察到超时，不代表调用成功或依赖整体健康。旧 V1/V3 响应与历史数据仍按原结构读取，较早的 V5 历史没有分类字段时显示“未采集”。V5 配置下的旧 V1 路由返回 404。
 
 自动检查覆盖配置校验、RestClient / RestTemplate / WebClient 归属、V5 窗口、Agent 接口校验、诊断、页面 DOM、API 与历史快照。`verification/multi-downstream-service` 用独立 Spring Boot 应用和两个真实回环 HTTP 服务验证库存读超时、支付 200 与支付 500 的分项。固定提交的[公开 Petclinic REST 验收](validation/2026-10-12-multi-downstream.md)还核对了实际应用进程和 Agent 历史；原有业务类不改，验收控制器默认关闭。长期运行成本仍待验证。
+
+[短时成本基线](validation/2026-10-12-petclinic-multi-cost.md)以每秒 2 请求运行 60／300 秒，保存可重放的数字延迟与进程内存样本。它没有关闭 Starter 的同机对照，也不替代小时级或数天运行。

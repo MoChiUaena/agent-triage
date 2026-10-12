@@ -196,4 +196,5 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 - [x] 页面及历史展示分项；独立 Spring Boot 样例通过真实回环 HTTP 调用验证库存超时、支付成功。[接入与口径](MULTI_DOWNSTREAM.md) / [验收记录](validation/2026-10-12-multi-downstream.md)
 - [x] 在固定提交的公开 Petclinic REST 中验证多下游接入、真实请求、V5 分项和 Agent 历史；原有业务类保持不变。[验收记录](validation/2026-10-12-multi-downstream.md)
 - [ ] 核对该接入的长期运行成本，再决定是否纳入下一版预览包；Windows 小时级宿主调度问题沿用原门槛单独处理。
+- [x] 在固定 Petclinic REST 中完成 Linux 60／300 秒、每秒 2 请求的多下游短时成本基线，重放逐请求和内存数字；仍不能替代长期或关闭 Starter 的对照。[数值与限制](validation/2026-10-12-petclinic-multi-cost.md)
 - [x] 增加每个下游的 HTTP 响应分类，区分非超时的 200 与 500；零超时仍不能当作成功响应。[计数口径](MULTI_DOWNSTREAM.md)
