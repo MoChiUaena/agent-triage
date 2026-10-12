@@ -1,12 +1,19 @@
 name: Public Spring Petclinic REST acceptance
 on:
   workflow_dispatch:
+    inputs:
+      cost_seconds:
+        description: Optional bounded V5 cost workload
+        required: true
+        default: '0'
+        type: choice
+        options: ['0', '60', '300']
 permissions:
   contents: read
 jobs:
   public-rest-project:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-java@v5
@@ -31,9 +38,24 @@ jobs:
         run: python3 scripts/petclinic_rest_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic-rest" --classified-inbound --base-port 18660
       - name: Verify multiple HTTP downstreams in the public project
         run: python3 scripts/petclinic_multi_downstream_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic-rest"
+      - name: Measure bounded V5 workload
+        if: inputs.cost_seconds != '0'
+        run: python3 scripts/petclinic_multi_downstream_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic-rest" --base-port 18740 --load-seconds "${{ inputs.cost_seconds }}"
+      - name: Upload only numeric cost evidence
+        if: always() && inputs.cost_seconds != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: petclinic-v5-cost-${{ inputs.cost_seconds }}
+          path: |
+            target/petclinic-multi-acceptance/**/cost.csv
+            target/petclinic-multi-acceptance/**/cost-summary.json
+            target/petclinic-multi-acceptance/**/cost-failure.json
+          if-no-files-found: warn
+          retention-days: 7
       - name: Confirm verification processes stopped
+        if: always()
         run: |
-          for endpoint in 18640/api/config 18641/petclinic/actuator/health 18642/delay 18660/api/config 18661/petclinic/actuator/health 18662/delay 18720/api/config 18721/petclinic/actuator/health 18722/delay '18723/payment?fail=false'; do
+          for endpoint in 18640/api/config 18641/petclinic/actuator/health 18642/delay 18660/api/config 18661/petclinic/actuator/health 18662/delay 18720/api/config 18721/petclinic/actuator/health 18722/delay '18723/payment?fail=false' 18740/api/config 18741/petclinic/actuator/health 18742/delay '18743/payment?fail=false'; do
             if curl -fsS --max-time 2 "http://127.0.0.1:$endpoint" >/dev/null; then
               echo "Verification process at $endpoint did not stop" >&2
               exit 1
