@@ -229,6 +229,21 @@ class LiveObservationClientTest {
         }
     }
 
+    @Test void v5ToolsExposeSeparateInventoryAndPaymentEvidence() throws Exception {
+        v5Client(); response.set(json.writeValueAsBytes(v5Response()));
+        var metrics = new LiveMetricsTool(client).execute(context, "").getFirst();
+        assertThat(metrics.data()).containsEntry("observationType", "HTTP_DOWNSTREAMS");
+        @SuppressWarnings("unchecked")
+        var rows = (List<java.util.Map<String, Object>>) metrics.data().get("downstreams");
+        assertThat(rows).extracting(row -> row.get("id")).containsExactly("inventory-service", "payment-service");
+        assertThat(rows).extracting(row -> row.get("timeoutCount")).containsExactly(1, 0);
+        assertThat(metrics.summary()).contains("库存服务", "支付服务").doesNotContain("null");
+
+        var logs = new LiveErrorLogsTool(client).execute(context, "").getFirst();
+        assertThat(logs.data()).containsEntry("observationType", "HTTP_DOWNSTREAMS");
+        assertThat(logs.summary()).contains("库存服务").doesNotContain("null");
+    }
+
     @Test void readsV1WithoutCallingLabRoutesAndKeepsTheExactWindow() {
         assertThat(client.scenario(registry.defaultTarget())).isEqualTo(Scenario.OBSERVED);
         var snapshot = client.snapshot(context);
