@@ -11,6 +11,7 @@
 | HTTP 请求窗口 | 添加 Starter，配置服务身份、请求前缀和观测窗口 | 登记本机地址、身份与 V1 协议 |
 | 只观察入站请求 | 主分支选择 `HTTP_REQUESTS`，不填写下游配置 | 选择 `HTTP_REQUESTS_V4`，指标明确显示未采集下游 |
 | 下游 HTTP 超时 | 配置被观测 origin，使用 Spring 注入的 `RestClient.Builder` 创建客户端 | 登记对应下游身份 |
+| Spring Cloud Feign 下游调用 | 当前源码中添加 OpenFeign 依赖，使用 Spring 管理的 Feign 客户端 | 沿用单一下游 origin 与 HTTP 服务配置 |
 | 按 MVC 接口排查 | 开启 `endpoint-observations`；可选响应分类 | 改为 V3 协议，产生请求后选择接口 |
 | 业务异常位置 | 开启异常位置，明确业务包范围 | 绑定同一服务的本机源码索引 |
 | 核对源码版本 | 构建时生成源码与 class 摘要清单，重新打包 | 登记与运行构建对应的源码，变更后重新索引 |
@@ -20,7 +21,7 @@
 | 自建线程、DeferredResult 等 | 在提交任务的位置捕获快照并包装任务 | 不改变服务地址或窗口契约 |
 | 模型辅助排查 | 应用仍提供相同观测；敏感内容先在接入方移除 | 在模型页配置服务，源码读取另行授权 |
 
-原 HTTP 模式仍要求下游身份和地址；旧 Petclinic 验收使用 `unobserved-http` 与 `http://127.0.0.1:1` 占位。v0.11.0 的[入站请求模式](INBOUND_HTTP.md)已移除这一要求，需要同时升级 Agent 与 Starter。观察某一 origin 的旧模式也不会覆盖应用内的所有 HTTP 客户端：自行创建的 `RestClient`、RestTemplate、WebClient、Feign 和任意 JDK HttpClient 调用尚未验证自动归属。
+原 HTTP 模式仍要求下游身份和地址；旧 Petclinic 验收使用 `unobserved-http` 与 `http://127.0.0.1:1` 占位。v0.11.0 的[入站请求模式](INBOUND_HTTP.md)已移除这一要求，需要同时升级 Agent 与 Starter。观察某一 origin 的旧模式也不会覆盖应用内的所有 HTTP 客户端：自行创建的 `RestClient`、RestTemplate、WebClient、Feign 和任意 JDK HttpClient 调用尚未验证自动归属。当前源码增加了 Spring Cloud 管理的同步 Feign 接入，尚未进入发布附件。
 
 Starter 尚未发布到 Maven Central，需要安装发布附件或自行构建后安装到 Maven 本地仓库。SDK 本身依赖 Spring Web 和 HikariCP，不把 Agent 的模型、历史库和源码索引放入业务应用。Maven 构建摘要示例见 [Starter](STARTER.md)；Gradle、多模块聚合及代码生成目录仍需另行评估。
 

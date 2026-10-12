@@ -42,7 +42,7 @@ triage:
     capacity: 10000
 ```
 
-配置开启后，过滤器记录 `/api/` 下请求的完成时间、耗时和生成的 traceId。Spring MVC 异步请求会等到 Servlet 完成回调后记录一次，耗时包含异步等待；最终 5xx 状态记为请求错误。业务代码可注入 Boot 提供的 `RestClient.Builder`、`RestTemplateBuilder` 或 `WebClient.Builder`，只记录有效请求上下文中、目标 origin 匹配的调用。自行创建的客户端和 Feign 不会自动接入。HTTP 状态码错误不会被当作下游超时，只有明确的超时异常类型才增加下游超时计数。
+配置开启后，过滤器记录 `/api/` 下请求的完成时间、耗时和生成的 traceId。Spring MVC 异步请求会等到 Servlet 完成回调后记录一次，耗时包含异步等待；最终 5xx 状态记为请求错误。业务代码可注入 Boot 提供的 `RestClient.Builder`、`RestTemplateBuilder` 或 `WebClient.Builder`，也可使用 Spring Cloud 管理的 Feign 客户端。只记录有效请求上下文中、目标 origin 匹配的调用；自行创建的客户端不会自动接入。HTTP 状态码错误不会被当作下游超时，只有明确的超时异常类型才增加下游超时计数。
 
 每个窗口中的请求数包含匹配路径下已完成的同步和 Spring MVC 异步请求；下游 p95 是每条请求内指定下游调用累计耗时的 p95，没有该调用时记为零。一次请求有多个超时仍只计一次。组件不推断正常基线，`baselineRequestP95Ms` 为 `null`。
 
@@ -83,6 +83,19 @@ WebClient inventoryWebClient(WebClient.Builder builder,
 在仍有效的 MVC 请求中创建 WebClient 请求时，Starter 在客户端内部属性里保存观测上下文；即使订阅移到其他线程，匹配下游的耗时与有类型超时仍归属原请求。响应头和已订阅的正文分别计时，取消不计为超时；响应完成后的订阅或迟到信号不会改写已保存窗口。组件不保存 URL、请求头或正文，也不改变应用设置的连接器和超时。请求在 MVC 上下文之外创建且订阅时也没有上下文时，不产生下游观测。普通 4xx/5xx 与连接拒绝不算下游超时。
 
 [独立商品服务验收](validation/2026-10-11-webclient.md)使用实际 Servlet 请求和回环下游核对正常、响应头超时和正文超时。
+
+### 使用 Spring Cloud OpenFeign
+
+这项接入仅在当前源码中提供，已发布的 v0.11.0 附件不包含它。应用自行添加 `spring-cloud-starter-openfeign` 并启用 `@EnableFeignClients`；Starter 对 `feign-core` 的依赖是可选的，不会给未使用 Feign 的应用加入该库。当前验收使用 Spring Cloud OpenFeign 4.3.0、Feign Core 13.6 和 Spring Boot 3.5.16。
+
+```java
+@FeignClient(name = "inventory-service", url = "${triage.sdk.downstream-base-url}")
+interface InventoryClient {
+    @GetMapping("/inventory") String inventory();
+}
+```
+
+在有效的 MVC 请求中调用 Spring Cloud 管理的 Feign 客户端时，Starter 注册的 Feign Capability 记录匹配下游的请求执行与正文读取等待；有类型的响应头或正文超时计入原请求。应用原有客户端、解码器、重试与关闭行为保持不变；普通 4xx/5xx 和连接拒绝不算超时。正文在请求完成后才读取时，不会改写已保存窗口。手动调用 `Feign.builder()` 创建的客户端不会自动接入，异步 Feign 客户端尚未覆盖。组件不保存 URL、请求头或正文。
 
 ## 显式包装工作线程
 
