@@ -23,6 +23,7 @@ class MultiDownstreamClientObservationTest {
     @Test void webClientKeepsTimeoutWithInventoryWhenPaymentSucceeds() {
         var properties = new TriageObservationProperties();
         properties.setServiceId("catalog-service");
+        properties.setEndpointObservations(true);
         properties.setDownstreams(List.of(
             new TriageObservationProperties.Downstream("inventory-service", URI.create("http://127.0.0.1:18084")),
             new TriageObservationProperties.Downstream("payment-service", URI.create("http://127.0.0.1:18085"))));
@@ -49,6 +50,7 @@ class MultiDownstreamClientObservationTest {
         new WebApplicationContextRunner().withConfiguration(AutoConfigurations.of(RestTemplateAutoConfiguration.class,
                 TriageObservationAutoConfiguration.class))
             .withPropertyValues("triage.sdk.enabled=true", "triage.sdk.service-id=catalog-service",
+                "triage.sdk.endpoint-observations=true",
                 "triage.sdk.downstreams[0].id=inventory-service", "triage.sdk.downstreams[0].base-url=http://127.0.0.1:18084",
                 "triage.sdk.downstreams[1].id=payment-service", "triage.sdk.downstreams[1].base-url=http://127.0.0.1:18085")
             .run(application -> {

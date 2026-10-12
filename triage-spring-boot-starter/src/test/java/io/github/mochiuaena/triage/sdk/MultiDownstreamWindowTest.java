@@ -20,7 +20,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 class MultiDownstreamWindowTest {
-    @Test void inventoryTimeoutAndHealthyPaymentAppearAsSeparateWindowRows() {
+    @Test void inventoryTimeoutAndPaymentWithoutTimeoutAppearAsSeparateWindowRows() {
         new WebApplicationContextRunner().withConfiguration(AutoConfigurations.of(RestTemplateAutoConfiguration.class,
                 TriageObservationAutoConfiguration.class))
             .withPropertyValues("triage.sdk.enabled=true", "triage.sdk.service-id=catalog-service",

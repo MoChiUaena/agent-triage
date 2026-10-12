@@ -38,6 +38,8 @@ public class TriageObservationProperties {
             throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
         if (kind == Kind.HTTP_REQUESTS && (downstreamId != null || downstreamBaseUrl != null || !downstreams.isEmpty()))
             throw new IllegalArgumentException("triage.sdk HTTP_REQUESTS does not accept downstream configuration");
+        if (kind == Kind.HTTP && !downstreams.isEmpty() && !endpointObservations)
+            throw new IllegalArgumentException("triage.sdk downstreams require endpoint-observations");
         if (kind == Kind.DATABASE && !downstreams.isEmpty())
             throw new IllegalArgumentException("triage.sdk DATABASE does not accept HTTP downstream origins");
         if (endpointObservations && kind == Kind.DATABASE) throw new IllegalArgumentException("triage.sdk endpoint-observations requires an HTTP request kind");

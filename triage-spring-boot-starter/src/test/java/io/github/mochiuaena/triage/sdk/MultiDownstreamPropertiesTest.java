@@ -8,10 +8,18 @@ import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import static org.assertj.core.api.Assertions.*;
 
 class MultiDownstreamPropertiesTest {
+    @Test void multiDownstreamRequiresTheV5EndpointRoute() {
+        var value = properties(new TriageObservationProperties.Downstream("inventory-service",
+            URI.create("http://127.0.0.1:18084")));
+        value.setEndpointObservations(false);
+        assertThatThrownBy(value::validate).isInstanceOf(IllegalArgumentException.class)
+            .hasMessageContaining("endpoint-observations");
+    }
     private static TriageObservationProperties properties(TriageObservationProperties.Downstream... downstreams) {
         var properties = new TriageObservationProperties();
         properties.setServiceId("catalog-service");
         properties.setDownstreams(List.of(downstreams));
+        properties.setEndpointObservations(true);
         return properties;
     }
 
@@ -45,11 +53,23 @@ class MultiDownstreamPropertiesTest {
     @Test void bootBindsMultipleDownstreamsWithoutLegacyFields() {
         new WebApplicationContextRunner().withConfiguration(AutoConfigurations.of(TriageObservationAutoConfiguration.class))
             .withPropertyValues("triage.sdk.enabled=true", "triage.sdk.service-id=catalog-service",
+                "triage.sdk.endpoint-observations=true",
                 "triage.sdk.downstreams[0].id=inventory-service", "triage.sdk.downstreams[0].base-url=http://127.0.0.1:18084",
                 "triage.sdk.downstreams[1].id=payment-service", "triage.sdk.downstreams[1].base-url=http://127.0.0.1:18085")
             .run(context -> {
                 assertThat(context).hasNotFailed();
                 assertThat(context.getBean(TriageObservationProperties.class).getDownstreams()).hasSize(2);
+            });
+    }
+
+    @Test void bootRejectsMultiDownstreamWithoutAnEndpointRoute() {
+        new WebApplicationContextRunner().withConfiguration(AutoConfigurations.of(TriageObservationAutoConfiguration.class))
+            .withPropertyValues("triage.sdk.enabled=true", "triage.sdk.service-id=catalog-service",
+                "triage.sdk.downstreams[0].id=inventory-service", "triage.sdk.downstreams[0].base-url=http://127.0.0.1:18084")
+            .run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("endpoint-observations");
             });
     }
 }
