@@ -1,6 +1,6 @@
 # Spring Boot Starter 接入
 
-`triage-spring-boot-starter` 为 Spring MVC 应用提供只读观测，支持 HTTP V1、数据库 V2、MVC 接口 V3，以及入站请求 V4。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
+`triage-spring-boot-starter` 为 Spring MVC 应用提供只读观测，支持 HTTP V1、数据库 V2、MVC 接口 V3、入站请求 V4，以及当前源码中的多下游 V5。组件不依赖 Spring AI，也不读取业务日志文件。首次接入不需要模型密钥。
 
 源码和预览包使用 0.11.0，支持 JDK 21、Spring Boot 3.5 和单实例内存观测，尚未发布到 Maven Central。[v0.11.0 附件入口](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.11.0)提供独立 Starter JAR/POM 与可选 Agent JAR，[v0.6.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.6.0) 保留旧附件。在附件所在目录安装：
 
@@ -46,7 +46,7 @@ triage:
 
 每个窗口中的请求数包含匹配路径下已完成的同步和 Spring MVC 异步请求；下游 p95 是每条请求内指定下游调用累计耗时的 p95，没有该调用时记为零。一次请求有多个超时仍只计一次。组件不推断正常基线，`baselineRequestP95Ms` 为 `null`。
 
-商品请求响应中的 `X-Triage-Trace-Id` 对应 SDK 错误事件标识。SDK 不接收外部 traceId，也不会自动与业务日志已有链路关联。普通工作线程需要按下文显式包装任务；Boot WebClient 在请求创建时捕获有效上下文，订阅可在其他线程完成。WebFlux 服务端和多个下游暂未支持。
+商品请求响应中的 `X-Triage-Trace-Id` 对应 SDK 错误事件标识。SDK 不接收外部 traceId，也不会自动与业务日志已有链路关联。普通工作线程需要按下文显式包装任务；Boot WebClient 在请求创建时捕获有效上下文，订阅可在其他线程完成。WebFlux 服务端暂未支持。多个 HTTP 下游见[多下游接入](MULTI_DOWNSTREAM.md)。
 
 ### 使用 RestTemplateBuilder
 

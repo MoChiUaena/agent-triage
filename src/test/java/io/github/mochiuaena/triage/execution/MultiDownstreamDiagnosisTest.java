@@ -35,6 +35,30 @@ class MultiDownstreamDiagnosisTest {
         assertThat(result.nextSteps()).allSatisfy(step -> assertThat(step).doesNotContain("null"));
     }
 
+    @Test void otherErrorsInANoTimeoutWindowKeepTheConclusionIncomplete() {
+        var metrics = new Evidence("METRICS", "read_service_metrics", "指标", "两个下游都没有超时", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "requestCount", 5, "timeoutCount", 0,
+            "downstreamTimeoutRate", 0.0, "downstreams", List.of(row("inventory-service", 2, 0), row("payment-service", 3, 0))));
+        var logs = new Evidence("LOGS", "query_error_logs", "日志", "另有错误事件", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "returnedCount", 1, "entries", List.of(Map.of("traceId", "t"))));
+        var rule = new Evidence("DOC-HEALTHY-BASELINE#v1", "search_runbooks", "规则", "无超时规则", Map.of());
+        var result = new DemoReasoner().diagnose(List.of(metrics, logs, rule), service);
+        assertThat(result.possibleCauses()).isEmpty();
+        assertThat(result.uncertainty()).contains("错误").doesNotContain("null");
+    }
+
+    @Test void timeoutCountersWithoutAnErrorEventRemainIncomplete() {
+        var metrics = new Evidence("METRICS", "read_service_metrics", "指标", "库存超时 1 次", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "requestCount", 5, "timeoutCount", 1,
+            "downstreamTimeoutRate", 0.2, "downstreams", List.of(row("inventory-service", 2, 1), row("payment-service", 3, 0))));
+        var logs = new Evidence("LOGS", "query_error_logs", "日志", "没有错误事件", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "returnedCount", 0, "entries", List.of()));
+        var rule = new Evidence("DOC-DOWNSTREAM-TIMEOUT#v1", "search_runbooks", "规则", "超时规则", Map.of());
+        var result = new DemoReasoner().diagnose(List.of(metrics, logs, rule), service);
+        assertThat(result.possibleCauses()).isEmpty();
+        assertThat(result.uncertainty()).contains("事件");
+    }
+
     private Map<String, Object> row(String id, int requests, int timeouts) {
         return Map.of("id", id, "requestCount", requests, "timeoutCount", timeouts);
     }

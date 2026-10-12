@@ -55,6 +55,7 @@ flowchart LR
 | `DATABASE_V2` | `/triage/observations` | 单独记录获取连接与 SQL 阶段，以及连接池采样 |
 | `OBSERVATIONS_V3` | `/triage/endpoint-observations` | MVC 接口窗口、处理方法、可选异常位置与响应分类 |
 | `HTTP_REQUESTS_V4` | `/triage/request-observations` | 无下游配置的入站请求，保留接口与可选响应分类 |
+| `OBSERVATIONS_V5` | `/triage/endpoint-observations` | 同一服务的多个已登记 HTTP 下游，保留各自请求、超时和 p95 |
 
 观测地址来自启动时的白名单，只接受带端口的回环 HTTP 地址，可包含经过校验的上下文路径。V2 的 JPA 别名读取固定的 `/triage/database-observations`。`LiveObservationClient` 拒绝重定向和过大的响应，核对身份、版本、严格时间范围、计数和有限数值。HTTP 与数据库指标分别展示，数据库错误不会转换成 HTTP 下游超时率。
 
