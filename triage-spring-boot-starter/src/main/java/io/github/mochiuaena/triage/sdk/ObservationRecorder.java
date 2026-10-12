@@ -21,7 +21,8 @@ public final class ObservationRecorder {
     }
     record DatabaseError(Instant timestamp, String traceId, String level, String message, String code) {}
     record HttpSample(Instant timestamp, double requestMs, double downstreamMs, boolean timeout, Error error, MvcEndpoint endpoint,
-                      FailureLocations.Location failureLocation, int responseClass, String requestCode) {}
+                      FailureLocations.Location failureLocation, int responseClass, String requestCode,
+                      Map<String, TriageRequestFilter.Context.DownstreamResult> downstreams) {}
     record DatabaseSample(Instant timestamp, double requestMs, double acquisitionMs, double queryMs, String code,
                           DatabaseError error) {}
     record PoolSample(Instant timestamp, int active, int pending) {}
@@ -58,7 +59,20 @@ public final class ObservationRecorder {
                           double downstreamTimeoutRate, Double baselineRequestP95Ms, List<EndpointError> errors, boolean synthetic,
                           MvcEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount,
                           @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
-                          ResponseStatusCounts responseStatuses) {}
+                          ResponseStatusCounts responseStatuses,
+                          @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+                          List<DownstreamWindow> downstreams) {
+        EndpointWindow(int schemaVersion, String kind, String service, String downstreamService, Instant windowStart, Instant windowEnd,
+                       int requestCount, int timeoutCount, long recordedRequestCount, double requestP95Ms, double downstreamP95Ms,
+                       double downstreamTimeoutRate, Double baselineRequestP95Ms, List<EndpointError> errors, boolean synthetic,
+                       MvcEndpoint endpoint, List<EndpointSummary> endpoints, int unattributedRequestCount, int otherEndpointRequestCount,
+                       ResponseStatusCounts responseStatuses) {
+            this(schemaVersion, kind, service, downstreamService, windowStart, windowEnd, requestCount, timeoutCount, recordedRequestCount,
+                requestP95Ms, downstreamP95Ms, downstreamTimeoutRate, baselineRequestP95Ms, errors, synthetic, endpoint, endpoints,
+                unattributedRequestCount, otherEndpointRequestCount, responseStatuses, null);
+        }
+    }
+    record DownstreamWindow(String id, int requestCount, int timeoutCount, double downstreamP95Ms, double downstreamTimeoutRate) {}
     private final TriageObservationProperties properties;
     private final Clock clock;
     private final Deque<HttpSample> http = new ArrayDeque<>();
@@ -89,11 +103,21 @@ public final class ObservationRecorder {
     }
     synchronized void recordHttp(double requestMs, double downstreamMs, boolean timeout, boolean failed, String trace, MvcEndpoint endpoint,
                                  FailureLocations.Location location, int responseStatus, boolean requestException, boolean asyncTimeout, boolean asyncError) {
+        recordHttp(requestMs, downstreamMs, timeout, failed, trace, endpoint, location, responseStatus, requestException, asyncTimeout,
+            asyncError, Map.of());
+    }
+    synchronized void recordHttp(double requestMs, double downstreamMs, boolean timeout, boolean failed, String trace, MvcEndpoint endpoint,
+                                 FailureLocations.Location location, int responseStatus, boolean requestException, boolean asyncTimeout,
+                                 boolean asyncError, Map<String, TriageRequestFilter.Context.DownstreamResult> downstreams) {
         Instant time = now();
         String code = !properties.isRequestFailureCounts() ? null : asyncTimeout ? "ASYNC_REQUEST_TIMEOUT" : asyncError ? "ASYNC_REQUEST_ERROR"
             : requestException ? responseStatus == 0 || responseStatus >= 500 ? "REQUEST_EXECUTION_FAILED" : "REQUEST_EXCEPTION_HANDLED"
             : responseStatus >= 500 ? "HTTP_SERVER_ERROR_RESPONSE" : null;
-        Error error = timeout ? new Error(time, trace, "ERROR", properties.getDownstreamId() + " request timeout")
+        String timedOutDownstream = timeout && !downstreams.isEmpty() ? properties.configuredDownstreams().stream()
+            .map(TriageObservationProperties.Downstream::id)
+            .filter(id -> id != null && downstreams.containsKey(id) && downstreams.get(id).timeout())
+            .findFirst().orElse(properties.getDownstreamId()) : properties.getDownstreamId();
+        Error error = timeout ? new Error(time, trace, "ERROR", timedOutDownstream + " request timeout")
             : failed ? new Error(time, trace, "ERROR", "HTTP request failed") : null;
         if (code != null) error = new Error(time, trace, "REQUEST_EXCEPTION_HANDLED".equals(code) ? "WARN" : "ERROR", switch (code) {
             case "REQUEST_EXECUTION_FAILED" -> "Request processing raised an exception";
@@ -103,7 +127,8 @@ public final class ObservationRecorder {
             default -> "Request exception was handled";
         });
         int responseClass = properties.isResponseStatusCounts() && responseStatus >= 100 && responseStatus <= 599 ? responseStatus / 100 : 0;
-        http.addLast(new HttpSample(time, requestMs, downstreamMs, timeout, error, endpoint, location, responseClass, code)); recorded++;
+        http.addLast(new HttpSample(time, requestMs, downstreamMs, timeout, error, endpoint, location, responseClass, code,
+            Map.copyOf(downstreams))); recorded++;
         trim(http, HttpSample::timestamp, properties.getCapacity());
     }
     synchronized void recordDatabase(double requestMs, double acquisitionMs, double queryMs, String code, String trace) {
@@ -140,6 +165,8 @@ public final class ObservationRecorder {
     public synchronized Object snapshot(int minutes, Instant end) {
         if (properties.getKind() == TriageObservationProperties.Kind.HTTP_REQUESTS)
             throw new ResponseStatusException(NOT_FOUND, "Use the inbound request observation route");
+        if (properties.getKind() == TriageObservationProperties.Kind.HTTP && !properties.getDownstreams().isEmpty())
+            throw new ResponseStatusException(NOT_FOUND, "Use the multi-downstream endpoint observation route");
         Instant start = windowStart(minutes, end);
         if (properties.getKind() == TriageObservationProperties.Kind.DATABASE) return databaseWindow(start, end);
         var matching = http.stream().filter(v -> within(v.timestamp(), start, end)).toList();
@@ -182,12 +209,22 @@ public final class ObservationRecorder {
         int unattributed = (int) matching.stream().filter(value -> value.endpoint() == null).count();
         int other = matching.size() - unattributed - summaries.stream().mapToInt(EndpointSummary::requestCount).sum();
         int timeouts = (int) matching.stream().filter(HttpSample::timeout).count();
-        return new EndpointWindow(3, "HTTP_ENDPOINTS", properties.getServiceId(), properties.getDownstreamId(), start, end, matching.size(), timeouts,
+        boolean multi = !properties.getDownstreams().isEmpty();
+        List<DownstreamWindow> downstreams = multi ? properties.getDownstreams().stream().map(config -> {
+            var samples = matching.stream().map(sample -> sample.downstreams().get(config.id())).filter(Objects::nonNull).toList();
+            int count = samples.size();
+            int timedOut = (int) samples.stream().filter(TriageRequestFilter.Context.DownstreamResult::timeout).count();
+            return new DownstreamWindow(config.id(), count, timedOut,
+                p95(samples.stream().map(TriageRequestFilter.Context.DownstreamResult::millis).toList()),
+                count == 0 ? 0 : (double) timedOut / count);
+        }).toList() : null;
+        return new EndpointWindow(multi ? 5 : 3, "HTTP_ENDPOINTS", properties.getServiceId(), multi ? null : properties.getDownstreamId(),
+            start, end, matching.size(), timeouts,
             recorded, p95(matching.stream().map(HttpSample::requestMs).toList()), p95(matching.stream().map(HttpSample::downstreamMs).toList()),
             matching.isEmpty() ? 0 : (double) timeouts / matching.size(), null,
             matching.stream().filter(v -> v.error() != null).sorted(Comparator.comparing(HttpSample::timestamp).reversed()).limit(3)
                 .map(v -> new EndpointError(v.error().timestamp(), v.error().traceId(), v.error().level(), v.error().message(), v.failureLocation())).toList(),
-            false, selected, summaries, unattributed, other, statuses(matching));
+            false, selected, summaries, unattributed, other, statuses(matching), downstreams);
     }
     public synchronized RequestWindow requestSnapshot(int minutes, Instant end, String endpointId) {
         if (properties.getKind() != TriageObservationProperties.Kind.HTTP_REQUESTS)

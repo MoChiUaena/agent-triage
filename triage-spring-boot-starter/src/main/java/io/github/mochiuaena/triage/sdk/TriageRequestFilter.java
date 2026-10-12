@@ -123,6 +123,7 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         if (completed == null) return;
         recorder.recordHttp(elapsed, completed.downstreamMs(), completed.timeout(),
             failed || response.getStatus() >= 500, context.trace, completed.endpoint(), completed.failureLocation(),
-            failed && response.getStatus() < 400 ? 0 : response.getStatus(), completed.requestException(), completed.asyncTimeout(), completed.asyncError());
+            failed && response.getStatus() < 400 ? 0 : response.getStatus(), completed.requestException(), completed.asyncTimeout(),
+            completed.asyncError(), completed.downstreams());
     }
 }
