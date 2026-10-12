@@ -79,9 +79,13 @@ def main():
     parser.add_argument("--base-port", type=int, default=18720)
     parser.add_argument("--load-seconds", type=int, default=0,
                         help="Opt-in 60..600 second, two-request-per-second process-memory baseline")
+    parser.add_argument("--compare-starter-off", action="store_true",
+                        help="Run the same workload in a second JVM with Starter disabled on this host")
     args = parser.parse_args()
     if args.load_seconds != 0 and not 60 <= args.load_seconds <= 600:
         parser.error("load-seconds must be 0 or 60..600")
+    if args.compare_starter_off and not args.load_seconds:
+        parser.error("compare-starter-off requires load-seconds")
     public = args.project_directory.resolve()
     assert subprocess.check_output(["git", "-C", str(public), "rev-parse", "HEAD"], text=True).strip() == REVISION
     assert subprocess.check_output(["git", "-C", str(public), "diff", "--name-only"], text=True).splitlines() == ["pom.xml"]
@@ -260,6 +264,70 @@ def main():
             cost_path.write_text(json.dumps(cost, ensure_ascii=False, indent=2), encoding="utf-8")
             print(f"Petclinic REST V5 cost baseline: {cost['completedRequests']} requests in {args.load_seconds}s, "
                   f"p95 {cost['requestP95Ms']}ms, RSS peak growth {cost['rssPeakGrowthBytes']} bytes")
+            if args.compare_starter_off:
+                children[0].terminate()
+                try:
+                    children[0].wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    children[0].kill()
+                    children[0].wait(timeout=5)
+                start("petclinic-control", public / "target/spring-petclinic-rest-3.4.0.jar", [
+                    f"--server.port={args.base_port + 1}", "--server.address=127.0.0.1",
+                    "--triage.sdk.enabled=false", "--triage.verification.multi-enabled=true",
+                    f"--triage.verification.inventory-base-url={inventory}",
+                    f"--triage.verification.payment-base-url={payment}"])
+                control_process = children[-1]
+                deadline = time.monotonic() + 90
+                while time.monotonic() < deadline:
+                    assert control_process.poll() is None and children[1].poll() is None, "A control JVM stopped"
+                    try:
+                        if request(application, "/petclinic/actuator/health")[0] == 200:
+                            break
+                    except (OSError, ValueError):
+                        pass
+                    time.sleep(.5)
+                else:
+                    raise TimeoutError(f"Starter-off Petclinic startup timed out; see {output}")
+                assert request(application, "/petclinic/triage/endpoint-observations")[0] == 404, \
+                    "Starter-off control still exposes observations"
+                for fail, result in (("false", "ok"), ("true", "serverError")):
+                    status, body = request(application, "/petclinic/api/triage-multi/check?failPayment=" + fail,
+                                           headers=headers)
+                    if status != 200 or body != {"inventory": "timeout", "payment": result}:
+                        raise ValueError(f"Starter-off functional request mismatch: {status}, {fail}")
+
+                control_started = time.monotonic()
+                def control_invoke(index):
+                    assert control_process.poll() is None and children[1].poll() is None, "A control JVM stopped"
+                    fail = index % 2 == 1
+                    try:
+                        status, body = request(application, "/petclinic/api/triage-multi/check?failPayment="
+                            + str(fail).lower(), headers=headers)
+                    except (OSError, ValueError) as error:
+                        (output / "control-failure.json").write_text(json.dumps({"completedBeforeFailure": index,
+                            "elapsedSeconds": round(time.monotonic() - control_started, 3),
+                            "status": None, "paymentExpected5xx": fail,
+                            "failureType": type(error).__name__}, indent=2), encoding="utf-8")
+                        raise ValueError(f"Control request failed at {index}; see {output}") from None
+                    if status != 200 or body != {"inventory": "timeout", "payment": "serverError" if fail else "ok"}:
+                        (output / "control-failure.json").write_text(json.dumps({"completedBeforeFailure": index,
+                            "elapsedSeconds": round(time.monotonic() - control_started, 3),
+                            "status": status, "paymentExpected5xx": fail}, indent=2), encoding="utf-8")
+                        raise ValueError(f"Control request mismatch at {index}; see {output}")
+
+                with (output / "control-requests.csv").open("w", newline="", encoding="utf-8") as timing:
+                    control_cost, control_samples = measure(args.load_seconds, control_process.pid, control_invoke,
+                        on_sample=lambda values: write_samples(output / "control-cost.csv", values),
+                        on_request=request_writer(timing))
+                write_samples(output / "control-cost.csv", control_samples)
+                control_cost.update(sourceCommit=source_commit, upstreamRevision=REVISION,
+                    starterEnabled=False, functionalRequests=2, artifactVersion=2,
+                    requestsCsvSha256=hashlib.sha256((output / "control-requests.csv").read_bytes()).hexdigest(),
+                    memoryCsvSha256=hashlib.sha256((output / "control-cost.csv").read_bytes()).hexdigest())
+                (output / "control-summary.json").write_text(json.dumps(control_cost, indent=2), encoding="utf-8")
+                print(f"Petclinic REST Starter-off control: {control_cost['completedRequests']} requests in "
+                      f"{args.load_seconds}s, p95 {control_cost['requestP95Ms']}ms, "
+                      f"RSS peak growth {control_cost['rssPeakGrowthBytes']} bytes")
         print("Petclinic REST V5 passed: inventory timeout 2, payment 2xx 1 / 5xx 1, saved Agent evidence")
         print(f"Isolated results: {output}")
     finally:

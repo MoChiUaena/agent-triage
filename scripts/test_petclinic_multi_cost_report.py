@@ -53,6 +53,21 @@ class CostReportTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "trusted summary"):
             verify(folder, self.SOURCE, 60)
 
+    def test_same_runner_control_requires_its_own_numeric_receipt(self):
+        folder, summary, _, _ = self.fixture()
+        control = {key: value for key, value in summary.items() if key not in
+            {"observedRequests", "inventoryTimeouts", "payment2xx", "payment5xx", "agentValidated"}}
+        control.update(starterEnabled=False, functionalRequests=2)
+        (folder / "control-requests.csv").write_bytes((folder / "requests.csv").read_bytes())
+        (folder / "control-cost.csv").write_bytes((folder / "cost.csv").read_bytes())
+        (folder / "control-summary.json").write_text(json.dumps(control), encoding="utf-8")
+        result = verify(folder, self.SOURCE, 60, trust_current_run=True, control=True)
+        self.assertEqual(result["requests"], 120)
+        control["functionalRequests"] = 1
+        (folder / "control-summary.json").write_text(json.dumps(control), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "control"):
+            verify(folder, self.SOURCE, 60, trust_current_run=True, control=True)
+
     def test_intermediate_memory_tampering_is_rejected(self):
         folder, _, _, samples = self.fixture()
         samples[2]["rssBytes"] = 1

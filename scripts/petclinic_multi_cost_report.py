@@ -18,6 +18,8 @@ SUMMARY_FIELDS_V1 = {"durationSeconds", "completedRequests", "observedRps", "war
     "upstreamRevision", "observedRequests", "inventoryTimeouts", "payment2xx",
     "payment5xx", "agentValidated"}
 SUMMARY_FIELDS_V2 = SUMMARY_FIELDS_V1 | {"artifactVersion", "requestsCsvSha256", "memoryCsvSha256"}
+SUMMARY_FIELDS_CONTROL = (SUMMARY_FIELDS_V2 - {"observedRequests", "inventoryTimeouts",
+    "payment2xx", "payment5xx", "agentValidated"}) | {"starterEnabled", "functionalRequests"}
 
 
 def rows(path, fields):
@@ -38,8 +40,8 @@ def check_close(actual, expected, tolerance=.01):
 
 
 def verify(folder, source_commit, seconds, expected_summary_sha=None, trust_current_run=False,
-           legacy_requests_sha=None, legacy_memory_sha=None):
-    matches = list(folder.rglob("cost-summary.json"))
+           legacy_requests_sha=None, legacy_memory_sha=None, control=False):
+    matches = list(folder.rglob("control-summary.json" if control else "cost-summary.json"))
     if len(matches) != 1:
         raise ValueError("Expected exactly one cost summary")
     summary_path = matches[0]
@@ -50,22 +52,28 @@ def verify(folder, source_commit, seconds, expected_summary_sha=None, trust_curr
                                              or summary_sha != expected_summary_sha):
         raise ValueError("Cost summary does not match the trusted SHA-256")
     data = json.loads(summary_path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) not in (SUMMARY_FIELDS_V1, SUMMARY_FIELDS_V2):
+    allowed = (SUMMARY_FIELDS_CONTROL,) if control else (SUMMARY_FIELDS_V1, SUMMARY_FIELDS_V2)
+    if not isinstance(data, dict) or set(data) not in allowed:
         raise ValueError("Unexpected cost summary fields")
     if not re.fullmatch(r"[a-f0-9]{40}", source_commit) or data.get("sourceCommit") != source_commit \
-            or data.get("upstreamRevision") != REVISION or data.get("durationSeconds") != seconds \
-            or data.get("agentValidated") is not True:
-        raise ValueError("Cost artifact belongs to a different source or incomplete Agent run")
+            or data.get("upstreamRevision") != REVISION or data.get("durationSeconds") != seconds:
+        raise ValueError("Cost artifact belongs to a different source or duration")
+    if control:
+        if data.get("starterEnabled") is not False or data.get("functionalRequests") != 2 \
+                or data.get("artifactVersion") != 2:
+            raise ValueError("Invalid Starter-off control receipt")
+    elif data.get("agentValidated") is not True:
+        raise ValueError("Cost artifact has an incomplete Agent run")
     expected = seconds * 2
-    if data.get("completedRequests") != expected or data.get("observedRequests") != expected + 2 \
-            or data.get("inventoryTimeouts") != expected + 2 \
-            or data.get("payment2xx") != 1 + (expected + 1) // 2 \
-            or data.get("payment5xx") != 1 + expected // 2:
+    if data.get("completedRequests") != expected or (not control and
+            (data.get("observedRequests") != expected + 2 or data.get("inventoryTimeouts") != expected + 2
+            or data.get("payment2xx") != 1 + (expected + 1) // 2
+            or data.get("payment5xx") != 1 + expected // 2)):
         raise ValueError("Incomplete or inconsistent V5 workload counts")
 
-    requests_path = summary_path.with_name("requests.csv")
-    samples_path = summary_path.with_name("cost.csv")
-    if set(data) == SUMMARY_FIELDS_V2 and data["artifactVersion"] == 2:
+    requests_path = summary_path.with_name("control-requests.csv" if control else "requests.csv")
+    samples_path = summary_path.with_name("control-cost.csv" if control else "cost.csv")
+    if set(data) in (SUMMARY_FIELDS_V2, SUMMARY_FIELDS_CONTROL) and data["artifactVersion"] == 2:
         expected_requests_sha, expected_memory_sha = data["requestsCsvSha256"], data["memoryCsvSha256"]
     elif set(data) == SUMMARY_FIELDS_V1 and legacy_requests_sha and legacy_memory_sha:
         expected_requests_sha, expected_memory_sha = legacy_requests_sha, legacy_memory_sha
@@ -145,10 +153,23 @@ def main():
     trust.add_argument("--trust-current-run", action="store_true", help="Use only for files created in this workflow run")
     parser.add_argument("--legacy-requests-sha256", help="Documented requests.csv hash for a version 1 artifact")
     parser.add_argument("--legacy-memory-sha256", help="Documented cost.csv hash for a version 1 artifact")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--compare-control", action="store_true",
+                      help="Also replay the Starter-off control from this same workflow job")
+    mode.add_argument("--control", action="store_true",
+                      help="Replay only the Starter-off numeric receipt")
     args = parser.parse_args()
-    print(json.dumps(verify(args.directory, args.source_commit, args.seconds,
-                            args.expected_summary_sha256, args.trust_current_run,
-                            args.legacy_requests_sha256, args.legacy_memory_sha256), sort_keys=True))
+    enabled = verify(args.directory, args.source_commit, args.seconds,
+                     args.expected_summary_sha256, args.trust_current_run,
+                     args.legacy_requests_sha256, args.legacy_memory_sha256, control=args.control)
+    if args.compare_control:
+        if args.expected_summary_sha256 is not None:
+            parser.error("Downloaded control replay needs its own trusted digest; use separate replay calls")
+        control = verify(args.directory, args.source_commit, args.seconds, trust_current_run=True, control=True)
+        print(json.dumps({"starterEnabled": enabled, "starterDisabled": control,
+            "order": "enabled-then-disabled"}, sort_keys=True))
+    else:
+        print(json.dumps(enabled, sort_keys=True))
 
 
 if __name__ == "__main__":
