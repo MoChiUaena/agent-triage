@@ -1,16 +1,21 @@
 package io.github.mochiuaena.triage.sdk;
 
 import java.net.URI;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties("triage.sdk")
 public class TriageObservationProperties {
     public enum Kind { HTTP, DATABASE, HTTP_REQUESTS }
+    public record Downstream(String id, URI baseUrl) {}
     private boolean enabled;
     private Kind kind = Kind.HTTP;
     private String serviceId;
     private String downstreamId;
     private URI downstreamBaseUrl;
+    private List<Downstream> downstreams = List.of();
     private String requestPathPrefix = "/api/";
     private int maxWindowMinutes = 15;
     private int capacity = 10_000;
@@ -28,10 +33,13 @@ public class TriageObservationProperties {
     private java.util.List<String> applicationPackages = java.util.List.of();
 
     void validate() {
-        if (kind == null || !identity(serviceId) || kind != Kind.HTTP_REQUESTS && !identity(downstreamId))
+        if (kind == null || !identity(serviceId) || kind == Kind.DATABASE && !identity(downstreamId)
+            || kind == Kind.HTTP && downstreams.isEmpty() && !identity(downstreamId))
             throw new IllegalArgumentException("triage.sdk requires service-id, downstream-id and a valid kind");
-        if (kind == Kind.HTTP_REQUESTS && (downstreamId != null || downstreamBaseUrl != null))
+        if (kind == Kind.HTTP_REQUESTS && (downstreamId != null || downstreamBaseUrl != null || !downstreams.isEmpty()))
             throw new IllegalArgumentException("triage.sdk HTTP_REQUESTS does not accept downstream configuration");
+        if (kind == Kind.DATABASE && !downstreams.isEmpty())
+            throw new IllegalArgumentException("triage.sdk DATABASE does not accept HTTP downstream origins");
         if (endpointObservations && kind == Kind.DATABASE) throw new IllegalArgumentException("triage.sdk endpoint-observations requires an HTTP request kind");
         if (responseStatusCounts && !endpointObservations) throw new IllegalArgumentException("triage.sdk response-status-counts requires endpoint-observations");
         if (requestFailureCounts && (kind != Kind.HTTP_REQUESTS || !responseStatusCounts))
@@ -52,18 +60,48 @@ public class TriageObservationProperties {
             || observationPreviousToken != null && (!token(observationPreviousToken) || observationAccessToken == null
                 || observationPreviousToken.equals(observationAccessToken)))
             throw new IllegalArgumentException("triage.sdk observation tokens must be distinct 32..128 character base64url values");
-        if (kind == Kind.HTTP && (downstreamBaseUrl == null
-                || !java.util.List.of("http", "https").contains(downstreamBaseUrl.getScheme())
-                || downstreamBaseUrl.getHost() == null || downstreamBaseUrl.getUserInfo() != null
-                || downstreamBaseUrl.getQuery() != null || downstreamBaseUrl.getFragment() != null
-                || !(downstreamBaseUrl.getPath().isEmpty() || downstreamBaseUrl.getPath().equals("/"))))
-            throw new IllegalArgumentException("triage.sdk downstream-base-url must be an HTTP origin without credentials or paths");
+        if (kind == Kind.HTTP) {
+            if (downstreams.isEmpty()) {
+                if (!validOrigin(downstreamBaseUrl))
+                    throw new IllegalArgumentException("triage.sdk downstream-base-url must be an HTTP origin without credentials or paths");
+            } else {
+                if (downstreamId != null || downstreamBaseUrl != null || downstreams.size() > 8)
+                    throw new IllegalArgumentException("triage.sdk downstreams require 1..8 entries without legacy downstream fields");
+                var ids = new HashSet<String>();
+                var origins = new HashSet<String>();
+                for (var downstream : downstreams) {
+                    if (downstream == null || !identity(downstream.id()) || !validOrigin(downstream.baseUrl())
+                        || !ids.add(downstream.id()) || !origins.add(originKey(downstream.baseUrl())))
+                        throw new IllegalArgumentException("triage.sdk downstreams require distinct identities and HTTP origins");
+                }
+            }
+        }
     }
     private boolean identity(String value) { return value != null && value.matches("[a-z][a-z0-9-]{0,63}"); }
     private boolean token(String value) { return value.matches("[A-Za-z0-9_-]{32,128}"); }
+    private boolean validOrigin(URI uri) {
+        return uri != null && List.of("http", "https").contains(uri.getScheme()) && uri.getHost() != null
+            && uri.getUserInfo() == null && uri.getRawQuery() == null && uri.getRawFragment() == null
+            && (uri.getRawPath().isEmpty() || uri.getRawPath().equals("/"))
+            && (uri.getPort() == -1 || uri.getPort() >= 1 && uri.getPort() <= 65535);
+    }
+    private String originKey(URI uri) {
+        return uri.getScheme().toLowerCase(Locale.ROOT) + "://" + uri.getHost().toLowerCase(Locale.ROOT) + ":" + port(uri);
+    }
+    List<Downstream> configuredDownstreams() {
+        return downstreams.isEmpty() ? List.of(new Downstream(downstreamId, downstreamBaseUrl)) : downstreams;
+    }
+    String downstreamFor(URI uri) {
+        if (uri == null || kind != Kind.HTTP) return null;
+        for (var downstream : configuredDownstreams()) {
+            var origin = downstream.baseUrl();
+            if (origin != null && origin.getScheme().equalsIgnoreCase(uri.getScheme())
+                && origin.getHost().equalsIgnoreCase(uri.getHost()) && port(origin) == port(uri)) return downstream.id();
+        }
+        return null;
+    }
     boolean matches(URI uri) {
-        return downstreamBaseUrl.getScheme().equalsIgnoreCase(uri.getScheme())
-            && downstreamBaseUrl.getHost().equalsIgnoreCase(uri.getHost()) && port(downstreamBaseUrl) == port(uri);
+        return downstreamFor(uri) != null;
     }
     private int port(URI uri) { return uri.getPort() >= 0 ? uri.getPort() : "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80; }
     public boolean isEnabled() { return enabled; }
@@ -76,6 +114,8 @@ public class TriageObservationProperties {
     public void setDownstreamId(String value) { downstreamId = value; }
     public URI getDownstreamBaseUrl() { return downstreamBaseUrl; }
     public void setDownstreamBaseUrl(URI value) { downstreamBaseUrl = value; }
+    public List<Downstream> getDownstreams() { return downstreams; }
+    public void setDownstreams(List<Downstream> values) { downstreams = values == null ? List.of() : List.copyOf(values); }
     public String getRequestPathPrefix() { return requestPathPrefix; }
     public void setRequestPathPrefix(String value) { requestPathPrefix = value; }
     public int getMaxWindowMinutes() { return maxWindowMinutes; }
