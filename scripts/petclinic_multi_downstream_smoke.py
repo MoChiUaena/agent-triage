@@ -288,8 +288,10 @@ def main():
                     time.sleep(.5)
                 else:
                     raise TimeoutError(f"Starter-off Petclinic startup timed out; see {output}")
-                assert request(application, "/petclinic/triage/endpoint-observations")[0] == 404, \
-                    "Starter-off control still exposes observations"
+                endpoint_status, endpoint_error = request(application, "/petclinic/triage/endpoint-observations")
+                assert endpoint_status == 500 and endpoint_error.get("title") == "NoResourceFoundException" \
+                    and endpoint_error.get("detail") == "No static resource triage/endpoint-observations.", \
+                    "Starter-off control still exposes observations or returned an unexpected error"
                 for fail, result in (("false", "ok"), ("true", "serverError")):
                     status, body = request(application, "/petclinic/api/triage-multi/check?failPayment=" + fail,
                                            headers=headers)
