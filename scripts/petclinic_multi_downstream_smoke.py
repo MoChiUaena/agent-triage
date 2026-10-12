@@ -16,6 +16,23 @@ from urllib.parse import urlencode
 from live_smoke import evidence, request, valid_citations
 from package_release import ROOT, project
 from prepare_petclinic_rest import REVISION
+from petclinic_multi_cost import measure, write_samples
+
+
+def complete_window(application, minutes, expected_count):
+    deadline = time.monotonic() + 5
+    last_status, last_count = None, None
+    while time.monotonic() < deadline:
+        query = urlencode({"windowMinutes": minutes,
+            "endTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")})
+        status, observed = request(application, "/petclinic/triage/endpoint-observations?" + query)
+        last_status, last_count = status, observed.get("requestCount") if isinstance(observed, dict) else None
+        if status == 200 and observed.get("schemaVersion") == 5 and last_count == expected_count:
+            return observed
+        if status != 200 or last_count is not None and last_count > expected_count:
+            break
+        time.sleep(.1)
+    raise ValueError(f"V5 window mismatch: HTTP {last_status}, requests {last_count}, expected {expected_count}")
 
 
 class Inventory(BaseHTTPRequestHandler):
@@ -46,7 +63,10 @@ class Payment(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", "2")
         self.end_headers()
-        self.wfile.write(b"{}")
+        try:
+            self.wfile.write(b"{}")
+        except OSError:
+            pass  # A timed-out client has already closed its connection.
 
     def log_message(self, format, *args):
         pass
@@ -56,7 +76,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-directory", required=True, type=Path)
     parser.add_argument("--base-port", type=int, default=18720)
+    parser.add_argument("--load-seconds", type=int, default=0,
+                        help="Opt-in 60..600 second, two-request-per-second process-memory baseline")
     args = parser.parse_args()
+    if args.load_seconds != 0 and not 60 <= args.load_seconds <= 600:
+        parser.error("load-seconds must be 0 or 60..600")
     public = args.project_directory.resolve()
     assert subprocess.check_output(["git", "-C", str(public), "rev-parse", "HEAD"], text=True).strip() == REVISION
     assert subprocess.check_output(["git", "-C", str(public), "diff", "--name-only"], text=True).splitlines() == ["pom.xml"]
@@ -144,11 +168,10 @@ def main():
         headers = {"X-Triage-Lab": "1"}
         for fail, result in (("false", "ok"), ("true", "serverError")):
             status, body = request(application, "/petclinic/api/triage-multi/check?failPayment=" + fail, headers=headers)
-            assert status == 200 and body == {"inventory": "timeout", "payment": result}, (status, body)
+            if status != 200 or body != {"inventory": "timeout", "payment": result}:
+                raise ValueError(f"Functional public request mismatch: status={status}, paymentMode={fail}; see {output}")
 
-        query = urlencode({"windowMinutes": 5, "endTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")})
-        status, observed = request(application, "/petclinic/triage/endpoint-observations?" + query)
-        assert status == 200 and observed["schemaVersion"] == 5 and observed["requestCount"] == 2, (status, observed)
+        observed = complete_window(application, 5, 2)
         rows = {row["id"]: row for row in observed["downstreams"]}
         assert rows["inventory-service"]["timeoutCount"] == 2
         assert rows["inventory-service"]["responseStatuses"]["unknown"] == 2
@@ -176,6 +199,54 @@ def main():
         (output / "summary.json").write_text(json.dumps({"upstreamRevision": REVISION, "runId": run["id"],
             "requestCount": observed["requestCount"], "downstreams": observed["downstreams"],
             "runStatus": run["status"]}, ensure_ascii=False, indent=2), encoding="utf-8")
+        if args.load_seconds:
+            cost_started = time.monotonic()
+            def invoke(index):
+                assert all(child.poll() is None for child in children), "An owned JVM stopped during the cost probe"
+                fail = index % 2 == 1
+                status, body = request(application, "/petclinic/api/triage-multi/check?failPayment="
+                    + str(fail).lower(), headers=headers)
+                if status != 200 or body != {"inventory": "timeout", "payment": "serverError" if fail else "ok"}:
+                    (output / "cost-failure.json").write_text(json.dumps({"completedBeforeFailure": index,
+                        "elapsedSeconds": round(time.monotonic() - cost_started, 3), "status": status,
+                        "paymentExpected5xx": fail}, indent=2), encoding="utf-8")
+                    raise ValueError(f"Cost request mismatch at request {index}, HTTP {status}; see numeric receipt in {output}")
+
+            cost, samples = measure(args.load_seconds, children[0].pid, invoke,
+                on_sample=lambda values: write_samples(output / "cost.csv", values))
+            expected = 2 + cost["completedRequests"]
+            observed = complete_window(application, 15, expected)
+            rows = {row["id"]: row for row in observed["downstreams"]}
+            assert rows["inventory-service"]["timeoutCount"] == expected
+            assert rows["inventory-service"]["responseStatuses"]["unknown"] == expected
+            assert rows["payment-service"]["requestCount"] == expected
+            assert rows["payment-service"]["timeoutCount"] == 0
+            assert rows["payment-service"]["responseStatuses"]["successful"] == 1 + (cost["completedRequests"] + 1) // 2
+            assert rows["payment-service"]["responseStatuses"]["serverError"] == 1 + cost["completedRequests"] // 2
+            write_samples(output / "cost.csv", samples)
+            cost.update(upstreamRevision=REVISION, observedRequests=expected,
+                        inventoryTimeouts=rows["inventory-service"]["timeoutCount"],
+                        payment2xx=rows["payment-service"]["responseStatuses"]["successful"],
+                        payment5xx=rows["payment-service"]["responseStatuses"]["serverError"], agentValidated=False)
+            cost_path = output / "cost-summary.json"
+            cost_path.write_text(json.dumps(cost, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            status, cost_run = request(agent, "/api/runs", {"question": "Petclinic REST 多下游请求超时和响应分类有哪些证据？",
+                "service": "petclinic-rest-service", "windowMinutes": 15})
+            assert status == 202, (status, cost_run)
+            deadline = time.monotonic() + 20
+            while cost_run["status"] in ("QUEUED", "RUNNING") and time.monotonic() < deadline:
+                time.sleep(.1)
+                _, cost_run = request(agent, "/api/runs/" + cost_run["id"])
+            assert cost_run["status"] == "SUCCEEDED" and valid_citations(cost_run), (cost_run["status"], cost_run.get("failure"))
+            cost_metrics = evidence(cost_run, "read_service_metrics")["data"]
+            assert cost_metrics["requestCount"] == expected
+            assert {row["id"]: row for row in cost_metrics["downstreams"]}["payment-service"]["responseStatuses"]["serverError"] \
+                == rows["payment-service"]["responseStatuses"]["serverError"]
+            cost["agentValidated"] = True
+            cost_path.write_text(json.dumps(cost, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"Petclinic REST V5 cost baseline: {cost['completedRequests']} requests in {args.load_seconds}s, "
+                  f"p95 {cost['requestP95Ms']}ms, RSS peak growth {cost['rssPeakGrowthBytes']} bytes")
         print("Petclinic REST V5 passed: inventory timeout 2, payment 2xx 1 / 5xx 1, saved Agent evidence")
         print(f"Isolated results: {output}")
     finally:
