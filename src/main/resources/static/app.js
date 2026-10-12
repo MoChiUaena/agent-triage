@@ -496,6 +496,7 @@ function renderMetrics(run) {
   const requestP95 = data.requestP95Ms ?? data.orderP95Ms;
   const baseline = data.baselineRequestP95Ms ?? data.baselineOrderP95Ms;
   const inbound = data.observationType === "HTTP_REQUESTS";
+  const multi = data.observationType === "HTTP_DOWNSTREAMS" && Array.isArray(data.downstreams);
   const values = inbound ? [
     [labels.name + "请求 p95", hasRequests ? requestP95 : null, "ms", "仅采集入站请求"],
     ["窗口请求数", data.requestCount, "次", "最近 " + run.windowMinutes + " 分钟"],
@@ -509,14 +510,14 @@ function renderMetrics(run) {
       baseline != null && requestP95 > baseline,
     ],
     [
-      "下游调用 p95",
+      multi ? "下游调用 p95（总体）" : "下游调用 p95",
       hasRequests ? data.downstreamP95Ms : null,
       "ms",
-      labels.downstreamId,
+      multi ? "所有已配置下游" : labels.downstreamId,
       false,
     ],
     [
-      "下游超时率",
+      multi ? "请求级超时率" : "下游超时率",
       hasRequests
         ? Number((data.downstreamTimeoutRate * 100).toFixed(2))
         : null,
@@ -551,6 +552,21 @@ function renderMetrics(run) {
       element("div", "metric-caption", caption),
     );
     $("#metrics").append(item);
+  }
+  if (multi) {
+    const panel = element("section", "downstream-panel");
+    panel.append(element("h3", "downstream-heading", "下游调用分项"));
+    for (const row of data.downstreams) {
+      const line = element("div", "downstream-row" + (row.timeoutCount > 0 ? " warning" : ""));
+      line.append(element("strong", "", row.name || row.id),
+        element("span", "", row.requestCount + " 个请求"),
+        element("span", "downstream-timeouts", row.timeoutCount + " 次超时"),
+        element("span", "", "p95 " + row.downstreamP95Ms + " ms · 超时率 "
+          + Number((row.downstreamTimeoutRate * 100).toFixed(2)) + "%"));
+      panel.append(line);
+    }
+    panel.append(element("p", "downstream-note", "同一请求可调用多个下游，分项请求数不能相加作为总请求数；零超时只描述本窗口。"));
+    $("#metrics").append(panel);
   }
   if (data.requestDetails) {
     const counts = data.responseStatuses;
@@ -789,6 +805,11 @@ function renderEvidence(run) {
         rows.push(["请求失败分类", failure ? "已采集" : "未采集"]);
         if (failure) rows.push(["请求执行异常 / 仅返回 5xx", failure.executionFailures + " / " + failure.serverErrorResponses],
           ["异步超时 / 错误", failure.asyncTimeouts + " / " + failure.asyncErrors], ["已处理异常", failure.handledExceptions]);
+      }
+      if (data.observationType === "HTTP_DOWNSTREAMS" && Array.isArray(data.downstreams)) {
+        for (const row of data.downstreams) rows.push([row.name || row.id,
+          row.requestCount + " 个请求 · " + row.timeoutCount + " 次超时 · p95 " + row.downstreamP95Ms + " ms"]);
+        rows.push(["分项口径", "同一请求可涉及多个下游，分项请求数不能相加"]);
       }
       rows.forEach(([label, value]) => {
         const row = element("div");
