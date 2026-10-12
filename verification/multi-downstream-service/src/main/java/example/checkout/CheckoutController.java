@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.HttpServerErrorException;
 import java.time.Duration;
 
 @RestController
@@ -27,7 +28,9 @@ public class CheckoutController {
         String stock;
         try { stock = inventory.getForObject("/stock", String.class); }
         catch (RestClientException timeout) { stock = "unavailable"; }
-        String paid = payment.getForObject("/payment", String.class);
+        String paid;
+        try { paid = payment.getForObject("/payment", String.class); }
+        catch (HttpServerErrorException failed) { paid = "failed"; }
         return "stock=" + stock + ";payment=" + paid;
     }
 }

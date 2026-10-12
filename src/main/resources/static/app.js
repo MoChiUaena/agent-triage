@@ -557,22 +557,27 @@ function renderMetrics(run) {
     const panel = element("section", "downstream-panel");
     panel.append(element("h3", "downstream-heading", "下游调用分项"));
     for (const row of data.downstreams) {
-      const line = element("div", "downstream-row" + (row.timeoutCount > 0 ? " warning" : ""));
+      const counts = row.responseStatuses;
+      const line = element("div", "downstream-row" + (row.timeoutCount > 0 || counts?.clientError > 0 || counts?.serverError > 0 ? " warning" : ""));
       line.append(element("strong", "", row.name || row.id),
         element("span", "", row.requestCount + " 个请求"),
         element("span", "downstream-timeouts", row.timeoutCount + " 次超时"),
         element("span", "", "p95 " + row.downstreamP95Ms + " ms · 超时率 "
           + Number((row.downstreamTimeoutRate * 100).toFixed(2)) + "%"));
+      line.append(element("div", "downstream-response", counts
+        ? "响应 1xx " + counts.informational + " · 2xx " + counts.successful + " · 3xx " + counts.redirection
+          + " · 4xx " + counts.clientError + " · 5xx " + counts.serverError + " · 状态未知 " + counts.unknown
+        : "响应分类未采集"));
       panel.append(line);
     }
-    panel.append(element("p", "downstream-note", "同一请求可调用多个下游，分项请求数不能相加作为总请求数；零超时只描述本窗口。"));
+    panel.append(element("p", "downstream-note", "同一请求可调用多个下游，分项请求数不能相加；2xx 表示已收到响应状态，正文仍可能超时。"));
     $("#metrics").append(panel);
   }
   if (data.requestDetails) {
     const counts = data.responseStatuses;
     $("#metrics").append(element("p", "metrics-note", counts
       ? "1xx " + counts.informational + " 次 · 3xx " + counts.redirection + " 次 · 状态未知 " + counts.unknown + " 次。响应分类只说明窗口分布，不能确定某个状态码的根因。"
-      : "响应状态分类未采集；已有请求数不能换算成成功或错误响应数。"));
+      : multi ? "入站响应分类未采集；下游响应分类见上方分项。" : "响应状态分类未采集；已有请求数不能换算成成功或错误响应数。"));
   }
 }
 
@@ -807,8 +812,15 @@ function renderEvidence(run) {
           ["异步超时 / 错误", failure.asyncTimeouts + " / " + failure.asyncErrors], ["已处理异常", failure.handledExceptions]);
       }
       if (data.observationType === "HTTP_DOWNSTREAMS" && Array.isArray(data.downstreams)) {
-        for (const row of data.downstreams) rows.push([row.name || row.id,
-          row.requestCount + " 个请求 · " + row.timeoutCount + " 次超时 · p95 " + row.downstreamP95Ms + " ms"]);
+        for (const row of data.downstreams) {
+          rows.push([row.name || row.id,
+            row.requestCount + " 个请求 · " + row.timeoutCount + " 次超时 · p95 " + row.downstreamP95Ms + " ms"]);
+          const counts = row.responseStatuses;
+          rows.push([(row.name || row.id) + "响应分类", counts
+            ? "1xx " + counts.informational + " · 2xx " + counts.successful + " · 3xx " + counts.redirection
+              + " · 4xx " + counts.clientError + " · 5xx " + counts.serverError + " · 状态未知 " + counts.unknown
+            : "未采集"]);
+        }
         rows.push(["分项口径", "同一请求可涉及多个下游，分项请求数不能相加"]);
       }
       rows.forEach(([label, value]) => {

@@ -26,8 +26,10 @@ const context = vm.createContext({ document, window: { location: { search: "" } 
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../src/main/resources/static/app.js"), "utf8"), context);
 
 const rows = [
-  { id: "inventory-service", name: "库存服务", requestCount: 2, timeoutCount: 1, downstreamP95Ms: 300, downstreamTimeoutRate: 0.5 },
-  { id: "payment-service", name: "支付服务", requestCount: 3, timeoutCount: 0, downstreamP95Ms: 20, downstreamTimeoutRate: 0 },
+  { id: "inventory-service", name: "库存服务", requestCount: 2, timeoutCount: 1, downstreamP95Ms: 300, downstreamTimeoutRate: 0.5,
+    responseStatuses: { informational: 0, successful: 1, redirection: 0, clientError: 0, serverError: 0, unknown: 1 } },
+  { id: "payment-service", name: "支付服务", requestCount: 3, timeoutCount: 0, downstreamP95Ms: 20, downstreamTimeoutRate: 0,
+    responseStatuses: { informational: 0, successful: 2, redirection: 0, clientError: 0, serverError: 1, unknown: 0 } },
 ];
 const run = {
   service: "checkout-service", windowMinutes: 5,
@@ -47,8 +49,16 @@ for (const selector of ["#metrics", "#evidence-list"]) {
   assert.match(text, /支付服务/);
   assert.match(text, /1 次超时/);
   assert.match(text, /0 次超时/);
+  assert.match(text, /2xx 2/);
+  assert.match(text, /5xx 1/);
+  assert.match(text, /状态未知 1/);
   assert.doesNotMatch(text, /undefined|NaN|null/);
 }
+rows[0].responseStatuses = undefined;
+rows[1].responseStatuses = undefined;
+vm.runInContext("renderMetrics(fixture); renderEvidence(fixture);", context);
+assert.match(document.querySelector("#metrics").textContent, /响应分类未采集/);
+assert.doesNotMatch(document.querySelector("#evidence-list").textContent, /undefined|NaN|null/);
 run.serviceInfo = null;
 run.service = "order-service";
 run.evidence[0].data.observationType = undefined;

@@ -44,14 +44,18 @@ Agent 只读取登记地址的 `GET /triage/endpoint-observations`。V5 响应�
 ```json
 {
   "downstreams": [
-    {"id":"inventory-service","requestCount":2,"timeoutCount":1,"downstreamP95Ms":300.0,"downstreamTimeoutRate":0.5},
-    {"id":"payment-service","requestCount":3,"timeoutCount":0,"downstreamP95Ms":20.0,"downstreamTimeoutRate":0.0}
+    {"id":"inventory-service","requestCount":2,"timeoutCount":1,"downstreamP95Ms":300.0,"downstreamTimeoutRate":0.5,
+     "responseStatuses":{"informational":0,"successful":1,"redirection":0,"clientError":0,"serverError":0,"unknown":1}},
+    {"id":"payment-service","requestCount":3,"timeoutCount":0,"downstreamP95Ms":20.0,"downstreamTimeoutRate":0.0,
+     "responseStatuses":{"informational":0,"successful":2,"redirection":0,"clientError":0,"serverError":1,"unknown":0}}
   ]
 }
 ```
 
 总请求数按入站请求统计；每行请求数表示调用过该下游的入站请求数。同一请求可调用多个下游，因此分项请求数不能相加当作总请求数。总超时数按有任一下游超时的入站请求统计；同一请求的两个下游都超时时，分项超时数之和可大于总超时数。每行的 p95 只使用调用过该下游的请求。超时归因来自分项计数，不从错误消息文本猜测。
 
-页面、证据和历史保留各行数据。固定规则与模型模式只把超时指向 `timeoutCount` 大于零的下游；零超时仅代表该窗口未观察到超时，不代表调用成功或依赖整体健康。目前分项没有 HTTP 响应状态分类，因此同一下游的 200 与 500 都可能显示为零超时。旧 V1/V3 响应与历史数据仍按原结构读取。V5 配置下的旧 V1 路由返回 404。
+每行 `responseStatuses` 按入站请求归类：同一请求多次调用该下游时，取观察到的最高响应类别；没有读到响应状态时记为 `unknown`。六类之和等于该行请求数。2xx 只表示收到响应状态，正文读取随后仍可能超时。普通 4xx/5xx 响应不计为超时；若窗口没有超时但存在 4xx、5xx 或未知状态，应用不会生成“无下游超时”的完成判断。状态分类不提供具体状态码或下游内部根因。
 
-自动检查覆盖配置校验、RestClient / RestTemplate / WebClient 归属、V5 窗口、Agent 接口校验、诊断、页面 DOM、API 与历史快照。`verification/multi-downstream-service` 还用独立 Spring Boot 应用和两个真实回环 HTTP 服务验证库存读超时、支付成功的同请求归属。尚未在第三方业务项目中完成多下游接入验收。
+页面、证据和历史保留各行数据。固定规则与模型模式只把超时指向 `timeoutCount` 大于零的下游；零超时仅代表该窗口未观察到超时，不代表调用成功或依赖整体健康。旧 V1/V3 响应与历史数据仍按原结构读取，较早的 V5 历史没有分类字段时显示“未采集”。V5 配置下的旧 V1 路由返回 404。
+
+自动检查覆盖配置校验、RestClient / RestTemplate / WebClient 归属、V5 窗口、Agent 接口校验、诊断、页面 DOM、API 与历史快照。`verification/multi-downstream-service` 用独立 Spring Boot 应用和两个真实回环 HTTP 服务验证库存读超时、支付 200 与支付 500 的分项。尚未在第三方业务项目中完成多下游接入验收。

@@ -695,6 +695,7 @@ textarea::placeholder {
 .downstream-row span { color: var(--muted); }
 .downstream-row.warning { border-color: #d9b5a1; background: #fff8f3; }
 .downstream-row.warning .downstream-timeouts { color: #a25b38; font-weight: 600; }
+.downstream-response { grid-column: 1 / -1; padding-top: 8px; border-top: 1px solid var(--line); color: var(--subtle); font-size: 10px; }
 .downstream-note { margin: 9px 0 0; color: var(--subtle); font-size: 10px; line-height: 1.5; }
 .metric-label {
   font-size: 10px;

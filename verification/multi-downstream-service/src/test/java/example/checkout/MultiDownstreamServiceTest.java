@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.*;
 class MultiDownstreamServiceTest {
     private static HttpServer inventory;
     private static HttpServer payment;
+    private static final java.util.concurrent.atomic.AtomicBoolean paymentFails = new java.util.concurrent.atomic.AtomicBoolean();
     @Autowired TestRestTemplate http;
 
     @DynamicPropertySource static void endpoints(DynamicPropertyRegistry properties) throws Exception {
@@ -30,8 +31,9 @@ class MultiDownstreamServiceTest {
         });
         payment = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         payment.createContext("/payment", exchange -> {
-            byte[] body = "ok".getBytes(StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(200, body.length);
+            boolean failed = paymentFails.get();
+            byte[] body = (failed ? "failed" : "ok").getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(failed ? 500 : 200, body.length);
             try (var out = exchange.getResponseBody()) { out.write(body); }
         });
         inventory.start(); payment.start();
@@ -50,15 +52,20 @@ class MultiDownstreamServiceTest {
     @AfterAll static void stop() { if (inventory != null) inventory.stop(0); if (payment != null) payment.stop(0); }
 
     @Test void oneRequestWithTwoRealHttpCallsKeepsTheTimeoutOnInventory() {
+        paymentFails.set(false);
         assertThat(http.getForObject("/api/checkout", String.class)).isEqualTo("stock=unavailable;payment=ok");
+        paymentFails.set(true);
+        assertThat(http.getForObject("/api/checkout", String.class)).isEqualTo("stock=unavailable;payment=failed");
         JsonNode observed = http.getForObject(java.net.URI.create("/triage/endpoint-observations?windowMinutes=5&endTime="
             + Instant.now()), JsonNode.class);
         assertThat(observed.path("schemaVersion").asInt()).isEqualTo(5);
-        assertThat(observed.path("requestCount").asInt()).isEqualTo(1);
-        assertThat(observed.path("timeoutCount").asInt()).isEqualTo(1);
+        assertThat(observed.path("requestCount").asInt()).isEqualTo(2);
+        assertThat(observed.path("timeoutCount").asInt()).isEqualTo(2);
         assertThat(observed.at("/downstreams/0/id").asText()).isEqualTo("inventory-service");
-        assertThat(observed.at("/downstreams/0/timeoutCount").asInt()).isEqualTo(1);
+        assertThat(observed.at("/downstreams/0/timeoutCount").asInt()).isEqualTo(2);
         assertThat(observed.at("/downstreams/1/id").asText()).isEqualTo("payment-service");
         assertThat(observed.at("/downstreams/1/timeoutCount").asInt()).isZero();
+        assertThat(observed.at("/downstreams/1/responseStatuses/successful").asInt()).isEqualTo(1);
+        assertThat(observed.at("/downstreams/1/responseStatuses/serverError").asInt()).isEqualTo(1);
     }
 }
