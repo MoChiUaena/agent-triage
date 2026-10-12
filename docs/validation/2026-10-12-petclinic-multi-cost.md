@@ -20,4 +20,12 @@ python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/382
 
 这两份附件产生于摘要内绑定 CSV 哈希之前，因此重放命令显式使用上述已知哈希。新版摘要会内置两份 CSV 的 SHA-256；下载附件后还须从独立的工作流日志或经审阅的记录取得摘要 SHA-256 并传给重放命令。仅有附件内部哈希只能证明文件相互一致，不能防止整组文件被一起改写。工作流现场使用显式 `--trust-current-run`，打印摘要哈希供之后核对；重放同时拒绝非有限时间、提前发送和错误预热时长。
 
+哈希绑定改动在[新版 60 秒运行](https://github.com/MoChiUaena/agent-triage/actions/runs/38219342438)中通过了“采集、现场重放、数字附件上传、进程清理”四步。来源提交 `64b5b041ba69f951f2024216135e80c1c9022cf2`，120 个请求的 p95 为 107.671 ms，最大启动偏差 4.878 ms，预热后 RSS／私有页峰值增长均为 3.17 MiB。工作流日志给出的摘要 SHA-256 为 `7beef0ebfd575ff209ff4432f7e8a26525fe31288b25433f263e059ced420baf`；下载附件后按独立哈希重放：
+
+```powershell
+python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38219342438 --source-commit 64b5b041ba69f951f2024216135e80c1c9022cf2 --seconds 60 --expected-summary-sha256 7beef0ebfd575ff209ff4432f7e8a26525fe31288b25433f263e059ced420baf
+```
+
+这次与上表运行处于不同虚拟机，不能将 3.17 MiB 与 11.18 MiB 直接比较为同一进程的内存变化。
+
 本次仅是 Linux 短时成本基线。300 秒运行的 RSS 与私有页在末尾仍接近窗口峰值，无法据此判断长期是否趋稳或泄漏；两次运行处于不同虚拟机、预热基点也不同，增长值不能直接相减。没有同机关闭 Starter 的对照，所以这些数值也不能归因于 Starter。Windows 本地试跑曾出现一次支付读取超时；该失败未计入通过结果，未放宽 500 ms 支付读取时限或之前的 Windows 小时级门槛。
