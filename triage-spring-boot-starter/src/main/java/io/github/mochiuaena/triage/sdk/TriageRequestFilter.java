@@ -3,6 +3,8 @@ package io.github.mochiuaena.triage.sdk;
 import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -14,16 +16,29 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         final String trace = UUID.randomUUID().toString();
         private double downstreamMs;
         private boolean timeout;
+        private final Map<String, MutableDownstream> downstreams = new LinkedHashMap<>();
         volatile MvcEndpoint endpoint;
         volatile Class<?> handlerClass;
         private FailureLocations.Location failureLocation;
         private boolean failureRecorded;
         private boolean requestException, asyncTimeout, asyncError;
         private boolean active = true;
+        record DownstreamResult(double millis, boolean timeout) {}
+        private static final class MutableDownstream { double millis; boolean timeout; }
         record Completed(double downstreamMs, boolean timeout, MvcEndpoint endpoint, FailureLocations.Location failureLocation,
-                         boolean requestException, boolean asyncTimeout, boolean asyncError) {}
+                         boolean requestException, boolean asyncTimeout, boolean asyncError, Map<String, DownstreamResult> downstreams) {}
         synchronized boolean isActive() { return active; }
         synchronized void addDownstreamMillis(double elapsed) { if (active) downstreamMs += elapsed; }
+        synchronized void addDownstreamMillis(String id, double elapsed) {
+            if (!active) return;
+            downstreamMs += elapsed;
+            if (id != null) downstreams.computeIfAbsent(id, ignored -> new MutableDownstream()).millis += elapsed;
+        }
+        synchronized void recordFailure(String id, boolean timedOut, java.util.function.Supplier<FailureLocations.Location> capture) {
+            if (!active) return;
+            if (id != null) downstreams.computeIfAbsent(id, ignored -> new MutableDownstream()).timeout |= timedOut;
+            recordFailure(timedOut, capture);
+        }
         synchronized void recordFailure(boolean timedOut, java.util.function.Supplier<FailureLocations.Location> capture) {
             if (!active) return;
             timeout |= timedOut;
@@ -43,10 +58,14 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         synchronized Completed finish() {
             if (!active) return null;
             active = false;
-            var completed = new Completed(downstreamMs, timeout, endpoint, failureLocation, requestException, asyncTimeout, asyncError);
+            var results = new LinkedHashMap<String, DownstreamResult>();
+            downstreams.forEach((id, value) -> results.put(id, new DownstreamResult(value.millis, value.timeout)));
+            var completed = new Completed(downstreamMs, timeout, endpoint, failureLocation, requestException, asyncTimeout, asyncError,
+                Map.copyOf(results));
             handlerClass = null;
             endpoint = null;
             failureLocation = null;
+            downstreams.clear();
             return completed;
         }
     }

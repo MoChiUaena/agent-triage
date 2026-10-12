@@ -15,7 +15,9 @@ final class TriageHttpClientInterceptor implements ClientHttpRequestInterceptor 
     TriageHttpClientInterceptor(TriageObservationProperties properties) { this.properties = properties; }
     @Override public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution) throws IOException {
         var context = TriageRequestFilter.CURRENT.get();
-        if (context == null || !context.isActive() || !properties.matches(request.getURI())) return execution.execute(request, body);
+        if (context == null || !context.isActive()) return execution.execute(request, body);
+        String downstreamId = properties.downstreamFor(request.getURI());
+        if (downstreamId == null) return execution.execute(request, body);
         long start = System.nanoTime();
         try {
             ClientHttpResponse response = execution.execute(request, body);
@@ -23,52 +25,52 @@ final class TriageHttpClientInterceptor implements ClientHttpRequestInterceptor 
                 @Override public HttpStatusCode getStatusCode() throws IOException {
                     long statusStart = System.nanoTime();
                     try { return response.getStatusCode(); }
-                    catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
-                    finally { context.addDownstreamMillis(ObservationRecorder.elapsed(statusStart)); }
+                    catch (IOException | RuntimeException e) { markTimeout(context, downstreamId, e); throw e; }
+                    finally { context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(statusStart)); }
                 }
                 @Override public String getStatusText() throws IOException {
                     long textStart = System.nanoTime();
                     try { return response.getStatusText(); }
-                    catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
-                    finally { context.addDownstreamMillis(ObservationRecorder.elapsed(textStart)); }
+                    catch (IOException | RuntimeException e) { markTimeout(context, downstreamId, e); throw e; }
+                    finally { context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(textStart)); }
                 }
                 @Override public HttpHeaders getHeaders() {
                     long headersStart = System.nanoTime();
                     try { return response.getHeaders(); }
-                    catch (RuntimeException e) { markTimeout(context, e); throw e; }
-                    finally { context.addDownstreamMillis(ObservationRecorder.elapsed(headersStart)); }
+                    catch (RuntimeException e) { markTimeout(context, downstreamId, e); throw e; }
+                    finally { context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(headersStart)); }
                 }
                 @Override public void close() { response.close(); }
                 @Override public InputStream getBody() throws IOException {
                     InputStream input;
                     long bodyStart = System.nanoTime();
                     try { input = response.getBody(); }
-                    catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
-                    finally { context.addDownstreamMillis(ObservationRecorder.elapsed(bodyStart)); }
+                    catch (IOException | RuntimeException e) { markTimeout(context, downstreamId, e); throw e; }
+                    finally { context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(bodyStart)); }
                     return new FilterInputStream(input) {
                         @Override public int read() throws IOException {
                             long readStart = System.nanoTime();
                             try { return in.read(); }
-                            catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
-                            finally { context.addDownstreamMillis(ObservationRecorder.elapsed(readStart)); }
+                            catch (IOException | RuntimeException e) { markTimeout(context, downstreamId, e); throw e; }
+                            finally { context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(readStart)); }
                         }
                         @Override public int read(byte[] bytes, int offset, int length) throws IOException {
                             long readStart = System.nanoTime();
                             try { return in.read(bytes, offset, length); }
-                            catch (IOException | RuntimeException e) { markTimeout(context, e); throw e; }
-                            finally { context.addDownstreamMillis(ObservationRecorder.elapsed(readStart)); }
+                            catch (IOException | RuntimeException e) { markTimeout(context, downstreamId, e); throw e; }
+                            finally { context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(readStart)); }
                         }
                     };
                 }
             };
         }
         catch (IOException | RuntimeException e) {
-            markTimeout(context, e);
+            markTimeout(context, downstreamId, e);
             throw e;
-        } finally { context.addDownstreamMillis(ObservationRecorder.elapsed(start)); }
+        } finally { context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(start)); }
     }
-    private void markTimeout(TriageRequestFilter.Context context, Throwable error) {
-        context.recordFailure(TriageHttpTimeouts.isTimeout(error),
+    private void markTimeout(TriageRequestFilter.Context context, String downstreamId, Throwable error) {
+        context.recordFailure(downstreamId, TriageHttpTimeouts.isTimeout(error),
             () -> FailureLocations.capture(error, properties, "HTTP_CLIENT_FAILURE"));
     }
 }

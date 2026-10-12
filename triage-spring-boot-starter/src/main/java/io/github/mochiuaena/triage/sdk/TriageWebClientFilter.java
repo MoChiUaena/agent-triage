@@ -18,35 +18,37 @@ final class TriageWebClientFilter implements ExchangeFilterFunction {
         return Mono.defer(() -> {
             var attached = request.attribute(CONTEXT_ATTRIBUTE).orElse(null);
             var context = attached instanceof TriageRequestFilter.Context captured ? captured : TriageRequestFilter.CURRENT.get();
-            if (context == null || !context.isActive() || !properties.matches(request.url())) return next.exchange(request);
+            if (context == null || !context.isActive()) return next.exchange(request);
+            String downstreamId = properties.downstreamFor(request.url());
+            if (downstreamId == null) return next.exchange(request);
             long started = System.nanoTime();
             var recorded = new AtomicBoolean();
             return next.exchange(request)
                 .map(response -> response.mutate().body(body -> Flux.defer(() -> {
                     long bodyStarted = System.nanoTime();
                     var bodyRecorded = new AtomicBoolean();
-                    return body.doOnComplete(() -> recordDuration(context, bodyStarted, bodyRecorded))
+                    return body.doOnComplete(() -> recordDuration(context, downstreamId, bodyStarted, bodyRecorded))
                         .doOnError(error -> {
-                            markFailure(context, error);
-                            recordDuration(context, bodyStarted, bodyRecorded);
+                            markFailure(context, downstreamId, error);
+                            recordDuration(context, downstreamId, bodyStarted, bodyRecorded);
                         })
-                        .doOnCancel(() -> recordDuration(context, bodyStarted, bodyRecorded));
+                        .doOnCancel(() -> recordDuration(context, downstreamId, bodyStarted, bodyRecorded));
                 })).build())
-                .doOnSuccess(response -> recordDuration(context, started, recorded))
+                .doOnSuccess(response -> recordDuration(context, downstreamId, started, recorded))
                 .doOnError(error -> {
-                    markFailure(context, error);
-                    recordDuration(context, started, recorded);
+                    markFailure(context, downstreamId, error);
+                    recordDuration(context, downstreamId, started, recorded);
                 })
-                .doOnCancel(() -> recordDuration(context, started, recorded));
+                .doOnCancel(() -> recordDuration(context, downstreamId, started, recorded));
         });
     }
 
-    private static void recordDuration(TriageRequestFilter.Context context, long started, AtomicBoolean recorded) {
-        if (recorded.compareAndSet(false, true)) context.addDownstreamMillis(ObservationRecorder.elapsed(started));
+    private static void recordDuration(TriageRequestFilter.Context context, String downstreamId, long started, AtomicBoolean recorded) {
+        if (recorded.compareAndSet(false, true)) context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(started));
     }
 
-    private void markFailure(TriageRequestFilter.Context context, Throwable error) {
-        context.recordFailure(TriageHttpTimeouts.isTimeout(error),
+    private void markFailure(TriageRequestFilter.Context context, String downstreamId, Throwable error) {
+        context.recordFailure(downstreamId, TriageHttpTimeouts.isTimeout(error),
             () -> FailureLocations.capture(error, properties, "HTTP_CLIENT_FAILURE"));
     }
 }
