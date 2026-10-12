@@ -48,6 +48,7 @@ jobs:
           name: petclinic-v5-cost-${{ inputs.cost_seconds }}
           path: |
             target/petclinic-multi-acceptance/**/cost.csv
+            target/petclinic-multi-acceptance/**/requests.csv
             target/petclinic-multi-acceptance/**/cost-summary.json
             target/petclinic-multi-acceptance/**/cost-failure.json
           if-no-files-found: warn

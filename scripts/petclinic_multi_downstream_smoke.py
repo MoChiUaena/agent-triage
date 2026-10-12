@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 from live_smoke import evidence, request, valid_citations
 from package_release import ROOT, project
 from prepare_petclinic_rest import REVISION
-from petclinic_multi_cost import measure, write_samples
+from petclinic_multi_cost import measure, request_writer, write_samples
 
 
 def complete_window(application, minutes, expected_count):
@@ -218,8 +218,10 @@ def main():
                         "paymentExpected5xx": fail}, indent=2), encoding="utf-8")
                     raise ValueError(f"Cost request mismatch at request {index}, HTTP {status}; see numeric receipt in {output}")
 
-            cost, samples = measure(args.load_seconds, children[0].pid, invoke,
-                on_sample=lambda values: write_samples(output / "cost.csv", values))
+            with (output / "requests.csv").open("w", newline="", encoding="utf-8") as timing:
+                cost, samples = measure(args.load_seconds, children[0].pid, invoke,
+                    on_sample=lambda values: write_samples(output / "cost.csv", values),
+                    on_request=request_writer(timing))
             expected = 2 + cost["completedRequests"]
             observed = complete_window(application, 15, expected)
             rows = {row["id"]: row for row in observed["downstreams"]}
@@ -230,7 +232,8 @@ def main():
             assert rows["payment-service"]["responseStatuses"]["successful"] == 1 + (cost["completedRequests"] + 1) // 2
             assert rows["payment-service"]["responseStatuses"]["serverError"] == 1 + cost["completedRequests"] // 2
             write_samples(output / "cost.csv", samples)
-            cost.update(upstreamRevision=REVISION, observedRequests=expected,
+            source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+            cost.update(sourceCommit=source_commit, upstreamRevision=REVISION, observedRequests=expected,
                         inventoryTimeouts=rows["inventory-service"]["timeoutCount"],
                         payment2xx=rows["payment-service"]["responseStatuses"]["successful"],
                         payment5xx=rows["payment-service"]["responseStatuses"]["serverError"], agentValidated=False)
