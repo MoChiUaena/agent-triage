@@ -49,14 +49,25 @@ class CostReportTest(unittest.TestCase):
 
     def test_version_two_receipt_replays_its_complete_numeric_files(self):
         folder, _, _, _ = self.fixture()
-        self.assertEqual(verify(folder, self.SOURCE, 60)["requests"], 120)
+        self.assertEqual(verify(folder, self.SOURCE, 60, trust_current_run=True)["requests"], 120)
+        with self.assertRaisesRegex(ValueError, "trusted summary"):
+            verify(folder, self.SOURCE, 60)
 
     def test_intermediate_memory_tampering_is_rejected(self):
         folder, _, _, samples = self.fixture()
         samples[2]["rssBytes"] = 1
         self.write_csv(folder / "cost.csv", ("pid", "elapsedSeconds", "rssBytes", "privateBytes"), samples)
         with self.assertRaisesRegex(ValueError, "SHA-256"):
-            verify(folder, self.SOURCE, 60)
+            verify(folder, self.SOURCE, 60, trust_current_run=True)
+
+    def test_external_summary_digest_rejects_coordinated_file_rewrite(self):
+        folder, summary, _, samples = self.fixture()
+        original_sha = hashlib.sha256((folder / "cost-summary.json").read_bytes()).hexdigest()
+        samples[2]["rssBytes"] = 1
+        self.write_csv(folder / "cost.csv", ("pid", "elapsedSeconds", "rssBytes", "privateBytes"), samples)
+        self.rehash(folder, summary)
+        with self.assertRaisesRegex(ValueError, "trusted SHA-256"):
+            verify(folder, self.SOURCE, 60, expected_summary_sha=original_sha)
 
     def test_early_start_and_nonfinite_duration_are_rejected_even_after_rehashing(self):
         folder, summary, requests, _ = self.fixture()
@@ -64,20 +75,20 @@ class CostReportTest(unittest.TestCase):
         self.write_csv(folder / "requests.csv", REQUEST_COLUMNS, requests)
         self.rehash(folder, summary)
         with self.assertRaisesRegex(ValueError, "prematurely"):
-            verify(folder, self.SOURCE, 60)
+            verify(folder, self.SOURCE, 60, trust_current_run=True)
         requests[1]["startedElapsedSeconds"] = .5
         requests[0]["durationMs"] = "nan"
         self.write_csv(folder / "requests.csv", REQUEST_COLUMNS, requests)
         self.rehash(folder, summary)
         with self.assertRaisesRegex(ValueError, "Non-finite"):
-            verify(folder, self.SOURCE, 60)
+            verify(folder, self.SOURCE, 60, trust_current_run=True)
 
     def test_invalid_warmup_is_rejected(self):
         folder, summary, _, _ = self.fixture()
         summary["warmupSeconds"] = -1
         (folder / "cost-summary.json").write_text(json.dumps(summary), encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "Numeric cost summary"):
-            verify(folder, self.SOURCE, 60)
+            verify(folder, self.SOURCE, 60, trust_current_run=True)
 
     def test_comparison_rejects_nonfinite_values_on_either_side(self):
         for actual, expected in ((float("nan"), 0), (0, float("nan")),

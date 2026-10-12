@@ -43,7 +43,7 @@ jobs:
         run: python3 scripts/petclinic_multi_downstream_smoke.py --project-directory "$RUNNER_TEMP/triage-petclinic-rest" --base-port 18740 --load-seconds "${{ inputs.cost_seconds }}"
       - name: Replay numeric V5 cost evidence
         if: inputs.cost_seconds != '0'
-        run: python3 scripts/petclinic_multi_cost_report.py target/petclinic-multi-acceptance --source-commit "$GITHUB_SHA" --seconds "${{ inputs.cost_seconds }}"
+        run: python3 scripts/petclinic_multi_cost_report.py target/petclinic-multi-acceptance --source-commit "$GITHUB_SHA" --seconds "${{ inputs.cost_seconds }}" --trust-current-run
       - name: Upload only numeric cost evidence
         if: always() && inputs.cost_seconds != '0'
         uses: actions/upload-artifact@v4

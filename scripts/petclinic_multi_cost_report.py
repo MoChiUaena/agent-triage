@@ -37,11 +37,18 @@ def check_close(actual, expected, tolerance=.01):
         raise ValueError("Numeric cost summary does not match its CSV")
 
 
-def verify(folder, source_commit, seconds, legacy_requests_sha=None, legacy_memory_sha=None):
+def verify(folder, source_commit, seconds, expected_summary_sha=None, trust_current_run=False,
+           legacy_requests_sha=None, legacy_memory_sha=None):
     matches = list(folder.rglob("cost-summary.json"))
     if len(matches) != 1:
         raise ValueError("Expected exactly one cost summary")
     summary_path = matches[0]
+    summary_sha = hashlib.sha256(summary_path.read_bytes()).hexdigest()
+    if trust_current_run == (expected_summary_sha is not None):
+        raise ValueError("Specify either a trusted summary SHA-256 or the current-run trust mode")
+    if expected_summary_sha is not None and (re.fullmatch(r"[a-f0-9]{64}", expected_summary_sha) is None
+                                             or summary_sha != expected_summary_sha):
+        raise ValueError("Cost summary does not match the trusted SHA-256")
     data = json.loads(summary_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict) or set(data) not in (SUMMARY_FIELDS_V1, SUMMARY_FIELDS_V2):
         raise ValueError("Unexpected cost summary fields")
@@ -125,7 +132,7 @@ def verify(folder, source_commit, seconds, legacy_requests_sha=None, legacy_memo
     return {"requests": expected, "p95Ms": data["requestP95Ms"],
             "rssGrowthMiB": round(data["rssPeakGrowthBytes"] / 1048576, 2),
             "privateGrowthMiB": round(data["privatePeakGrowthBytes"] / 1048576, 2),
-            "summarySha256": hashlib.sha256(summary_path.read_bytes()).hexdigest()}
+            "summarySha256": summary_sha}
 
 
 def main():
@@ -133,10 +140,14 @@ def main():
     parser.add_argument("directory", type=Path)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--seconds", type=int, choices=(60, 300), required=True)
+    trust = parser.add_mutually_exclusive_group(required=True)
+    trust.add_argument("--expected-summary-sha256", help="Digest recorded outside the downloaded artifact")
+    trust.add_argument("--trust-current-run", action="store_true", help="Use only for files created in this workflow run")
     parser.add_argument("--legacy-requests-sha256", help="Documented requests.csv hash for a version 1 artifact")
     parser.add_argument("--legacy-memory-sha256", help="Documented cost.csv hash for a version 1 artifact")
     args = parser.parse_args()
     print(json.dumps(verify(args.directory, args.source_commit, args.seconds,
+                            args.expected_summary_sha256, args.trust_current_run,
                             args.legacy_requests_sha256, args.legacy_memory_sha256), sort_keys=True))
 
 
