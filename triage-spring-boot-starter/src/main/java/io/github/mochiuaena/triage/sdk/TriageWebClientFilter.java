@@ -24,7 +24,9 @@ final class TriageWebClientFilter implements ExchangeFilterFunction {
             long started = System.nanoTime();
             var recorded = new AtomicBoolean();
             return next.exchange(request)
-                .map(response -> response.mutate().body(body -> Flux.defer(() -> {
+                .map(response -> {
+                    context.recordDownstreamStatus(downstreamId, response.statusCode().value());
+                    return response.mutate().body(body -> Flux.defer(() -> {
                     long bodyStarted = System.nanoTime();
                     var bodyRecorded = new AtomicBoolean();
                     return body.doOnComplete(() -> recordDuration(context, downstreamId, bodyStarted, bodyRecorded))
@@ -33,7 +35,8 @@ final class TriageWebClientFilter implements ExchangeFilterFunction {
                             recordDuration(context, downstreamId, bodyStarted, bodyRecorded);
                         })
                         .doOnCancel(() -> recordDuration(context, downstreamId, bodyStarted, bodyRecorded));
-                })).build())
+                    })).build();
+                })
                 .doOnSuccess(response -> recordDuration(context, downstreamId, started, recorded))
                 .doOnError(error -> {
                     markFailure(context, downstreamId, error);

@@ -72,7 +72,8 @@ public final class ObservationRecorder {
                 unattributedRequestCount, otherEndpointRequestCount, responseStatuses, null);
         }
     }
-    record DownstreamWindow(String id, int requestCount, int timeoutCount, double downstreamP95Ms, double downstreamTimeoutRate) {}
+    record DownstreamWindow(String id, int requestCount, int timeoutCount, double downstreamP95Ms, double downstreamTimeoutRate,
+                            ResponseStatusCounts responseStatuses) {}
     private final TriageObservationProperties properties;
     private final Clock clock;
     private final Deque<HttpSample> http = new ArrayDeque<>();
@@ -214,9 +215,12 @@ public final class ObservationRecorder {
             var samples = matching.stream().map(sample -> sample.downstreams().get(config.id())).filter(Objects::nonNull).toList();
             int count = samples.size();
             int timedOut = (int) samples.stream().filter(TriageRequestFilter.Context.DownstreamResult::timeout).count();
+            int[] classes = new int[6];
+            for (var sample : samples) classes[sample.responseClass()]++;
             return new DownstreamWindow(config.id(), count, timedOut,
                 p95(samples.stream().map(TriageRequestFilter.Context.DownstreamResult::millis).toList()),
-                count == 0 ? 0 : (double) timedOut / count);
+                count == 0 ? 0 : (double) timedOut / count,
+                new ResponseStatusCounts(classes[1], classes[2], classes[3], classes[4], classes[5], classes[0]));
         }).toList() : null;
         return new EndpointWindow(multi ? 5 : 3, "HTTP_ENDPOINTS", properties.getServiceId(), multi ? null : properties.getDownstreamId(),
             start, end, matching.size(), timeouts,

@@ -44,6 +44,8 @@ class MultiDownstreamClientObservationTest {
         assertThat(completed.downstreams()).hasSize(2);
         assertThat(completed.downstreams().get("inventory-service").timeout()).isTrue();
         assertThat(completed.downstreams().get("payment-service").timeout()).isFalse();
+        assertThat(completed.downstreams().get("inventory-service").responseClass()).isZero();
+        assertThat(completed.downstreams().get("payment-service").responseClass()).isEqualTo(2);
     }
 
     @Test void inventoryTimeoutDoesNotTurnTheSuccessfulPaymentCallIntoATimeout() {

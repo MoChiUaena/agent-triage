@@ -24,7 +24,11 @@ final class TriageHttpClientInterceptor implements ClientHttpRequestInterceptor 
             return new ClientHttpResponse() {
                 @Override public HttpStatusCode getStatusCode() throws IOException {
                     long statusStart = System.nanoTime();
-                    try { return response.getStatusCode(); }
+                    try {
+                        HttpStatusCode status = response.getStatusCode();
+                        context.recordDownstreamStatus(downstreamId, status.value());
+                        return status;
+                    }
                     catch (IOException | RuntimeException e) { markTimeout(context, downstreamId, e); throw e; }
                     finally { context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(statusStart)); }
                 }

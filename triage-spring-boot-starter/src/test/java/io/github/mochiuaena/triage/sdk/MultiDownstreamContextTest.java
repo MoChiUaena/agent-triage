@@ -4,6 +4,15 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.*;
 
 class MultiDownstreamContextTest {
+    @Test void repeatedCallsKeepTheHighestObservedResponseClassAndIgnoreLateSignals() {
+        var context = new TriageRequestFilter.Context();
+        context.recordDownstreamStatus("payment-service", 200);
+        context.recordDownstreamStatus("payment-service", 500);
+        context.addDownstreamMillis("payment-service", 12);
+        var completed = context.finish();
+        context.recordDownstreamStatus("payment-service", 200);
+        assertThat(completed.downstreams().get("payment-service").responseClass()).isEqualTo(5);
+    }
     @Test void oneRequestKeepsTimeoutAndDurationWithTheCorrectDownstream() {
         var context = new TriageRequestFilter.Context();
         context.addDownstreamMillis("inventory-service", 80);

@@ -23,8 +23,10 @@ final class TriageRequestFilter extends OncePerRequestFilter {
         private boolean failureRecorded;
         private boolean requestException, asyncTimeout, asyncError;
         private boolean active = true;
-        record DownstreamResult(double millis, boolean timeout) {}
-        private static final class MutableDownstream { double millis; boolean timeout; }
+        record DownstreamResult(double millis, boolean timeout, int responseClass) {
+            DownstreamResult(double millis, boolean timeout) { this(millis, timeout, 0); }
+        }
+        private static final class MutableDownstream { double millis; boolean timeout; int responseClass; }
         record Completed(double downstreamMs, boolean timeout, MvcEndpoint endpoint, FailureLocations.Location failureLocation,
                          boolean requestException, boolean asyncTimeout, boolean asyncError, Map<String, DownstreamResult> downstreams) {}
         synchronized boolean isActive() { return active; }
@@ -33,6 +35,11 @@ final class TriageRequestFilter extends OncePerRequestFilter {
             if (!active) return;
             downstreamMs += elapsed;
             if (id != null) downstreams.computeIfAbsent(id, ignored -> new MutableDownstream()).millis += elapsed;
+        }
+        synchronized void recordDownstreamStatus(String id, int status) {
+            if (!active || id == null || status < 100 || status > 599) return;
+            var value = downstreams.computeIfAbsent(id, ignored -> new MutableDownstream());
+            value.responseClass = Math.max(value.responseClass, status / 100);
         }
         synchronized void recordFailure(String id, boolean timedOut, java.util.function.Supplier<FailureLocations.Location> capture) {
             if (!active) return;
@@ -59,7 +66,7 @@ final class TriageRequestFilter extends OncePerRequestFilter {
             if (!active) return null;
             active = false;
             var results = new LinkedHashMap<String, DownstreamResult>();
-            downstreams.forEach((id, value) -> results.put(id, new DownstreamResult(value.millis, value.timeout)));
+            downstreams.forEach((id, value) -> results.put(id, new DownstreamResult(value.millis, value.timeout, value.responseClass)));
             var completed = new Completed(downstreamMs, timeout, endpoint, failureLocation, requestException, asyncTimeout, asyncError,
                 Map.copyOf(results));
             handlerClass = null;
