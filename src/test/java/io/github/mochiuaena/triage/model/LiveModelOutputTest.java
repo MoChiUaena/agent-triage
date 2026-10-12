@@ -33,6 +33,14 @@ class LiveModelOutputTest {
         assertThat(diagnosis.nextSteps()).allSatisfy(step -> assertThat(step).doesNotContain("null"));
         assertThat(diagnosis.uncertainty()).doesNotContain("未采集下游调用");
     }
+
+    @Test void v5InsufficientEvidenceNeverRendersANullDownstreamName() {
+        var info = new ServiceInfo("checkout-service", "结算服务", null, null,
+            List.of(new Downstream("inventory-service", "库存服务"), new Downstream("payment-service", "支付服务")));
+        var diagnosis = output.parse("{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[],"
+            + "\"nextChecks\":[\"COLLECT_RESOURCE_METRICS\"]}", List.of(), info).decision().diagnosis();
+        assertThat(diagnosis.nextSteps()).allSatisfy(step -> assertThat(step).doesNotContain("null"));
+    }
     @Test void registeredLabelsComeFromTheServerAndReplaceOrderSpecificWording() {
         var evidence = evidence(5, 1, true, "DOC-DOWNSTREAM-TIMEOUT#v3");
         var info = new ServiceInfo("checkout-service", "结算服务", "stock-service", "商品服务");

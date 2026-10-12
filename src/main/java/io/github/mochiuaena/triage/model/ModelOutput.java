@@ -262,7 +262,7 @@ final class ModelOutput {
         String service = info.equals(ServiceInfo.order()) ? "订单" : info.name();
         String downstream = info.equals(ServiceInfo.order()) ? "库存" : info.downstreamName();
         Evidence multiMetrics = selected.stream().filter(item -> item.source().equals("read_service_metrics") && MultiDownstreamEvidence.isMulti(item)).findFirst().orElse(null);
-        if (multiMetrics != null) return renderMulti(response, selected, prioritized, info, multiMetrics);
+        if (multiMetrics != null || !info.downstreams().isEmpty()) return renderMulti(response, selected, prioritized, info, multiMetrics);
         if (info.downstreamId() == null && info.downstreams().isEmpty()) {
             var observations = selected.stream().filter(item -> Set.of("read_service_metrics", "query_error_logs").contains(item.source()))
                 .map(item -> new Finding(item.summary(), List.of(item.id()))).toList();
