@@ -15,9 +15,13 @@ class LiveModelOutputTest {
         var info = new ServiceInfo("checkout-service", "结算服务", null, null,
             List.of(new Downstream("inventory-service", "库存服务"), new Downstream("payment-service", "支付服务")));
         var rows = List.of(Map.of("id", "inventory-service", "name", "库存服务", "requestCount", 2, "timeoutCount", 1,
-                "downstreamP95Ms", 300.0, "downstreamTimeoutRate", 0.5),
+                "downstreamP95Ms", 300.0, "downstreamTimeoutRate", 0.5,
+                "responseStatuses", Map.of("informational", 0, "successful", 1, "redirection", 0,
+                    "clientError", 0, "serverError", 0, "unknown", 1)),
             Map.of("id", "payment-service", "name", "支付服务", "requestCount", 3, "timeoutCount", 0,
-                "downstreamP95Ms", 20.0, "downstreamTimeoutRate", 0.0));
+                "downstreamP95Ms", 20.0, "downstreamTimeoutRate", 0.0,
+                "responseStatuses", Map.of("informational", 0, "successful", 3, "redirection", 0,
+                    "clientError", 0, "serverError", 0, "unknown", 0)));
         var metrics = new Evidence("METRICS-LIVE", "read_service_metrics", "指标", "库存超时 1 次，支付超时 0 次", Map.of(
             "observationType", "HTTP_DOWNSTREAMS", "requestCount", 5, "timeoutCount", 1,
             "downstreamTimeoutRate", 0.2, "orderP95Ms", 310.1, "downstreamP95Ms", 300.0, "downstreams", rows));
@@ -40,6 +44,26 @@ class LiveModelOutputTest {
         var diagnosis = output.parse("{\"assessment\":\"INSUFFICIENT_EVIDENCE\",\"evidenceIds\":[],"
             + "\"nextChecks\":[\"COLLECT_RESOURCE_METRICS\"]}", List.of(), info).decision().diagnosis();
         assertThat(diagnosis.nextSteps()).allSatisfy(step -> assertThat(step).doesNotContain("null"));
+    }
+
+    @Test void v5PaymentServerErrorRejectsANoTimeoutCompletion() {
+        var info = new ServiceInfo("checkout-service", "结算服务", null, null,
+            List.of(new Downstream("payment-service", "支付服务")));
+        var row = Map.of("id", "payment-service", "name", "支付服务", "requestCount", 1, "timeoutCount", 0,
+            "downstreamP95Ms", 10.0, "downstreamTimeoutRate", 0.0,
+            "responseStatuses", Map.of("informational", 0, "successful", 0, "redirection", 0,
+                "clientError", 0, "serverError", 1, "unknown", 0));
+        var metrics = new Evidence("METRICS-LIVE", "read_service_metrics", "指标", "支付服务 5xx", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "requestCount", 1, "timeoutCount", 0,
+            "downstreamTimeoutRate", 0.0, "orderP95Ms", 20.0, "downstreamP95Ms", 10.0,
+            "downstreams", List.of(row)));
+        var logs = new Evidence("LOGS-LIVE", "query_error_logs", "日志", "没有超时事件", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "timeoutCount", 0, "returnedCount", 0,
+            "entries", List.of(), "downstreams", List.of(row)));
+        var rule = new Evidence("DOC-HEALTHY-BASELINE#v1", "search_runbooks", "规则", "无超时规则", Map.of());
+        assertThatThrownBy(() -> output.parse(answer("NO_DOWNSTREAM_TIMEOUT_OBSERVED", rule.id()),
+            List.of(metrics, logs, rule), info)).isInstanceOfSatisfying(RunFailure.class,
+                failure -> assertThat(failure.code()).isEqualTo("MODEL_ASSESSMENT_MISMATCH"));
     }
     @Test void registeredLabelsComeFromTheServerAndReplaceOrderSpecificWording() {
         var evidence = evidence(5, 1, true, "DOC-DOWNSTREAM-TIMEOUT#v3");

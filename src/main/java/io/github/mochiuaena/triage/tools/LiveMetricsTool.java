@@ -75,6 +75,10 @@ public class LiveMetricsTool implements ReadOnlyTool {
             row.put("id", identity.id()); row.put("name", identity.name());
             row.put("requestCount", value.requestCount()); row.put("timeoutCount", value.timeoutCount());
             row.put("downstreamP95Ms", value.downstreamP95Ms()); row.put("downstreamTimeoutRate", value.downstreamTimeoutRate());
+            var classes = value.responseStatuses();
+            row.put("responseStatuses", Map.of("informational", classes.informational(), "successful", classes.successful(),
+                "redirection", classes.redirection(), "clientError", classes.clientError(), "serverError", classes.serverError(),
+                "unknown", classes.unknown()));
             rows.add(row);
         }
         return List.copyOf(rows);
@@ -86,7 +90,9 @@ public class LiveMetricsTool implements ReadOnlyTool {
             var identity = context.serviceInfo().downstreams().get(i);
             var value = observation.downstreams().get(i);
             parts.add(identity.name() + "调用涉及 " + value.requestCount() + " 个请求、超时 " + value.timeoutCount()
-                + " 次、p95 " + value.downstreamP95Ms() + "ms");
+                + " 次、p95 " + value.downstreamP95Ms() + "ms；已观察响应 2xx " + value.responseStatuses().successful()
+                + " 次、4xx " + value.responseStatuses().clientError() + " 次、5xx " + value.responseStatuses().serverError()
+                + " 次、状态未知 " + value.responseStatuses().unknown() + " 次");
         }
         return " 分项：" + String.join("；", parts) + "。同一请求可涉及多个下游，分项请求数不能相加作为总请求数。";
     }

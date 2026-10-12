@@ -277,6 +277,7 @@ public final class ModelEngine implements TriageEngine {
             """ : """
             有请求、窗口超时率大于零且日志记录超时时，选择 DOWNSTREAM_TIMEOUT_OBSERVED。
             HTTP_DOWNSTREAMS 的下游分项按配置身份列出；只把超时归于 timeoutCount 大于零的下游。其他下游零超时只代表本窗口没有观察到超时，不能推断其整体健康。分项请求数可重叠，不能相加作为总请求数。
+            下游分项的 responseStatuses 是每个入站请求对该下游观察到的响应类别；正文读取超时仍可能同时有 2xx 响应状态。任一下游出现 4xx、5xx 或未知状态时，不以零超时生成完成判断。
             有请求、窗口超时率为零且错误日志为空时，选择 NO_DOWNSTREAM_TIMEOUT_OBSERVED；这不代表服务整体健康。
             """;
         return """

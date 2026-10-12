@@ -181,7 +181,22 @@ class LiveObservationClientTest {
         node.withArray("downstreams")
             .addObject().put("id", "payment-service").put("requestCount", 3).put("timeoutCount", 0)
             .put("downstreamP95Ms", 20.0).put("downstreamTimeoutRate", 0.0);
+        ((ObjectNode) node.at("/downstreams/0")).putObject("responseStatuses")
+            .put("informational", 0).put("successful", 1).put("redirection", 0)
+            .put("clientError", 0).put("serverError", 0).put("unknown", 1);
+        ((ObjectNode) node.at("/downstreams/1")).putObject("responseStatuses")
+            .put("informational", 0).put("successful", 2).put("redirection", 0)
+            .put("clientError", 0).put("serverError", 1).put("unknown", 0);
         return node;
+    }
+
+    @Test void v5EvidenceDistinguishesPaymentServerErrorFromSuccessfulResponses() throws Exception {
+        v5Client(); response.set(json.writeValueAsBytes(v5Response()));
+        var metrics = new LiveMetricsTool(client).execute(context, "").getFirst();
+        assertThat(json.valueToTree(metrics.data()).at("/downstreams/0/responseStatuses/unknown").asInt()).isEqualTo(1);
+        assertThat(json.valueToTree(metrics.data()).at("/downstreams/1/responseStatuses/successful").asInt()).isEqualTo(2);
+        assertThat(json.valueToTree(metrics.data()).at("/downstreams/1/responseStatuses/serverError").asInt()).isEqualTo(1);
+        assertThat(metrics.summary()).contains("支付服务", "5xx 1");
     }
 
     private void v5Client() {
@@ -221,6 +236,9 @@ class LiveObservationClientTest {
             node -> ((ObjectNode) node.withArray("downstreams").get(0)).put("requestCount", 6),
             node -> ((ObjectNode) node.withArray("downstreams").get(0)).put("timeoutCount", 3),
             node -> ((ObjectNode) node.withArray("downstreams").get(0)).put("downstreamTimeoutRate", 0.4),
+            node -> ((ObjectNode) node.at("/downstreams/1")).remove("responseStatuses"),
+            node -> ((ObjectNode) node.at("/downstreams/1/responseStatuses")).put("serverError", -1),
+            node -> ((ObjectNode) node.at("/downstreams/1/responseStatuses")).put("successful", 3),
             node -> node.put("timeoutCount", 2).put("downstreamTimeoutRate", 0.4));
         for (var change : changes) {
             var value = v5Response(); change.accept(value); response.set(json.writeValueAsBytes(value));

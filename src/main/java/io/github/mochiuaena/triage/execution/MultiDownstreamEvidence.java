@@ -25,6 +25,14 @@ public final class MultiDownstreamEvidence {
         return List.copyOf(result);
     }
 
+    public static boolean responseGap(Evidence metrics) {
+        if (!isMulti(metrics) || !(metrics.data().get("downstreams") instanceof List<?> rows)) return false;
+        return rows.stream().anyMatch(item -> item instanceof Map<?, ?> row
+            && row.get("responseStatuses") instanceof Map<?, ?> classes
+            && (EvidenceRules.count(classes, "clientError") > 0 || EvidenceRules.count(classes, "serverError") > 0
+                || EvidenceRules.count(classes, "unknown") > 0));
+    }
+
     public static boolean matches(Evidence metrics, Evidence logs, ServiceInfo info) {
         if (!isMulti(metrics) || logs == null || !"HTTP_DOWNSTREAMS".equals(logs.data().get("observationType"))
             || !(metrics.data().get("downstreams") instanceof List<?> rows)
@@ -38,6 +46,14 @@ public final class MultiDownstreamEvidence {
             long rowRequests = EvidenceRules.count(row, "requestCount");
             long timeouts = EvidenceRules.count(row, "timeoutCount");
             if (rowRequests < 0 || rowRequests > requests || timeouts < 0 || timeouts > rowRequests || timeouts > total) return false;
+            if (!(row.get("responseStatuses") instanceof Map<?, ?> classes)) return false;
+            long classified = 0;
+            for (String key : List.of("informational", "successful", "redirection", "clientError", "serverError", "unknown")) {
+                long count = EvidenceRules.count(classes, key);
+                if (count < 0 || count > rowRequests) return false;
+                classified += count;
+            }
+            if (classified != rowRequests || classes.size() != 6) return false;
             sum += timeouts;
         }
         return total >= 0 && sum >= total;

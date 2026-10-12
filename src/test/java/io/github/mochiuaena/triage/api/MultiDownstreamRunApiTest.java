@@ -57,9 +57,13 @@ class MultiDownstreamRunApiTest {
                 "level", "ERROR", "message", "request timeout")));
             data.put("downstreams", List.of(
                 Map.of("id", "inventory-service", "requestCount", 2, "timeoutCount", 1,
-                    "downstreamP95Ms", 300.0, "downstreamTimeoutRate", 0.5),
+                    "downstreamP95Ms", 300.0, "downstreamTimeoutRate", 0.5,
+                    "responseStatuses", Map.of("informational", 0, "successful", 1, "redirection", 0,
+                        "clientError", 0, "serverError", 0, "unknown", 1)),
                 Map.of("id", "payment-service", "requestCount", 3, "timeoutCount", 0,
-                    "downstreamP95Ms", 20.0, "downstreamTimeoutRate", 0.0)));
+                    "downstreamP95Ms", 20.0, "downstreamTimeoutRate", 0.0,
+                    "responseStatuses", Map.of("informational", 0, "successful", 2, "redirection", 0,
+                        "clientError", 0, "serverError", 1, "unknown", 0))));
             byte[] body = JSON.writeValueAsBytes(data);
             exchange.sendResponseHeaders(200, body.length);
             try (var out = exchange.getResponseBody()) { out.write(body); }
@@ -83,7 +87,7 @@ class MultiDownstreamRunApiTest {
         assertThat(config.at("/services/0/downstreams/1/name").asText()).isEqualTo("支付服务");
         assertThat(config.toString()).doesNotContain("baseUrl", "127.0.0.1");
 
-        var created = http.postForEntity("/api/runs", Map.of("question", "支付服务怎么回事？",
+        var created = http.postForEntity("/api/runs", Map.of("question", "结算服务请求为什么变慢？",
             "service", "checkout-service", "windowMinutes", 5), Run.class);
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
         UUID id = created.getBody().id();
@@ -96,6 +100,7 @@ class MultiDownstreamRunApiTest {
         assertThat(metrics.data()).containsEntry("observationType", "HTTP_DOWNSTREAMS");
         assertThat(JSON.valueToTree(metrics.data()).at("/downstreams/0/timeoutCount").asInt()).isEqualTo(1);
         assertThat(JSON.valueToTree(metrics.data()).at("/downstreams/1/timeoutCount").asInt()).isZero();
+        assertThat(JSON.valueToTree(metrics.data()).at("/downstreams/1/responseStatuses/serverError").asInt()).isEqualTo(1);
         assertThat(saved.diagnosis().possibleCauses().getFirst().text()).contains("库存服务").doesNotContain("支付服务");
         assertThat(http.getForObject("/api/runs", RunSummary[].class)).filteredOn(summary -> summary.id().equals(id))
             .singleElement().satisfies(summary -> assertThat(summary.serviceInfo().downstreams())

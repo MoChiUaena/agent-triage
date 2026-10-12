@@ -91,7 +91,7 @@ public class LiveObservationClient {
         }
     }
     public record DownstreamInput(String id, Integer requestCount, Integer timeoutCount, Double downstreamP95Ms,
-                                  Double downstreamTimeoutRate) {}
+                                  Double downstreamTimeoutRate, ResponseStatusCounts responseStatuses) {}
     public record EndpointInput(RequestEndpoint endpoint, Integer requestCount, Integer timeoutCount, Double requestP95Ms, Double downstreamP95Ms,
                                 ResponseStatusCounts responseStatuses) {}
     public record RequestObservations(Integer schemaVersion, String kind, String service, Instant windowStart, Instant windowEnd,
@@ -264,6 +264,7 @@ public class LiveObservationClient {
         for (var downstream : value.downstreams()) {
             if (downstream == null || downstream.id() == null || downstream.requestCount() == null || downstream.timeoutCount() == null
                 || downstream.downstreamP95Ms() == null || downstream.downstreamTimeoutRate() == null
+                || downstream.responseStatuses() == null
                 || downstream.requestCount() < 0 || downstream.requestCount() > value.requestCount()
                 || downstream.timeoutCount() < 0 || downstream.timeoutCount() > downstream.requestCount()
                 || !metric(downstream.downstreamP95Ms()) || !metric(downstream.downstreamTimeoutRate())
@@ -272,6 +273,7 @@ public class LiveObservationClient {
                 || Math.abs(downstream.downstreamTimeoutRate() - (downstream.requestCount() == 0 ? 0
                     : (double) downstream.timeoutCount() / downstream.requestCount())) > 0.000001
                 || received.putIfAbsent(downstream.id(), downstream) != null) throw unexpected();
+            validateStatuses(downstream.responseStatuses(), downstream.requestCount());
             summedTimeouts += downstream.timeoutCount();
             greatestTimeouts = Math.max(greatestTimeouts, downstream.timeoutCount());
         }

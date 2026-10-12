@@ -53,7 +53,7 @@ public class DemoReasoner {
         var affected = MultiDownstreamEvidence.affected(metrics, info);
         var observations = List.of(new Finding(metrics.summary(), List.of(metrics.id())), new Finding(logs.summary(), List.of(logs.id())));
         long events = EvidenceRules.count(logs.data(), "returnedCount");
-        if (timeout && affected.isEmpty() || !timeout && EvidenceRules.responseStatusGap(metrics))
+        if (timeout && affected.isEmpty() || !timeout && (EvidenceRules.responseStatusGap(metrics) || MultiDownstreamEvidence.responseGap(metrics)))
             return new Diagnosis(observations, List.of(), List.of("核对同一窗口的请求与下游分项指标。"), "现有证据不能完成下游归因。");
         if (timeout && events <= 0 || !timeout && events > 0)
             return new Diagnosis(observations, List.of(), List.of("核对错误事件类型与下游分项计数，再补充同窗口证据。"),

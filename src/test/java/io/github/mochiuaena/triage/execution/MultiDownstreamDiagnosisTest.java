@@ -59,6 +59,22 @@ class MultiDownstreamDiagnosisTest {
         assertThat(result.uncertainty()).contains("事件");
     }
 
+    @Test void payment5xxWithoutTimeoutCannotBecomeANormalWindowConclusion() {
+        var payment = new java.util.LinkedHashMap<String, Object>(row("payment-service", 1, 0));
+        payment.put("responseStatuses", Map.of("informational", 0, "successful", 0, "redirection", 0,
+            "clientError", 0, "serverError", 1, "unknown", 0));
+        var metrics = new Evidence("METRICS", "read_service_metrics", "指标", "支付服务有 5xx 响应", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "requestCount", 1, "timeoutCount", 0,
+            "downstreamTimeoutRate", 0.0, "downstreams", List.of(payment)));
+        var logs = new Evidence("LOGS", "query_error_logs", "日志", "窗口没有下游超时事件", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "returnedCount", 0, "entries", List.of()));
+        var rule = new Evidence("DOC-HEALTHY-BASELINE#v1", "search_runbooks", "规则", "无超时规则", Map.of());
+        assertThat(HttpResponseDiagnosis.requiresGate("支付服务慢", metrics)).isTrue();
+        assertThat(new DemoReasoner().diagnose(List.of(metrics, logs, rule), service).possibleCauses()).isEmpty();
+        assertThat(HttpResponseDiagnosis.incomplete(metrics, logs).uncertainty())
+            .contains("分项", "4xx", "5xx").doesNotContain("不能确认下游归因");
+    }
+
     private Map<String, Object> row(String id, int requests, int timeouts) {
         return Map.of("id", id, "requestCount", requests, "timeoutCount", timeouts);
     }
