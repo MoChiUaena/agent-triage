@@ -26,6 +26,7 @@ public class DemoReasoner {
         if (((Number) metrics.data().get("requestCount")).intValue() == 0)
             return new Diagnosis(List.of(), List.of(), List.of("先让" + service + "处理一些请求，再重新排查相同时间窗口。"),
                 "该时间窗口没有服务请求，无法判断当前延迟和超时情况。");
+        if (MultiDownstreamEvidence.isMulti(metrics)) return multiDownstream(evidence, info, metrics, logs);
         boolean timeout = ((Number) metrics.data().get("downstreamTimeoutRate")).doubleValue() > 0;
         if (!timeout && EvidenceRules.responseStatusGap(metrics)) return HttpResponseDiagnosis.incomplete(metrics, logs);
         var observations = List.of(new Finding(metrics.summary(), List.of(metrics.id())), new Finding(logs.summary(), List.of(logs.id())));
@@ -45,5 +46,25 @@ public class DemoReasoner {
                 : List.of("找到具体慢请求的时间和 traceId，缩小查询范围。", "补充数据库和其他依赖的调用耗时。"),
             hasRule ? "尚未采集数据库、网络和下游服务的资源指标，无法进一步判断原因。"
                 : "已获取观测数据，但没有检索到对应的排障文档，暂时无法判断原因。");
+    }
+
+    private Diagnosis multiDownstream(List<Evidence> evidence, ServiceInfo info, Evidence metrics, Evidence logs) {
+        boolean timeout = EvidenceRules.count(metrics.data(), "timeoutCount") > 0;
+        var affected = MultiDownstreamEvidence.affected(metrics, info);
+        var observations = List.of(new Finding(metrics.summary(), List.of(metrics.id())), new Finding(logs.summary(), List.of(logs.id())));
+        if (timeout && affected.isEmpty() || !timeout && EvidenceRules.responseStatusGap(metrics))
+            return new Diagnosis(observations, List.of(), List.of("核对同一窗口的请求与下游分项指标。"), "现有证据不能完成下游归因。");
+        String prefix = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
+        Evidence rule = evidence.stream().filter(item -> item.id().startsWith(prefix)).findFirst().orElse(null);
+        String names = String.join("、", affected.stream().map(Downstream::name).toList());
+        var causes = rule == null ? List.<Finding>of() : List.of(new Finding(timeout
+            ? "本窗口观察到" + names + "调用超时，可能影响" + info.name() + "请求；其他下游不能据此判为故障。"
+            : "本窗口未发现已配置下游调用超时；其他慢因仍需检查。", List.of(metrics.id(), logs.id(), rule.id())));
+        var next = timeout ? List.of("查看同一窗口内 " + String.join("、", affected.stream().map(Downstream::id).toList()) + " 的延迟、错误率和资源使用情况。",
+            "用已有 traceId 核对" + info.name() + "请求与超时下游调用的耗时。")
+            : List.of("找到具体慢请求的时间和 traceId，缩小查询范围。", "补充数据库和其他依赖的调用耗时。");
+        return new Diagnosis(observations, causes, next, rule == null
+            ? "未检索到匹配的排障规则，暂时不能形成状态判断。"
+            : "分项只覆盖本窗口已采集的调用，未采集下游内部和网络指标，不能确认内部根因或服务整体健康。");
     }
 }

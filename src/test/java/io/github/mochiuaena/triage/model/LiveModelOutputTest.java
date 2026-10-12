@@ -11,6 +11,28 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.*;
 
 class LiveModelOutputTest {
+    @Test void v5ConclusionNamesInventoryButDoesNotClaimPaymentFailed() {
+        var info = new ServiceInfo("checkout-service", "结算服务", null, null,
+            List.of(new Downstream("inventory-service", "库存服务"), new Downstream("payment-service", "支付服务")));
+        var rows = List.of(Map.of("id", "inventory-service", "name", "库存服务", "requestCount", 2, "timeoutCount", 1,
+                "downstreamP95Ms", 300.0, "downstreamTimeoutRate", 0.5),
+            Map.of("id", "payment-service", "name", "支付服务", "requestCount", 3, "timeoutCount", 0,
+                "downstreamP95Ms", 20.0, "downstreamTimeoutRate", 0.0));
+        var metrics = new Evidence("METRICS-LIVE", "read_service_metrics", "指标", "库存超时 1 次，支付超时 0 次", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "requestCount", 5, "timeoutCount", 1,
+            "downstreamTimeoutRate", 0.2, "orderP95Ms", 310.1, "downstreamP95Ms", 300.0, "downstreams", rows));
+        var logs = new Evidence("LOGS-LIVE", "query_error_logs", "日志", "最近 1 条错误事件", Map.of(
+            "observationType", "HTTP_DOWNSTREAMS", "timeoutCount", 1, "returnedCount", 1,
+            "entries", List.of(Map.of("traceId", TRACE)), "downstreams", rows));
+        var rule = new Evidence("DOC-DOWNSTREAM-TIMEOUT#v1", "search_runbooks", "规则", "超时规则", Map.of());
+        var evidence = List.of(metrics, logs, rule);
+
+        var diagnosis = output.parse(answer("DOWNSTREAM_TIMEOUT_OBSERVED", rule.id()), evidence, info).decision().diagnosis();
+        assertThat(diagnosis.possibleCauses()).hasSize(1);
+        assertThat(diagnosis.possibleCauses().getFirst().text()).contains("库存服务").doesNotContain("支付服务", "null");
+        assertThat(diagnosis.nextSteps()).allSatisfy(step -> assertThat(step).doesNotContain("null"));
+        assertThat(diagnosis.uncertainty()).doesNotContain("未采集下游调用");
+    }
     @Test void registeredLabelsComeFromTheServerAndReplaceOrderSpecificWording() {
         var evidence = evidence(5, 1, true, "DOC-DOWNSTREAM-TIMEOUT#v3");
         var info = new ServiceInfo("checkout-service", "结算服务", "stock-service", "商品服务");

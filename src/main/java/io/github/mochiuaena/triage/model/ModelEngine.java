@@ -276,6 +276,7 @@ public final class ModelEngine implements TriageEngine {
             峰值只描述冻结窗口，不能推断当前仍池满；不确认连接泄漏，也不自动扩大连接池或执行 SQL。
             """ : """
             有请求、窗口超时率大于零且日志记录超时时，选择 DOWNSTREAM_TIMEOUT_OBSERVED。
+            HTTP_DOWNSTREAMS 的下游分项按配置身份列出；只把超时归于 timeoutCount 大于零的下游。其他下游零超时只代表本窗口没有观察到超时，不能推断其整体健康。分项请求数可重叠，不能相加作为总请求数。
             有请求、窗口超时率为零且错误日志为空时，选择 NO_DOWNSTREAM_TIMEOUT_OBSERVED；这不代表服务整体健康。
             """;
         return """
@@ -302,7 +303,9 @@ public final class ModelEngine implements TriageEngine {
             本次服务：%s；下游：%s；窗口：最近 %d 分钟；窗口结束时间：%s。
             最终 JSON 结构：
             %s
-            """.formatted(source, liveLimits, assessmentRules, session.context().service(), inbound ? "未采集" : session.context().serviceInfo().downstreamId(),
+            """.formatted(source, liveLimits, assessmentRules, session.context().service(), inbound ? "未采集"
+                : session.context().serviceInfo().downstreams().isEmpty() ? session.context().serviceInfo().downstreamId()
+                : String.join("、", session.context().serviceInfo().downstreams().stream().map(io.github.mochiuaena.triage.domain.TriageModel.Downstream::id).toList()),
                 session.context().windowMinutes(), session.context().endTime(), inbound ? output.inboundFormat() : output.format(database(session)));
     }
     private boolean database(ExecutionSession session) {
