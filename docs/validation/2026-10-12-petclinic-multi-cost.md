@@ -28,4 +28,22 @@ python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/382
 
 这次与上表运行处于不同虚拟机，不能将 3.17 MiB 与 11.18 MiB 直接比较为同一进程的内存变化。
 
-本次仅是 Linux 短时成本基线。300 秒运行的 RSS 与私有页在末尾仍接近窗口峰值，无法据此判断长期是否趋稳或泄漏；两次运行处于不同虚拟机、预热基点也不同，增长值不能直接相减。没有同机关闭 Starter 的对照，所以这些数值也不能归因于 Starter。Windows 本地试跑曾出现一次支付读取超时；该失败未计入通过结果，未放宽 500 ms 支付读取时限或之前的 Windows 小时级门槛。
+上表仅是 Linux 短时成本基线。300 秒运行的 RSS 与私有页在末尾仍接近窗口峰值，无法据此判断长期是否趋稳或泄漏；两次运行处于不同虚拟机、预热基点也不同，增长值不能直接相减。上表没有同机关闭 Starter 的对照，所以这些数值也不能归因于 Starter。Windows 本地试跑曾出现一次支付读取超时；该失败未计入通过结果，未放宽 500 ms 支付读取时限或之前的 Windows 小时级门槛。
+
+## 同机开关对照
+
+[60 秒工作流](https://github.com/MoChiUaena/agent-triage/actions/runs/38224275207)在同一台 Linux CI 主机上依次启动两个独立的 Petclinic JVM：先开启 Starter，再关闭 Starter。两次都对相同回环下游发送每秒 2 个请求，库存读取超时、支付交替返回 200／500。关闭组的业务结果与开启组相同，观测接口消失；开启组的 Agent 证据和历史仍通过核对。Agent 进程在两组期间均保持运行。源码为 `f09a94220693e0b2df66cabb4ec5bb44c4f76466`。
+
+| Starter | 负载请求 | 最大启动偏差 | 请求 p95 | 内存样本 | 预热后 RSS 峰值增长 | 私有页峰值增长 |
+|---|---:|---:|---:|---:|---:|---:|
+| 开启 | 120 | 7.969 ms | 109.638 ms | 6 | 3.22 MiB | 3.22 MiB |
+| 关闭 | 120 | 7.914 ms | 108.670 ms | 6 | 2.71 MiB | 2.71 MiB |
+
+工作流仅上传两组各自的请求时间、进程内存和摘要数字文件。下载 `petclinic-v5-cost-60` 附件后，使用工作流日志中独立记录的摘要哈希分别重放：
+
+```powershell
+python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38224275207 --source-commit f09a94220693e0b2df66cabb4ec5bb44c4f76466 --seconds 60 --expected-summary-sha256 b00ecc879ce01737fa513432fd91308071a9e3d35e7627349cd7b9d9eba68d60
+python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38224275207 --source-commit f09a94220693e0b2df66cabb4ec5bb44c4f76466 --seconds 60 --expected-summary-sha256 032b7f6fe859a26976d6664abcefcffa30da523d4d78abe564468921311df672 --control
+```
+
+下载附件的两组重放均通过。两组处于同一台 CI 主机，但运行顺序固定、JVM 分别启动，启动状态和机器背景负载仍可能影响差值；这一次的 0.51 MiB 增长差和约 0.97 ms p95 差仅供排查参考，不作为 Starter 的精确开销。60 秒也不足以判断长期内存是否趋稳。
