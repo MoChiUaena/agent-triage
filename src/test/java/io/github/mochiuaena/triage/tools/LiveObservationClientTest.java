@@ -164,6 +164,71 @@ class LiveObservationClientTest {
         return node;
     }
 
+    private ObjectNode v5Response() {
+        var node = json.createObjectNode();
+        node.put("schemaVersion", 5).put("kind", "HTTP_ENDPOINTS").put("service", "checkout-service")
+            .putNull("downstreamService").put("windowStart", end.minusSeconds(300).toString()).put("windowEnd", end.toString())
+            .put("requestCount", 5).put("timeoutCount", 1).put("recordedRequestCount", 8)
+            .put("requestP95Ms", 310.4).put("downstreamP95Ms", 310.0).put("downstreamTimeoutRate", 0.2)
+            .putNull("baselineRequestP95Ms").put("synthetic", false).putNull("endpoint")
+            .put("unattributedRequestCount", 5).put("otherEndpointRequestCount", 0);
+        node.putArray("endpoints");
+        node.putArray("errors").addObject().put("timestamp", end.minusSeconds(1).toString())
+            .put("traceId", "test-trace").put("level", "ERROR").put("message", "inventory-service request timeout");
+        node.putArray("downstreams")
+            .addObject().put("id", "inventory-service").put("requestCount", 2).put("timeoutCount", 1)
+            .put("downstreamP95Ms", 300.0).put("downstreamTimeoutRate", 0.5);
+        node.withArray("downstreams")
+            .addObject().put("id", "payment-service").put("requestCount", 3).put("timeoutCount", 0)
+            .put("downstreamP95Ms", 20.0).put("downstreamTimeoutRate", 0.0);
+        return node;
+    }
+
+    private void v5Client() {
+        server.createContext("/triage/endpoint-observations", exchange -> {
+            byte[] body = response.get();
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) { out.write(body); }
+        });
+        String origin = "http://127.0.0.1:" + server.getAddress().getPort();
+        registry = new ServiceRegistry(new ObservationSource("LIVE", origin), List.of(new ServiceRegistry.Config(
+            "checkout-service", "结算服务", null, null, origin, ServiceRegistry.Protocol.OBSERVATIONS_V5, 15, false,
+            false, null, List.of(new ServiceRegistry.DownstreamConfig("inventory-service", "库存服务"),
+                new ServiceRegistry.DownstreamConfig("payment-service", "支付服务")))));
+        client = new LiveObservationClient(registry, json);
+        context = new ToolContext("checkout-service", 5, Scenario.OBSERVED, end, registry.defaultTarget());
+    }
+
+    @Test void readsV5OnlyFromTheFixedEndpointRouteAndKeepsDownstreamsSeparate() throws Exception {
+        v5Client(); response.set(json.writeValueAsBytes(v5Response()));
+        var observed = client.snapshot(context);
+        assertThat(observed.requestCount()).isEqualTo(5);
+        assertThat(observed.timeoutCount()).isEqualTo(1);
+        assertThat(observed.downstreams()).hasSize(2);
+        assertThat(observed.downstreams().getFirst().id()).isEqualTo("inventory-service");
+        assertThat(observed.downstreams().getFirst().timeoutCount()).isEqualTo(1);
+        assertThat(observed.downstreams().get(1).id()).isEqualTo("payment-service");
+        assertThat(observed.downstreams().get(1).timeoutCount()).isZero();
+        assertThat(observed.requestDetails()).isNotNull();
+    }
+
+    @Test void v5RejectsMissingForeignOrInconsistentDownstreamRows() throws Exception {
+        v5Client();
+        List<Consumer<ObjectNode>> changes = List.of(
+            node -> node.remove("downstreams"),
+            node -> ((ObjectNode) node.withArray("downstreams").get(1)).put("id", "unknown-service"),
+            node -> ((ObjectNode) node.withArray("downstreams").get(1)).put("id", "inventory-service"),
+            node -> ((ObjectNode) node.withArray("downstreams").get(0)).put("requestCount", 6),
+            node -> ((ObjectNode) node.withArray("downstreams").get(0)).put("timeoutCount", 3),
+            node -> ((ObjectNode) node.withArray("downstreams").get(0)).put("downstreamTimeoutRate", 0.4),
+            node -> node.put("timeoutCount", 2).put("downstreamTimeoutRate", 0.4));
+        for (var change : changes) {
+            var value = v5Response(); change.accept(value); response.set(json.writeValueAsBytes(value));
+            assertThatThrownBy(() -> client.snapshot(context)).isInstanceOfSatisfying(ObservationFailure.class,
+                failure -> assertThat(failure.code()).isEqualTo("OBSERVATION_CONTRACT"));
+        }
+    }
+
     @Test void readsV1WithoutCallingLabRoutesAndKeepsTheExactWindow() {
         assertThat(client.scenario(registry.defaultTarget())).isEqualTo(Scenario.OBSERVED);
         var snapshot = client.snapshot(context);

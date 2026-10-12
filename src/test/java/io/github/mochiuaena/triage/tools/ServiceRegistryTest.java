@@ -80,4 +80,44 @@ class ServiceRegistryTest {
             "http://127.0.0.1:18461", ServiceRegistry.Protocol.OBSERVATIONS_V3, 15, false, true);
         assertThatThrownBy(() -> new ServiceRegistry(live, List.of(invalid))).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test void v5BindsDistinctDownstreamsWithoutAConfiguredRequestUrl() {
+        var env = new MockEnvironment().withProperty("triage.services[0].id", "catalog-service")
+            .withProperty("triage.services[0].name", "商品服务")
+            .withProperty("triage.services[0].base-url", "http://127.0.0.1:19092")
+            .withProperty("triage.services[0].protocol", "OBSERVATIONS_V5")
+            .withProperty("triage.services[0].downstreams[0].id", "inventory-service")
+            .withProperty("triage.services[0].downstreams[0].name", "库存服务")
+            .withProperty("triage.services[0].downstreams[1].id", "payment-service")
+            .withProperty("triage.services[0].downstreams[1].name", "支付服务");
+        var registry = new ServiceRegistry(live, env);
+        var target = registry.require("catalog-service");
+        assertThat(target.protocol()).isEqualTo(ServiceRegistry.Protocol.OBSERVATIONS_V5);
+        assertThat(target.protocol().supportsEndpoints()).isTrue();
+        assertThat(target.info().downstreamId()).isNull();
+        assertThat(target.info().downstreams()).extracting(value -> value.id())
+            .containsExactly("inventory-service", "payment-service");
+        assertThat(registry.views().getFirst().downstreams()).hasSize(2);
+        assertThat(target.toString()).doesNotContain("19092");
+    }
+
+    @Test void v5RejectsMixedDuplicateAndMissingDownstreamIdentities() {
+        var configured = new MockEnvironment().withProperty("triage.services[0].id", "catalog-service")
+            .withProperty("triage.services[0].base-url", "http://127.0.0.1:19092")
+            .withProperty("triage.services[0].protocol", "OBSERVATIONS_V5")
+            .withProperty("triage.services[0].downstreams[0].id", "inventory-service")
+            .withProperty("triage.services[0].downstreams[1].id", "payment-service");
+        assertThatThrownBy(() -> new ServiceRegistry(live, configured.withProperty(
+            "triage.services[0].downstream-id", "legacy-service"))).isInstanceOf(IllegalArgumentException.class);
+        var duplicate = new MockEnvironment().withProperty("triage.services[0].id", "catalog-service")
+            .withProperty("triage.services[0].base-url", "http://127.0.0.1:19092")
+            .withProperty("triage.services[0].protocol", "OBSERVATIONS_V5")
+            .withProperty("triage.services[0].downstreams[0].id", "inventory-service")
+            .withProperty("triage.services[0].downstreams[1].id", "inventory-service");
+        assertThatThrownBy(() -> new ServiceRegistry(live, duplicate)).isInstanceOf(IllegalArgumentException.class);
+        var empty = new MockEnvironment().withProperty("triage.services[0].id", "catalog-service")
+            .withProperty("triage.services[0].base-url", "http://127.0.0.1:19092")
+            .withProperty("triage.services[0].protocol", "OBSERVATIONS_V5");
+        assertThatThrownBy(() -> new ServiceRegistry(live, empty)).isInstanceOf(IllegalArgumentException.class);
+    }
 }
