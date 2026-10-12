@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -236,7 +237,10 @@ def main():
             cost.update(sourceCommit=source_commit, upstreamRevision=REVISION, observedRequests=expected,
                         inventoryTimeouts=rows["inventory-service"]["timeoutCount"],
                         payment2xx=rows["payment-service"]["responseStatuses"]["successful"],
-                        payment5xx=rows["payment-service"]["responseStatuses"]["serverError"], agentValidated=False)
+                        payment5xx=rows["payment-service"]["responseStatuses"]["serverError"], agentValidated=False,
+                        artifactVersion=2,
+                        requestsCsvSha256=hashlib.sha256((output / "requests.csv").read_bytes()).hexdigest(),
+                        memoryCsvSha256=hashlib.sha256((output / "cost.csv").read_bytes()).hexdigest())
             cost_path = output / "cost-summary.json"
             cost_path.write_text(json.dumps(cost, ensure_ascii=False, indent=2), encoding="utf-8")
 

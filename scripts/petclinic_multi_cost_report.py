@@ -11,12 +11,13 @@ import re
 from petclinic_multi_cost import REQUEST_COLUMNS
 from prepare_petclinic_rest import REVISION
 
-SUMMARY_FIELDS = {"durationSeconds", "completedRequests", "observedRps", "warmupSeconds",
+SUMMARY_FIELDS_V1 = {"durationSeconds", "completedRequests", "observedRps", "warmupSeconds",
     "requestP50Ms", "requestP95Ms", "requestMaxMs", "sampleCount", "maxStartLagMs",
     "maxInterStartGapMs", "baselineRssBytes", "peakRssBytes", "rssPeakGrowthBytes",
     "finalRssBytes", "baselinePrivateBytes", "privatePeakGrowthBytes", "sourceCommit",
     "upstreamRevision", "observedRequests", "inventoryTimeouts", "payment2xx",
     "payment5xx", "agentValidated"}
+SUMMARY_FIELDS_V2 = SUMMARY_FIELDS_V1 | {"artifactVersion", "requestsCsvSha256", "memoryCsvSha256"}
 
 
 def rows(path, fields):
@@ -32,17 +33,17 @@ def rows(path, fields):
 
 
 def check_close(actual, expected, tolerance=.01):
-    if not math.isfinite(actual) or abs(actual - expected) > tolerance:
+    if not math.isfinite(actual) or not math.isfinite(expected) or abs(actual - expected) > tolerance:
         raise ValueError("Numeric cost summary does not match its CSV")
 
 
-def verify(folder, source_commit, seconds):
+def verify(folder, source_commit, seconds, legacy_requests_sha=None, legacy_memory_sha=None):
     matches = list(folder.rglob("cost-summary.json"))
     if len(matches) != 1:
         raise ValueError("Expected exactly one cost summary")
     summary_path = matches[0]
     data = json.loads(summary_path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or set(data) != SUMMARY_FIELDS:
+    if not isinstance(data, dict) or set(data) not in (SUMMARY_FIELDS_V1, SUMMARY_FIELDS_V2):
         raise ValueError("Unexpected cost summary fields")
     if not re.fullmatch(r"[a-f0-9]{40}", source_commit) or data.get("sourceCommit") != source_commit \
             or data.get("upstreamRevision") != REVISION or data.get("durationSeconds") != seconds \
@@ -57,6 +58,16 @@ def verify(folder, source_commit, seconds):
 
     requests_path = summary_path.with_name("requests.csv")
     samples_path = summary_path.with_name("cost.csv")
+    if set(data) == SUMMARY_FIELDS_V2 and data["artifactVersion"] == 2:
+        expected_requests_sha, expected_memory_sha = data["requestsCsvSha256"], data["memoryCsvSha256"]
+    elif set(data) == SUMMARY_FIELDS_V1 and legacy_requests_sha and legacy_memory_sha:
+        expected_requests_sha, expected_memory_sha = legacy_requests_sha, legacy_memory_sha
+    else:
+        raise ValueError("Legacy cost artifacts need both documented CSV hashes")
+    for path, expected_hash in ((requests_path, expected_requests_sha), (samples_path, expected_memory_sha)):
+        if not isinstance(expected_hash, str) or re.fullmatch(r"[a-f0-9]{64}", expected_hash) is None \
+                or hashlib.sha256(path.read_bytes()).hexdigest() != expected_hash:
+            raise ValueError("Numeric cost CSV does not match its expected SHA-256")
     requests = rows(requests_path, REQUEST_COLUMNS)
     samples = rows(samples_path, ("pid", "elapsedSeconds", "rssBytes", "privateBytes"))
     if len(requests) != expected or len(samples) != data.get("sampleCount") or len(samples) < 5:
@@ -67,6 +78,9 @@ def verify(folder, source_commit, seconds):
             raise ValueError("Request order changed")
         scheduled, started = float(row["scheduledElapsedSeconds"]), float(row["startedElapsedSeconds"])
         lag, duration = float(row["startLagMs"]), float(row["durationMs"])
+        if not all(math.isfinite(value) for value in (scheduled, started, lag, duration)) \
+                or started < scheduled - .001:
+            raise ValueError("Non-finite or prematurely started cost request")
         check_close(scheduled, index * .5)
         check_close(lag, max(0, (started - scheduled) * 1000), 1.01)
         if lag < 0 or lag > 250 or duration < 0:
@@ -81,6 +95,7 @@ def verify(folder, source_commit, seconds):
     check_close(float(data["maxStartLagMs"]), max(lags))
     check_close(float(data["maxInterStartGapMs"]), max(b - a for a, b in zip(starts, starts[1:])) * 1000)
     check_close(float(data["observedRps"]), 2.0)
+    check_close(float(data["warmupSeconds"]), seconds / 5)
 
     pid = samples[0]["pid"]
     parsed = []
@@ -118,8 +133,11 @@ def main():
     parser.add_argument("directory", type=Path)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--seconds", type=int, choices=(60, 300), required=True)
+    parser.add_argument("--legacy-requests-sha256", help="Documented requests.csv hash for a version 1 artifact")
+    parser.add_argument("--legacy-memory-sha256", help="Documented cost.csv hash for a version 1 artifact")
     args = parser.parse_args()
-    print(json.dumps(verify(args.directory, args.source_commit, args.seconds), sort_keys=True))
+    print(json.dumps(verify(args.directory, args.source_commit, args.seconds,
+                            args.legacy_requests_sha256, args.legacy_memory_sha256), sort_keys=True))
 
 
 if __name__ == "__main__":

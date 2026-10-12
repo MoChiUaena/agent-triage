@@ -12,10 +12,12 @@
 只上传数字 `requests.csv`、`cost.csv` 和 `cost-summary.json`，未上传应用日志、观测原文、源码副本或密钥。下载对应工作流的 `petclinic-v5-cost-60` 或 `petclinic-v5-cost-300` 附件后可重放：
 
 ```powershell
-python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38215888264 --source-commit bf7d76fa36cd5358ac5e17287655b3b30872cd36 --seconds 60
-python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38216283987 --source-commit bf7d76fa36cd5358ac5e17287655b3b30872cd36 --seconds 300
+python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38215888264 --source-commit bf7d76fa36cd5358ac5e17287655b3b30872cd36 --seconds 60 --legacy-requests-sha256 ea75808011d89fb6b35001727c0b1ebe0ba49ad6cf23fb23a8371d7cb159f2f4 --legacy-memory-sha256 fcbf97fa85fb8a95a04e7841b7c7cffb04510b7089d61b134854e01bf2219710
+python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38216283987 --source-commit bf7d76fa36cd5358ac5e17287655b3b30872cd36 --seconds 300 --legacy-requests-sha256 01c792f13d173a45c3c927d5249a122a691ea9ac0b80d3aa9589de47e2d3d145 --legacy-memory-sha256 c9644ef8f91eb2e041d31ae6b88ce5f46947fb60b61d9f9d135f2dd5ac27018d
 ```
 
 重放核对来源提交、固定上游、逐请求顺序与计划时间、延迟摘要、采样覆盖和内存增长。两份摘要的 SHA-256 分别为 `0e100ad966e194408b3da6f3b9a39b80badf8831693a184ec725024542c326de` 和 `050cf0dc1f00f5310ac0c54ed25ee275aa733b479f784b50f8fbc129d65fa2fc`。
+
+这两份附件产生于摘要内绑定 CSV 哈希之前，因此重放命令显式使用上述已知哈希；新版摘要会内置两份 CSV 的 SHA-256，并拒绝中间行被改写、非有限时间值或早于计划发送的请求。
 
 本次仅是 Linux 短时成本基线。300 秒运行的 RSS 与私有页在末尾仍接近窗口峰值，无法据此判断长期是否趋稳或泄漏；两次运行处于不同虚拟机、预热基点也不同，增长值不能直接相减。没有同机关闭 Starter 的对照，所以这些数值也不能归因于 Starter。Windows 本地试跑曾出现一次支付读取超时；该失败未计入通过结果，未放宽 500 ms 支付读取时限或之前的 Windows 小时级门槛。
