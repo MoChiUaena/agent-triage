@@ -64,6 +64,9 @@ def prepare(directory):
     destination = directory / "src/main/java/org/springframework/samples/petclinic/triage/RestTriageVerification.java"
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_bytes(support.read_bytes())
+    multi_support = ROOT / "verification/petclinic-rest/RestTriageMultiVerification.java"
+    multi_destination = directory / "src/main/java/org/springframework/samples/petclinic/triage/RestTriageMultiVerification.java"
+    multi_destination.write_bytes(multi_support.read_bytes())
     print("Added Starter, build manifest and disabled-by-default verification endpoint; upstream business classes unchanged")
 
 

@@ -9,3 +9,7 @@ Agent API 测试使用本机 V5 观测服务，覆盖启动配置、`/api/config
 本机检查：主项目 `verify`、Starter `verify`、integrations `verify`、`node scripts/multi_downstream_ui_check.js`、`node scripts/inbound_ui_check.js` 均退出 0。V5 发布附件和第三方业务项目验收仍待后续阶段；Windows 小时级宿主调度问题未纳入本次功能验收，也没有放宽原有门槛。
 
 复核补充：多下游配置必须同时开启接口观测，否则 V1 和 V5 路由都不可用。Starter 现在在启动时拒绝这一组合。V5 按每个入站请求保留每个下游最高的已观察响应类别；收到 2xx 响应头后正文仍可能超时，零超时也不能当作成功响应。
+
+公开项目复验使用官方 `spring-petclinic-rest` v3.4.0 的固定提交 `26a80b7a510af1fda0acdfb45d65aa480bdb7607`。隔离副本仅修改 POM 并加入默认关闭的验收控制器，原有业务类保持原样；Starter 和 Agent 使用同一工作树构建版本。两个真实请求分别让支付返回 200 和 500，同时库存读取均超时。Petclinic REST 的 V5 窗口为总请求 2、库存超时 2、支付超时 0、支付 2xx/5xx 各 1；Agent 冻结的证据和历史保留相同分项，诊断只把超时归于库存。全程固定规则模式，无外部模型调用。运行命令为 `python scripts/petclinic_multi_downstream_smoke.py --project-directory <已准备的固定提交检出>`；结果与日志留在忽略目录 `target/petclinic-multi-acceptance/`，不提交外部项目副本或原始请求数据。公开项目的完整长期负载验收仍未进行。
+
+两个下游调用来自验收辅助控制器，原项目的主人、诊疗等业务路由没有被改造成多下游流程；这次验证的是第三方应用的构建、组件接入、真实 HTTP 归属和 Agent 读取链路。
