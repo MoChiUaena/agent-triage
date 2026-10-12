@@ -204,8 +204,14 @@ def main():
             def invoke(index):
                 assert all(child.poll() is None for child in children), "An owned JVM stopped during the cost probe"
                 fail = index % 2 == 1
-                status, body = request(application, "/petclinic/api/triage-multi/check?failPayment="
-                    + str(fail).lower(), headers=headers)
+                try:
+                    status, body = request(application, "/petclinic/api/triage-multi/check?failPayment="
+                        + str(fail).lower(), headers=headers)
+                except (OSError, ValueError) as error:
+                    (output / "cost-failure.json").write_text(json.dumps({"completedBeforeFailure": index,
+                        "elapsedSeconds": round(time.monotonic() - cost_started, 3), "status": None,
+                        "paymentExpected5xx": fail, "failureType": type(error).__name__}, indent=2), encoding="utf-8")
+                    raise ValueError(f"Cost request failed at request {index}; see numeric receipt in {output}") from None
                 if status != 200 or body != {"inventory": "timeout", "payment": "serverError" if fail else "ok"}:
                     (output / "cost-failure.json").write_text(json.dumps({"completedBeforeFailure": index,
                         "elapsedSeconds": round(time.monotonic() - cost_started, 3), "status": status,
