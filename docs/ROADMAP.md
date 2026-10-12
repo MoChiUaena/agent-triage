@@ -188,3 +188,9 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 - [ ] 进一步区分 Linux 匿名页增长中的堆、线程栈和原生分配来源。[同一采样时点对照](validation/2026-10-11-stage-receipts-repeat.md#linux-驻留页同点比较)
 - [x] 在受控 Linux HTTP 测试 JVM 关闭后核对原生堆整理前后驻留页；60 秒和 600 秒双组通过并重放，显示部分页可回收，尚不能追溯具体分配来源。[核对记录](validation/2026-10-07-native-heap-trim.md)
 - [ ] 完成最新源码的两小时及更长连续验收，再整理下一版预览包和升级回归。
+
+## 下一阶段：HTTP 客户端覆盖
+
+- [x] Boot 注入的 `WebClient.Builder` 观测同步 MVC 请求内创建、跨线程订阅的调用；独立商品服务通过真实回环验收。[结果](validation/2026-10-11-webclient.md)
+- [x] Spring Cloud 管理的同步 Feign 客户端接入已有 HTTP 证据窗口，核对正常、响应头超时与正文超时；Feign 保持可选依赖。[结果](validation/2026-10-12-feign.md)
+- [ ] 自行创建的客户端、异步 Feign 和多个下游 origin 分别评估，不将本轮能力写成自动覆盖所有 HTTP 调用。
