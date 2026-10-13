@@ -1,5 +1,6 @@
 """Exercise cleanup of an owned process tree without affecting an unrelated helper."""
 import ctypes
+import errno
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from resource_soak import stop_owned_processes
 
 
@@ -31,11 +33,18 @@ def is_running(pid):
     status = Path(f"/proc/{pid}/stat")
     try:
         return status.read_text().split(")", 1)[1].split()[0] != "Z"
-    except FileNotFoundError:
-        return False
+    except OSError as error:
+        if error.errno in (errno.ENOENT, errno.ESRCH):
+            return False
+        raise
 
 
 class ResourceCleanupTest(unittest.TestCase):
+    def test_process_exiting_during_proc_read_is_not_running(self):
+        with mock.patch.object(os, "name", "posix"), mock.patch(__name__ + ".Path") as path:
+            path.return_value.read_text.side_effect = ProcessLookupError(errno.ESRCH, "process exited")
+            self.assertFalse(is_running(12345))
+
     def test_failure_before_marker_stops_owned_descendants_and_preserves_unrelated_process(self):
         with tempfile.TemporaryDirectory(prefix="resource cleanup ") as directory:
             root = Path(directory)
