@@ -195,8 +195,9 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 - [x] Agent 校验 V5 身份、窗口和分项计数；固定规则与模型输出仅将超时归于有计数的下游。
 - [x] 页面及历史展示分项；独立 Spring Boot 样例通过真实回环 HTTP 调用验证库存超时、支付成功。[接入与口径](MULTI_DOWNSTREAM.md) / [验收记录](validation/2026-10-12-multi-downstream.md)
 - [x] 在固定提交的公开 Petclinic REST 中验证多下游接入、真实请求、V5 分项和 Agent 历史；原有业务类保持不变。[验收记录](validation/2026-10-12-multi-downstream.md)
-- [ ] 核对该接入的长期运行成本，再决定是否纳入下一版预览包；Windows 小时级宿主调度问题沿用原门槛单独处理。
+- [ ] 核对该接入的小时级及更长运行成本，作为正式发布前的独立门槛；Windows 小时级宿主调度问题沿用原门槛单独处理。
 - [x] 在固定 Petclinic REST 中完成 Linux 60／300 秒、每秒 2 请求的多下游短时成本基线，重放逐请求和内存数字。[数值与限制](validation/2026-10-12-petclinic-multi-cost.md)
 - [x] 在同一台 Linux CI 主机依次运行 60／300／600 秒 Starter 开启／关闭组，六组数字收据经独立哈希重放；较长窗口的末次内存仍在峰值，尚不能换算为精确生产开销或长期结论。[同机对照](validation/2026-10-12-petclinic-multi-cost.md#同机开关对照)
 - [x] 为公开 Petclinic 接入增加可选的堆、NMT 和 Linux 匿名页同点数值收据；60／600 秒开启与关闭组均通过严格负载及独立重放，仍未定位剩余驻留增长来源。[分项记录](validation/2026-10-13-petclinic-memory-profile.md)
 - [x] 增加每个下游的 HTTP 响应分类，区分非超时的 200 与 500；零超时仍不能当作成功响应。[计数口径](MULTI_DOWNSTREAM.md)
+- [x] 在 v0.12.0 预览候选包中登记商品服务的 V5 多下游，结算接口实际调用库存与分配服务；同包在 Windows/Linux 启动，v0.6.0、v0.10.0、v0.11.0 升级回归通过。[候选说明](releases/v0.12.0.md)
