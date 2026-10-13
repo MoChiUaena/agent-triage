@@ -3,6 +3,7 @@ package io.github.mochiuaena.catalog;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -11,6 +12,20 @@ import org.springframework.web.client.RestClient;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class CheckoutControllerTest {
+    @Test void connectionRefusalIsUnavailableRatherThanTimeout() throws Exception {
+        int unused;
+        try (var socket = new ServerSocket(0)) { unused = socket.getLocalPort(); }
+        var assignment = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        assignment.createContext("/assignments/demo", exchange -> reply(exchange, "{\"assigned\":true}"));
+        assignment.start();
+        try {
+            var controller = new CheckoutController(RestClient.builder(), "http://127.0.0.1:" + unused,
+                "http://127.0.0.1:" + assignment.getAddress().getPort());
+            assertThat(controller.checkout("demo")).containsEntry("inventory", "unavailable")
+                .containsEntry("assignment", "assigned");
+        } finally { assignment.stop(0); }
+    }
+
     @Test void inventoryTimeoutDoesNotHideSuccessfulAssignment() throws Exception {
         var slow = new AtomicBoolean(false);
         var workers = Executors.newCachedThreadPool();

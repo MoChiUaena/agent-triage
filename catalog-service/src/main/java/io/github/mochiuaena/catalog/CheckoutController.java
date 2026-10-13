@@ -35,12 +35,19 @@ class CheckoutController {
         try {
             Map<?, ?> response = inventory.get().uri("/api/inventory/{id}", id).retrieve().body(Map.class);
             stock = response != null && Boolean.TRUE.equals(response.get("available")) ? "available" : "unavailable";
-        } catch (ResourceAccessException timeout) { stock = "timeout"; }
+        } catch (ResourceAccessException failure) { stock = timedOut(failure) ? "timeout" : "unavailable"; }
         String assigned;
         try {
             Map<?, ?> response = assignment.get().uri("/assignments/{id}", id).retrieve().body(Map.class);
             assigned = response != null && Boolean.TRUE.equals(response.get("assigned")) ? "assigned" : "unavailable";
-        } catch (ResourceAccessException timeout) { assigned = "timeout"; }
+        } catch (ResourceAccessException failure) { assigned = timedOut(failure) ? "timeout" : "unavailable"; }
         return Map.of("id", id, "inventory", stock, "assignment", assigned);
+    }
+
+    private boolean timedOut(Throwable failure) {
+        for (int depth = 0; failure != null && depth < 16; depth++, failure = failure.getCause())
+            if (failure instanceof java.net.SocketTimeoutException || failure instanceof java.net.http.HttpTimeoutException)
+                return true;
+        return false;
     }
 }
