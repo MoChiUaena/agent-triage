@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 from live_smoke import evidence, request, valid_citations
 from package_release import ROOT, project
 from prepare_petclinic_rest import REVISION
+from petclinic_memory_profile import capture as capture_memory, write_bundle as write_memory_bundle
 from petclinic_multi_cost import measure, request_writer, write_samples
 
 
@@ -81,11 +82,15 @@ def main():
                         help="Opt-in 60..600 second, two-request-per-second process-memory baseline")
     parser.add_argument("--compare-starter-off", action="store_true",
                         help="Run the same workload in a second JVM with Starter disabled on this host")
+    parser.add_argument("--memory-profile", action="store_true",
+                        help="Also capture opt-in numeric JVM/Linux memory phases outside the request schedule")
     args = parser.parse_args()
     if args.load_seconds != 0 and not 60 <= args.load_seconds <= 600:
         parser.error("load-seconds must be 0 or 60..600")
     if args.compare_starter_off and not args.load_seconds:
         parser.error("compare-starter-off requires load-seconds")
+    if args.memory_profile and (os.name == "nt" or not args.compare_starter_off):
+        parser.error("memory-profile requires Linux and a Starter-off control")
     public = args.project_directory.resolve()
     assert subprocess.check_output(["git", "-C", str(public), "rev-parse", "HEAD"], text=True).strip() == REVISION
     assert subprocess.check_output(["git", "-C", str(public), "diff", "--name-only"], text=True).splitlines() == ["pom.xml"]
@@ -121,15 +126,19 @@ def main():
           name: 支付服务
 """, encoding="utf-8")
     java = str(Path(os.environ["JAVA_HOME"]) / "bin" / ("java.exe" if os.name == "nt" else "java")) if os.environ.get("JAVA_HOME") else "java"
+    jcmd = Path(os.environ["JAVA_HOME"]) / "bin/jcmd" if args.memory_profile else None
+    if args.memory_profile and not jcmd.is_file():
+        parser.error("memory-profile requires jcmd in JAVA_HOME/bin")
+    profile_options = ("-XX:NativeMemoryTracking=summary",) if args.memory_profile else ()
     children, handles, servers, threads = [], [], [], []
 
-    def start(name, jar, options):
+    def start(name, jar, options, jvm_options=()):
         assert jar.is_file(), f"Build {name} first"
         runtime = output / (name + ".jar")
         shutil.copyfile(jar, runtime)
         stream = (output / (name + ".log")).open("wb")
         handles.append(stream)
-        children.append(subprocess.Popen([java, "-jar", str(runtime), *options], cwd=ROOT,
+        children.append(subprocess.Popen([java, *jvm_options, "-jar", str(runtime), *options], cwd=ROOT,
             stdout=stream, stderr=subprocess.STDOUT,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0))
 
@@ -149,7 +158,7 @@ def main():
             "--triage.sdk.downstreams[0].id=inventory-service", f"--triage.sdk.downstreams[0].base-url={inventory}",
             "--triage.sdk.downstreams[1].id=payment-service", f"--triage.sdk.downstreams[1].base-url={payment}",
             "--triage.verification.multi-enabled=true", f"--triage.verification.inventory-base-url={inventory}",
-            f"--triage.verification.payment-base-url={payment}"])
+            f"--triage.verification.payment-base-url={payment}"], jvm_options=profile_options)
         artifact, version = project(ROOT)
         start("agent", ROOT / "target" / f"{artifact}-{version}.jar", [
             f"--server.port={args.base_port}", "--triage.mode=DEMO",
@@ -205,6 +214,10 @@ def main():
             "requestCount": observed["requestCount"], "downstreams": observed["downstreams"],
             "runStatus": run["status"]}, ensure_ascii=False, indent=2), encoding="utf-8")
         if args.load_seconds:
+            enabled_profile = []
+            if args.memory_profile:
+                profile_origin = time.monotonic()
+                enabled_profile.append(capture_memory(children[0].pid, "before", jcmd, profile_origin))
             cost_started = time.monotonic()
             def invoke(index):
                 assert all(child.poll() is None for child in children), "An owned JVM stopped during the cost probe"
@@ -227,6 +240,8 @@ def main():
                 cost, samples = measure(args.load_seconds, children[0].pid, invoke,
                     on_sample=lambda values: write_samples(output / "cost.csv", values),
                     on_request=request_writer(timing))
+            if args.memory_profile:
+                enabled_profile.append(capture_memory(children[0].pid, "after", jcmd, profile_origin))
             expected = 2 + cost["completedRequests"]
             observed = complete_window(application, 15, expected)
             rows = {row["id"]: row for row in observed["downstreams"]}
@@ -262,6 +277,9 @@ def main():
                 == rows["payment-service"]["responseStatuses"]["serverError"]
             cost["agentValidated"] = True
             cost_path.write_text(json.dumps(cost, ensure_ascii=False, indent=2), encoding="utf-8")
+            if args.memory_profile:
+                write_memory_bundle(output, enabled_profile, source_commit, REVISION, args.load_seconds,
+                                    cost_path, True)
             print(f"Petclinic REST V5 cost baseline: {cost['completedRequests']} requests in {args.load_seconds}s, "
                   f"p95 {cost['requestP95Ms']}ms, RSS peak growth {cost['rssPeakGrowthBytes']} bytes")
             if args.compare_starter_off:
@@ -275,7 +293,7 @@ def main():
                     f"--server.port={args.base_port + 1}", "--server.address=127.0.0.1",
                     "--triage.sdk.enabled=false", "--triage.verification.multi-enabled=true",
                     f"--triage.verification.inventory-base-url={inventory}",
-                    f"--triage.verification.payment-base-url={payment}"])
+                    f"--triage.verification.payment-base-url={payment}"], jvm_options=profile_options)
                 control_process = children[-1]
                 deadline = time.monotonic() + 90
                 while time.monotonic() < deadline:
@@ -298,6 +316,10 @@ def main():
                     if status != 200 or body != {"inventory": "timeout", "payment": result}:
                         raise ValueError(f"Starter-off functional request mismatch: {status}, {fail}")
 
+                control_profile = []
+                if args.memory_profile:
+                    control_origin = time.monotonic()
+                    control_profile.append(capture_memory(control_process.pid, "before", jcmd, control_origin))
                 control_started = time.monotonic()
                 def control_invoke(index):
                     assert control_process.poll() is None and children[1].poll() is None, "A control JVM stopped"
@@ -321,12 +343,18 @@ def main():
                     control_cost, control_samples = measure(args.load_seconds, control_process.pid, control_invoke,
                         on_sample=lambda values: write_samples(output / "control-cost.csv", values),
                         on_request=request_writer(timing))
+                if args.memory_profile:
+                    control_profile.append(capture_memory(control_process.pid, "after", jcmd, control_origin))
                 write_samples(output / "control-cost.csv", control_samples)
                 control_cost.update(sourceCommit=source_commit, upstreamRevision=REVISION,
                     starterEnabled=False, functionalRequests=2, artifactVersion=2,
                     requestsCsvSha256=hashlib.sha256((output / "control-requests.csv").read_bytes()).hexdigest(),
                     memoryCsvSha256=hashlib.sha256((output / "control-cost.csv").read_bytes()).hexdigest())
-                (output / "control-summary.json").write_text(json.dumps(control_cost, indent=2), encoding="utf-8")
+                control_path = output / "control-summary.json"
+                control_path.write_text(json.dumps(control_cost, indent=2), encoding="utf-8")
+                if args.memory_profile:
+                    write_memory_bundle(output, control_profile, source_commit, REVISION, args.load_seconds,
+                                        control_path, False)
                 print(f"Petclinic REST Starter-off control: {control_cost['completedRequests']} requests in "
                       f"{args.load_seconds}s, p95 {control_cost['requestP95Ms']}ms, "
                       f"RSS peak growth {control_cost['rssPeakGrowthBytes']} bytes")
