@@ -148,10 +148,20 @@ def verify_bundle(folder, source_commit, upstream_revision, seconds, cost_sha, p
                 or abs(after["elapsedSeconds"] - float(cost_rows[-1]["elapsedSeconds"])) > 5 \
                 or max(row["captureDurationMs"] for row in rows) > 5000:
             raise ValueError("Memory profile is not aligned with warmup and closing cost samples")
-    return dict(pid=before["pid"], rssDeltaBytes=after["rssAfterBytes"] - before["rssAfterBytes"],
+    result = dict(pid=before["pid"], rssDeltaBytes=after["rssAfterBytes"] - before["rssAfterBytes"],
         anonymousDeltaBytes=after["anonymousAfterBytes"] - before["anonymousAfterBytes"],
         heapUsedDeltaBytes=after["heapUsedBytes"] - before["heapUsedBytes"],
         heapCommittedDeltaBytes=after["javaHeapCommittedBytes"] - before["javaHeapCommittedBytes"],
         nativeNonHeapDeltaBytes=after["nativeNonHeapCommittedBytes"] - before["nativeNonHeapCommittedBytes"],
         threadCountDelta=after["nativeThreadCount"] - before["nativeThreadCount"],
-        maxCaptureDurationMs=max(row["captureDurationMs"] for row in rows), summarySha256=profile_sha)
+        maxCaptureDurationMs=max(row["captureDurationMs"] for row in rows),
+        maxCaptureRssDriftBytes=max(abs(row["rssAfterBytes"] - row["rssBeforeBytes"]) for row in rows),
+        summarySha256=profile_sha)
+    for label, field in (("nativeClassDeltaBytes", "nativeClassCommittedBytes"),
+                         ("nativeThreadCommittedDeltaBytes", "nativeThreadCommittedBytes"),
+                         ("nativeCodeDeltaBytes", "nativeCodeCommittedBytes"),
+                         ("nativeGcDeltaBytes", "nativeGCCommittedBytes"),
+                         ("nativeOtherDeltaBytes", "nativeOtherCommittedBytes"),
+                         ("nativeUncategorizedDeltaBytes", "nativeUncategorizedCommittedBytes")):
+        result[label] = after[field] - before[field]
+    return result

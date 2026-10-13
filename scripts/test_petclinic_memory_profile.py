@@ -90,8 +90,10 @@ class PetclinicMemoryProfileTest(unittest.TestCase):
             cost_csv.write_text("pid,elapsedSeconds,rssBytes,privateBytes\n1234,15,4096,4096\n1234,62,4096,4096\n", encoding="utf-8")
             before = dict(self.example(), elapsedSeconds=15.0)
             after = dict(before, phase="after", elapsedSeconds=62.0,
-                         rssBeforeBytes=before["rssBeforeBytes"] + 1024,
-                         rssAfterBytes=before["rssAfterBytes"] + 1024)
+                         rssBeforeBytes=before["rssBeforeBytes"] + 512,
+                         rssAfterBytes=before["rssAfterBytes"] + 1024,
+                         nativeCodeCommittedBytes=before["nativeCodeCommittedBytes"] + 1024,
+                         nativeUncategorizedCommittedBytes=before["nativeUncategorizedCommittedBytes"] - 1024)
             write_bundle(folder, [before, after], self.SOURCE, self.UPSTREAM, 60, cost, True)
             profile = folder / "profile-summary.json"
             self.assertEqual(json.loads(profile.read_text(encoding="utf-8"))["profileVersion"], 2)
@@ -99,6 +101,8 @@ class PetclinicMemoryProfileTest(unittest.TestCase):
             cost_hash = hashlib.sha256(cost.read_bytes()).hexdigest()
             result = verify_bundle(folder, self.SOURCE, self.UPSTREAM, 60, cost_hash, trusted, True)
             self.assertEqual(result["rssDeltaBytes"], 1024)
+            self.assertEqual(result["nativeCodeDeltaBytes"], 1024)
+            self.assertEqual(result["maxCaptureRssDriftBytes"], 512)
             write_bundle(folder, [dict(before, elapsedSeconds=0.0), after], self.SOURCE,
                          self.UPSTREAM, 60, cost, True)
             shifted = hashlib.sha256(profile.read_bytes()).hexdigest()
