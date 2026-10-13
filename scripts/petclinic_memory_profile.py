@@ -104,7 +104,7 @@ def write_bundle(folder, rows, source_commit, upstream_revision, seconds, cost_s
         writer = csv.DictWriter(stream, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(rows)
-    summary = dict(profileVersion=1, sourceCommit=source_commit, upstreamRevision=upstream_revision,
+    summary = dict(profileVersion=2, sourceCommit=source_commit, upstreamRevision=upstream_revision,
         durationSeconds=seconds, starterEnabled=starter_enabled, sampleCount=2,
         costSummarySha256=hashlib.sha256(Path(cost_summary_path).read_bytes()).hexdigest(),
         profileCsvSha256=hashlib.sha256((folder / csv_name).read_bytes()).hexdigest())
@@ -120,7 +120,7 @@ def verify_bundle(folder, source_commit, upstream_revision, seconds, cost_sha, p
         raise ValueError("Memory profile summary does not match its trusted SHA-256")
     summary = json.loads(matches[0].read_text(encoding="utf-8"))
     if not isinstance(summary, dict) or set(summary) != SUMMARY_FIELDS \
-            or summary["profileVersion"] != 1 or summary["sampleCount"] != 2 \
+            or summary["profileVersion"] not in (1, 2) or summary["sampleCount"] != 2 \
             or summary["sourceCommit"] != source_commit or summary["upstreamRevision"] != upstream_revision \
             or summary["durationSeconds"] != seconds or summary["starterEnabled"] is not starter_enabled \
             or summary["costSummarySha256"] != cost_sha:
@@ -138,9 +138,16 @@ def verify_bundle(folder, source_commit, upstream_revision, seconds, cost_sha, p
     cost_csv = matches[0].with_name("cost.csv" if starter_enabled else "control-cost.csv")
     with cost_csv.open(newline="", encoding="utf-8") as stream:
         reader = csv.DictReader(stream)
+        cost_rows = list(reader)
         if reader.fieldnames != ["pid", "elapsedSeconds", "rssBytes", "privateBytes"] \
-                or {row["pid"] for row in reader} != {str(before["pid"])}:
+                or {row["pid"] for row in cost_rows} != {str(before["pid"])}:
             raise ValueError("Memory profile belongs to a different cost JVM")
+    if summary["profileVersion"] == 2:
+        steady = next((row for row in cost_rows if float(row["elapsedSeconds"]) >= seconds / 5), None)
+        if steady is None or abs(before["elapsedSeconds"] - float(steady["elapsedSeconds"])) > 5 \
+                or abs(after["elapsedSeconds"] - float(cost_rows[-1]["elapsedSeconds"])) > 5 \
+                or max(row["captureDurationMs"] for row in rows) > 5000:
+            raise ValueError("Memory profile is not aligned with warmup and closing cost samples")
     return dict(pid=before["pid"], rssDeltaBytes=after["rssAfterBytes"] - before["rssAfterBytes"],
         anonymousDeltaBytes=after["anonymousAfterBytes"] - before["anonymousAfterBytes"],
         heapUsedDeltaBytes=after["heapUsedBytes"] - before["heapUsedBytes"],

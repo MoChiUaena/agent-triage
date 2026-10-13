@@ -1,6 +1,7 @@
 """Keep public-project memory snapshots numeric and bound to the owned JVM."""
 import subprocess
 import hashlib
+import json
 import tempfile
 import time
 import unittest
@@ -8,6 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from petclinic_memory_profile import capture, write_bundle, verify_bundle
+import petclinic_multi_downstream_smoke as smoke
 
 
 NMT = """1234:
@@ -67,27 +69,46 @@ class PetclinicMemoryProfileTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "different JVM"):
                 capture(1234, "before", Path("/usr/bin/jcmd"), 0)
 
+    def test_profile_hook_starts_once_at_first_post_warmup_cost_sample(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                mock.patch.object(smoke, "capture_memory",
+                                  side_effect=lambda pid, phase, jcmd, origin: {"phase": phase, "pid": pid}) as called:
+            on_sample, finish = smoke.memory_profile_hook(Path(directory) / "cost.csv", 1234, 60,
+                                                           Path("/usr/bin/jcmd"), 0)
+            for elapsed in (0, 15, 30):
+                on_sample([{"pid": 1234, "elapsedSeconds": elapsed, "rssBytes": 4096,
+                            "privateBytes": 2048}])
+            self.assertEqual([row["phase"] for row in finish()], ["before", "after"])
+            self.assertEqual(called.call_count, 2)
+
     def test_profile_bundle_replays_same_pid_and_rejects_modified_numeric_file(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
             cost = folder / "cost-summary.json"
             cost.write_text('{"cost":"already checked"}', encoding="utf-8")
             cost_csv = folder / "cost.csv"
-            cost_csv.write_text("pid,elapsedSeconds,rssBytes,privateBytes\n1234,0,4096,4096\n", encoding="utf-8")
-            before = self.example()
-            after = dict(before, phase="after", elapsedSeconds=60.0,
+            cost_csv.write_text("pid,elapsedSeconds,rssBytes,privateBytes\n1234,15,4096,4096\n1234,62,4096,4096\n", encoding="utf-8")
+            before = dict(self.example(), elapsedSeconds=15.0)
+            after = dict(before, phase="after", elapsedSeconds=62.0,
                          rssBeforeBytes=before["rssBeforeBytes"] + 1024,
                          rssAfterBytes=before["rssAfterBytes"] + 1024)
             write_bundle(folder, [before, after], self.SOURCE, self.UPSTREAM, 60, cost, True)
             profile = folder / "profile-summary.json"
+            self.assertEqual(json.loads(profile.read_text(encoding="utf-8"))["profileVersion"], 2)
             trusted = hashlib.sha256(profile.read_bytes()).hexdigest()
             cost_hash = hashlib.sha256(cost.read_bytes()).hexdigest()
             result = verify_bundle(folder, self.SOURCE, self.UPSTREAM, 60, cost_hash, trusted, True)
             self.assertEqual(result["rssDeltaBytes"], 1024)
-            cost_csv.write_text("pid,elapsedSeconds,rssBytes,privateBytes\n4321,0,4096,4096\n", encoding="utf-8")
+            write_bundle(folder, [dict(before, elapsedSeconds=0.0), after], self.SOURCE,
+                         self.UPSTREAM, 60, cost, True)
+            shifted = hashlib.sha256(profile.read_bytes()).hexdigest()
+            with self.assertRaisesRegex(ValueError, "aligned"):
+                verify_bundle(folder, self.SOURCE, self.UPSTREAM, 60, cost_hash, shifted, True)
+            write_bundle(folder, [before, after], self.SOURCE, self.UPSTREAM, 60, cost, True)
+            cost_csv.write_text("pid,elapsedSeconds,rssBytes,privateBytes\n4321,15,4096,4096\n4321,62,4096,4096\n", encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "cost JVM"):
                 verify_bundle(folder, self.SOURCE, self.UPSTREAM, 60, cost_hash, trusted, True)
-            cost_csv.write_text("pid,elapsedSeconds,rssBytes,privateBytes\n1234,0,4096,4096\n", encoding="utf-8")
+            cost_csv.write_text("pid,elapsedSeconds,rssBytes,privateBytes\n1234,15,4096,4096\n1234,62,4096,4096\n", encoding="utf-8")
             (folder / "profile.csv").write_bytes((folder / "profile.csv").read_bytes() + b"0")
             with self.assertRaisesRegex(ValueError, "SHA-256"):
                 verify_bundle(folder, self.SOURCE, self.UPSTREAM, 60, cost_hash, trusted, True)

@@ -74,6 +74,33 @@ class Payment(BaseHTTPRequestHandler):
         pass
 
 
+def memory_profile_hook(path, pid, seconds, jcmd, origin):
+    state = {"thread": None, "before": None, "failure": None}
+
+    def on_sample(values):
+        write_samples(path, values)
+        if state["thread"] is None and values[-1]["elapsedSeconds"] >= seconds / 5:
+            def collect():
+                try:
+                    state["before"] = capture_memory(pid, "before", jcmd, origin)
+                except Exception as error:
+                    state["failure"] = error
+            state["thread"] = threading.Thread(target=collect, daemon=True)
+            state["thread"].start()
+
+    def finish():
+        if state["thread"] is None:
+            raise ValueError("Missing warmup-aligned memory profile sample")
+        state["thread"].join(timeout=25)
+        if state["thread"].is_alive():
+            raise TimeoutError("Memory profile sampling did not finish")
+        if state["failure"] is not None:
+            raise ValueError("Memory profile sampling failed") from state["failure"]
+        return [state["before"], capture_memory(pid, "after", jcmd, origin)]
+
+    return on_sample, finish
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-directory", required=True, type=Path)
@@ -214,11 +241,10 @@ def main():
             "requestCount": observed["requestCount"], "downstreams": observed["downstreams"],
             "runStatus": run["status"]}, ensure_ascii=False, indent=2), encoding="utf-8")
         if args.load_seconds:
-            enabled_profile = []
-            if args.memory_profile:
-                profile_origin = time.monotonic()
-                enabled_profile.append(capture_memory(children[0].pid, "before", jcmd, profile_origin))
             cost_started = time.monotonic()
+            enabled_sample, finish_enabled_profile = memory_profile_hook(
+                output / "cost.csv", children[0].pid, args.load_seconds, jcmd, cost_started) \
+                if args.memory_profile else (lambda values: write_samples(output / "cost.csv", values), None)
             def invoke(index):
                 assert all(child.poll() is None for child in children), "An owned JVM stopped during the cost probe"
                 fail = index % 2 == 1
@@ -238,10 +264,10 @@ def main():
 
             with (output / "requests.csv").open("w", newline="", encoding="utf-8") as timing:
                 cost, samples = measure(args.load_seconds, children[0].pid, invoke,
-                    on_sample=lambda values: write_samples(output / "cost.csv", values),
+                    on_sample=enabled_sample,
                     on_request=request_writer(timing))
             if args.memory_profile:
-                enabled_profile.append(capture_memory(children[0].pid, "after", jcmd, profile_origin))
+                enabled_profile = finish_enabled_profile()
             expected = 2 + cost["completedRequests"]
             observed = complete_window(application, 15, expected)
             rows = {row["id"]: row for row in observed["downstreams"]}
@@ -316,11 +342,10 @@ def main():
                     if status != 200 or body != {"inventory": "timeout", "payment": result}:
                         raise ValueError(f"Starter-off functional request mismatch: {status}, {fail}")
 
-                control_profile = []
-                if args.memory_profile:
-                    control_origin = time.monotonic()
-                    control_profile.append(capture_memory(control_process.pid, "before", jcmd, control_origin))
                 control_started = time.monotonic()
+                control_sample, finish_control_profile = memory_profile_hook(
+                    output / "control-cost.csv", control_process.pid, args.load_seconds, jcmd, control_started) \
+                    if args.memory_profile else (lambda values: write_samples(output / "control-cost.csv", values), None)
                 def control_invoke(index):
                     assert control_process.poll() is None and children[1].poll() is None, "A control JVM stopped"
                     fail = index % 2 == 1
@@ -341,10 +366,10 @@ def main():
 
                 with (output / "control-requests.csv").open("w", newline="", encoding="utf-8") as timing:
                     control_cost, control_samples = measure(args.load_seconds, control_process.pid, control_invoke,
-                        on_sample=lambda values: write_samples(output / "control-cost.csv", values),
+                        on_sample=control_sample,
                         on_request=request_writer(timing))
                 if args.memory_profile:
-                    control_profile.append(capture_memory(control_process.pid, "after", jcmd, control_origin))
+                    control_profile = finish_control_profile()
                 write_samples(output / "control-cost.csv", control_samples)
                 control_cost.update(sourceCommit=source_commit, upstreamRevision=REVISION,
                     starterEnabled=False, functionalRequests=2, artifactVersion=2,
