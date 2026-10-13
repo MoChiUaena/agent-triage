@@ -21,7 +21,10 @@ class WebClientObservationTest {
         properties.setDownstreamBaseUrl(URI.create("http://127.0.0.1:18084"));
         var recorder = new ObservationRecorder(properties);
         var client = WebClient.builder().filter(new TriageWebClientFilter(properties))
-            .exchangeFunction(request -> Mono.just(ClientResponse.create(HttpStatus.OK).body("ok").build())).build();
+            .exchangeFunction(request -> Mono.fromCallable(() -> {
+                Thread.sleep(2); // Keep the synthetic call above the one-decimal p95 display precision.
+                return ClientResponse.create(HttpStatus.OK).body("ok").build();
+            })).build();
         new TriageRequestFilter(recorder).doFilter(new MockHttpServletRequest("GET", "/api/products/private-item"),
             new MockHttpServletResponse(), (request, response) -> {
                 assertThat(client.get().uri("http://127.0.0.1:18084/private?token=private-query")
