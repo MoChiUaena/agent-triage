@@ -25,6 +25,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 ## 功能
 
 - 查询服务指标、近期错误日志，检索 Markdown 排障文档。
+- 在[研发协作页面](docs/GITHUB_REPOSITORIES.md)接入 GitHub 仓库，查看开放 Issue、PR 和默认分支 CI，保留读取时间与来源链接。后续分析功能按[开发计划](docs/DEVELOPMENT_COLLABORATION.md)推进。
 - 通过服务白名单登记多个本地应用，在页面选择服务；接入接口与示例见[接入说明](docs/SERVICE_INTEGRATION.md)。
 - 在[项目源码页](docs/SOURCE_INTEGRATION.md)登记、修改或解绑本机 Java 项目，按类、方法或接口检索；排查结果展示带行号的代码引用和静态调用关系，按观测类型提示核查位置，模型读取需要单独授权。
 - 开启 [MVC 接口观测](docs/STARTER.md)后可按接口分别排查，依据实际匹配的处理方法关联源码入口；正常接口与超时接口的窗口统计分别计算。
@@ -81,7 +82,7 @@ macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw s
 
 打开 <http://127.0.0.1:18080>。默认使用 H2 文件数据库，记录保存在 `data/` 目录。按 `Ctrl+C` 停止服务。
 
-也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.11.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
+也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.12.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
 
 ## 跑通本地真实请求
 

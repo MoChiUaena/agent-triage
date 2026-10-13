@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>研发协作 · Agent Triage</title><link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/styles.css" /><link rel="stylesheet" href="/settings.css" />
+  <link rel="stylesheet" href="/typography.css" /><link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/workspace.css" /><link rel="stylesheet" href="/development.css" />
+  <script src="/navigation.js" defer></script><script src="/development.js" defer></script>
+</head>
+<body class="settings-page">
+  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+  <aside class="sidebar settings-sidebar" id="sidebar" aria-label="工作区导航">
+    <a class="brand" href="/"><span class="brand-mark"><svg class="icon"><use href="/icons.svg#activity" /></svg></span><span>Agent Triage</span></a>
+    <nav class="settings-links">
+      <a href="/"><svg class="icon"><use href="/icons.svg#search" /></svg>服务排查</a>
+      <a href="/development.html" aria-current="page"><svg class="icon"><use href="/icons.svg#server" /></svg>研发协作</a>
+      <a href="/workspace.html"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史与统计</a>
+      <a href="/sources.html"><svg class="icon"><use href="/icons.svg#file" /></svg>项目源码</a>
+      <a href="/settings.html"><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a>
+    </nav>
+    <div class="sidebar-footer"><svg class="icon"><use href="/icons.svg#server" /></svg><div><strong>GitHub 仓库</strong><span>查看当前研发状态</span></div></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><button class="icon-button mobile-menu" id="sidebar-toggle" type="button" aria-label="打开导航菜单" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="/icons.svg#menu" /></svg></button><nav class="breadcrumb" aria-label="当前位置"><a href="/">工作区</a><span class="divider">/</span><strong>研发协作</strong></nav></header>
+    <main class="workspace management-workspace development-workspace">
+      <div class="settings-heading"><div><h1>研发协作</h1><p>查看仓库的开放问题、待合入改动和默认分支 CI。</p></div><span class="access-badge" id="github-access">读取访问配置…</span></div>
+      <p class="settings-notice" id="development-notice" role="status" hidden></p>
+      <section class="management-card repository-registration" aria-labelledby="registration-heading">
+        <div><h2 id="registration-heading">接入 GitHub 仓库</h2><p class="management-caption">支持 owner/repository 或标准 GitHub 仓库链接。</p></div>
+        <form id="register-repository"><label class="sr-only" for="repository-input">GitHub 仓库</label><input id="repository-input" maxlength="200" required placeholder="例如 spring-projects/spring-boot" autocomplete="off" /><button class="primary" id="register-button" type="submit">接入仓库</button></form>
+      </section>
+      <section class="repository-toolbar" aria-label="仓库选择"><label>仓库<select id="repository-select"><option value="">尚未登记仓库</option></select></label><button class="secondary" id="refresh-repository" type="button" disabled><svg class="icon"><use href="/icons.svg#refresh" /></svg>更新 GitHub 状态</button><button class="secondary" id="remove-repository" type="button" disabled>移除登记</button></section>
+      <section class="management-card repository-empty" id="repository-empty"><svg class="icon"><use href="/icons.svg#server" /></svg><h2>接入第一个仓库</h2><p>登记后，这里会显示来自 GitHub 的 Issue、PR 和工作流。可以先使用一个公开仓库。</p></section>
+      <section id="repository-health" hidden>
+        <div class="repository-heading"><div><h2 id="repository-name"></h2><p id="repository-description" class="management-caption"></p></div><a id="repository-link" target="_blank" rel="noopener noreferrer">在 GitHub 查看 ↗</a></div>
+        <p id="repository-freshness" class="management-caption" role="status"></p><p id="repository-warning" class="repository-warning" hidden></p>
+        <div class="repository-statistics" id="repository-statistics"></div>
+        <div class="repository-panels">
+          <section class="management-card"><div class="management-heading"><h2>开放 Issue</h2><span class="management-caption" id="issue-scope"></span></div><div id="repository-issues"></div></section>
+          <section class="management-card"><div class="management-heading"><h2>开放 Pull Request</h2><span class="management-caption" id="pull-scope"></span></div><div id="repository-pulls"></div></section>
+        </div>
+        <section class="management-card workflow-panel"><div class="management-heading"><h2>默认分支 CI</h2><span class="management-caption" id="workflow-scope"></span></div><div id="repository-workflows"></div></section>
+      </section>
+    </main>
+  </div>
+  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
+</body>
+</html>

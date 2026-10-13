@@ -13,6 +13,8 @@ public class ApiExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
         MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})
     public ResponseEntity<ProblemDetail> badRequest(Exception e, jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getServletPath().startsWith("/api/development"))
+            return problem(HttpStatus.BAD_REQUEST, "仓库参数无效，请使用 owner/repository 或标准 GitHub 仓库链接，并核对所选仓库与移除确认。");
         if (request.getServletPath().startsWith("/api/source-projects")) return problem(HttpStatus.BAD_REQUEST, "源码参数无效，请检查项目名称、本机目录、服务与搜索内容。");
         if (request.getServletPath().startsWith("/api/history") || request.getServletPath().startsWith("/api/statistics"))
             return problem(HttpStatus.BAD_REQUEST, "历史筛选参数无效，请检查服务、状态、模式、日期范围、分页或删除确认。");
