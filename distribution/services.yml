@@ -20,12 +20,15 @@ triage:
       lab-enabled: true
     - id: catalog-service
       name: Starter 商品服务
-      downstream-id: inventory-service
-      downstream-name: 库存服务
       base-url: http://127.0.0.1:${demo.catalog-port:18088}
-      protocol: OBSERVATIONS_V1
+      protocol: OBSERVATIONS_V5
       max-window-minutes: 15
       lab-enabled: false
+      downstreams:
+        - id: inventory-service
+          name: 库存服务
+        - id: assignment-service
+          name: 分配服务
     - id: catalog-db-service
       name: Starter 价格服务
       downstream-id: catalog-db

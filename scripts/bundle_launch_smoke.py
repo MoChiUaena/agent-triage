@@ -96,7 +96,7 @@ def main():
         assert launcher.returncode == (0 if os.name == "nt" else 143), "Launcher did not follow its normal stop path"
         stopped_ports()
         assert (bundle / "data/triage.mv.db").is_file(), "Package history was not retained"
-        print("Package launcher passed: eight processes, five services, HTTP/JDBC/V3, source and history; owned processes stopped and data retained")
+        print("Package launcher passed: eight processes, five services, V5/JDBC/V3, source and history; owned processes stopped and data retained")
     finally:
         for child in reversed(children):
             stop(child)

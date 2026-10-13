@@ -59,7 +59,7 @@ java -jar lib/order-service.jar "--server.port=$order_port" "--sample.inventory.
 pids+=($!)
 java -jar lib/database-service.jar "--server.port=$database_port" > logs/database.out.log 2> logs/database.err.log &
 pids+=($!)
-java -jar lib/catalog-service.jar "--server.port=$catalog_port" "--triage.sdk.downstream-base-url=http://127.0.0.1:$inventory_port" > logs/catalog.out.log 2> logs/catalog.err.log &
+java -jar lib/catalog-service.jar "--server.port=$catalog_port" "--catalog.inventory-url=http://127.0.0.1:$inventory_port" "--catalog.assignment-url=http://127.0.0.1:$assignment_port" "--triage.sdk.downstreams[0].id=inventory-service" "--triage.sdk.downstreams[0].base-url=http://127.0.0.1:$inventory_port" "--triage.sdk.downstreams[1].id=assignment-service" "--triage.sdk.downstreams[1].base-url=http://127.0.0.1:$assignment_port" > logs/catalog.out.log 2> logs/catalog.err.log &
 pids+=($!)
 java -jar lib/catalog-service.jar "--server.port=$catalog_database_port" --spring.profiles.active=database > logs/catalog-database.out.log 2> logs/catalog-database.err.log &
 pids+=($!)
