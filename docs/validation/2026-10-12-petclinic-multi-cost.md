@@ -32,7 +32,7 @@ python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/382
 
 ## 同机开关对照
 
-[60 秒工作流](https://github.com/MoChiUaena/agent-triage/actions/runs/38224275207)和[300 秒工作流](https://github.com/MoChiUaena/agent-triage/actions/runs/38225101023)各自在一台 Linux CI 主机上依次启动两个独立的 Petclinic JVM：先开启 Starter，再关闭 Starter。两组都对相同回环下游发送每秒 2 个请求，库存读取超时、支付交替返回 200／500。关闭组的业务结果与开启组相同，观测接口消失；开启组的 Agent 证据和历史仍通过核对。Agent 进程在每次开关对照期间保持运行。60／300 秒的源码分别为 `f09a94220693e0b2df66cabb4ec5bb44c4f76466` 和 `65fe243c7091b2be14b6df966fe3e2017d2671fb`。
+[60 秒工作流](https://github.com/MoChiUaena/agent-triage/actions/runs/38224275207)、[300 秒工作流](https://github.com/MoChiUaena/agent-triage/actions/runs/38225101023)和[600 秒工作流](https://github.com/MoChiUaena/agent-triage/actions/runs/38337701951)各自在一台 Linux CI 主机上依次启动两个独立的 Petclinic JVM：先开启 Starter，再关闭 Starter。两组都对相同回环下游发送每秒 2 个请求，库存读取超时、支付交替返回 200／500。关闭组的业务结果与开启组相同，观测接口消失；开启组的 Agent 证据和历史仍通过核对。Agent 进程在每次开关对照期间保持运行。60／300／600 秒的源码分别为 `f09a94220693e0b2df66cabb4ec5bb44c4f76466`、`65fe243c7091b2be14b6df966fe3e2017d2671fb` 和 `b13ccea8550f3ef8d9406f22b78177cf19a95a70`。
 
 | 时长 | Starter | 负载请求 | 最大启动偏差 | 请求 p95 | 内存样本 | 预热后 RSS 峰值增长 | 私有页峰值增长 |
 |---|---|---:|---:|---:|---:|---:|---:|
@@ -40,16 +40,20 @@ python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/382
 | 60 秒 | 关闭 | 120 | 7.914 ms | 108.670 ms | 6 | 2.71 MiB | 2.71 MiB |
 | 300 秒 | 开启 | 600 | 7.426 ms | 107.389 ms | 22 | 13.14 MiB | 13.14 MiB |
 | 300 秒 | 关闭 | 600 | 5.368 ms | 108.020 ms | 22 | 7.98 MiB | 7.98 MiB |
+| 600 秒 | 开启 | 1200 | 36.577 ms | 106.270 ms | 42 | 23.09 MiB | 23.09 MiB |
+| 600 秒 | 关闭 | 1200 | 4.951 ms | 106.069 ms | 42 | 18.41 MiB | 18.41 MiB |
 
-工作流仅上传各组的请求时间、进程内存和摘要数字文件。下载两次工作流的 `petclinic-v5-cost-60`、`petclinic-v5-cost-300` 附件后，使用日志中独立记录的摘要哈希分别重放：
+工作流仅上传各组的请求时间、进程内存和摘要数字文件。下载对应工作流的 `petclinic-v5-cost-60`、`petclinic-v5-cost-300`、`petclinic-v5-cost-600` 附件后，使用日志中独立记录的摘要哈希分别重放：
 
 ```powershell
 python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38224275207 --source-commit f09a94220693e0b2df66cabb4ec5bb44c4f76466 --seconds 60 --expected-summary-sha256 b00ecc879ce01737fa513432fd91308071a9e3d35e7627349cd7b9d9eba68d60
 python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38224275207 --source-commit f09a94220693e0b2df66cabb4ec5bb44c4f76466 --seconds 60 --expected-summary-sha256 032b7f6fe859a26976d6664abcefcffa30da523d4d78abe564468921311df672 --control
 python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38225101023 --source-commit 65fe243c7091b2be14b6df966fe3e2017d2671fb --seconds 300 --expected-summary-sha256 d73513373e5c5b4a66a0155c5ab7570a669ad5f88f6de21540af2fcc685227a8
 python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38225101023 --source-commit 65fe243c7091b2be14b6df966fe3e2017d2671fb --seconds 300 --expected-summary-sha256 8659da8b540cb858f345f8a528b57a6548ea14e517b982af6b1f6d81c4c71229 --control
+python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38337701951 --source-commit b13ccea8550f3ef8d9406f22b78177cf19a95a70 --seconds 600 --expected-summary-sha256 9f1cde57aa525ea98da2b98d9340918f607aea0d5cfc55582a42cd3a103703b4
+python scripts/petclinic_multi_cost_report.py target/petclinic-multi-cost-ci/38337701951 --source-commit b13ccea8550f3ef8d9406f22b78177cf19a95a70 --seconds 600 --expected-summary-sha256 1cda207aaea8d328a737ce787fe816472ba186de4ea351d80839c0eec7d87ceb --control
 ```
 
-下载附件的四组重放均通过。每次开关对照在同一台 CI 主机上完成，但运行顺序固定、JVM 分别启动，启动状态和机器背景负载仍可能影响差值。60 秒两组的增长差为 0.51 MiB，300 秒两组为 5.16 MiB；它们仅供排查参考，不作为 Starter 的精确开销。300 秒两组的最后一个内存样本仍在各自峰值附近，不能据此判断长期内存是否趋稳或泄漏。
+下载附件的六组重放均通过。每次开关对照在同一台 CI 主机上完成，但运行顺序固定、JVM 分别启动，启动状态和机器背景负载仍可能影响差值。60／300／600 秒两组的增长差分别为 0.51／5.16／4.68 MiB；它们仅供排查参考，不作为 Starter 的精确开销。300 秒和 600 秒两组的最后一个内存样本都在各自峰值，不能据此判断长期内存是否趋稳或泄漏。
 
-重放工具还会在预热后至少有 12 个内存样本时，分别取前、后四分之一样本的中位数，报告后段减前段的 RSS 与私有页变化；这个数值不参与通过判定。用上面的 300 秒附件重新计算，开启组为 12.54 MiB，关闭组为 6.78 MiB。后段高于前段，仍需更长的连续窗口核对变化是否趋缓。
+重放工具还会在预热后至少有 12 个内存样本时，分别取前、后四分之一样本的中位数，报告后段减前段的 RSS 与私有页变化；这个数值不参与通过判定。300 秒的开启／关闭组分别为 12.54／6.78 MiB，600 秒分别为 21.15／16.56 MiB。两种时长的后段都高于前段，仍需更长的连续窗口和内存来源数据核对变化是否趋缓。
