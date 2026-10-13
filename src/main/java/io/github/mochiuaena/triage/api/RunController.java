@@ -37,13 +37,15 @@ public class RunController {
     private final ObservationSource observation;
     private final LiveObservationClient live;
     private final ServiceRegistry registry;
+    private final CheckoutDemo checkoutDemo;
     private final io.github.mochiuaena.triage.source.SourceProjectService sources;
     public RunController(RunService service, RunRepository repository, TriageEngine engine,
-                         ObservationSource observation, LiveObservationClient live, ServiceRegistry registry,
+                         ObservationSource observation, LiveObservationClient live, ServiceRegistry registry, CheckoutDemo checkoutDemo,
                          io.github.mochiuaena.triage.source.SourceProjectService sources) {
         this.service = service; this.repository = repository; this.engine = engine;
         this.observation = observation; this.live = live;
         this.registry = registry;
+        this.checkoutDemo = checkoutDemo;
         this.sources = sources;
     }
 
@@ -110,6 +112,7 @@ public class RunController {
         config.put("protocol", target.protocol());
         config.put("maxWindowMinutes", target.maxWindowMinutes());
         config.put("labEnabled", target.labEnabled());
+        config.put("checkoutDemoEnabled", checkoutDemo.enabledFor(target));
         config.put("endpointSupported", target.protocol().supportsEndpoints());
         config.put("observationSource", observation.kind().name());
         if (!observation.synthetic()) {

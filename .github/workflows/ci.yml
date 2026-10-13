@@ -38,6 +38,7 @@ jobs:
           node --check src/main/resources/static/source-view.js
           node scripts/inbound_ui_check.js
           node scripts/multi_downstream_ui_check.js
+          node scripts/checkout_demo_ui_check.js
       - name: Verify bounded V5 cost sampler
         run: python -m unittest discover -s scripts -p 'test_petclinic_multi_cost*.py'
       - name: Verify Spring Boot starter and independent application

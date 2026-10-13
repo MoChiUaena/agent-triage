@@ -19,19 +19,22 @@ def main():
     for identity in services:
         status, selected = request(agent, "/api/config?service=" + identity)
         assert status == 200 and selected["observationAvailable"]
+        assert selected["checkoutDemoEnabled"] == (identity == "catalog-service")
     assert request(f"http://127.0.0.1:{args.base_port + 2}", "/lab/scenario", {"scenario": "NORMAL"})[0] == 200
     assert request(agent, "/api/config?service=order-service")[1]["observationAvailable"]
     inventory = f"http://127.0.0.1:{args.base_port + 4}"
     catalog = f"http://127.0.0.1:{args.base_port + 8}"
-    assert request(inventory, "/lab/scenario", {"scenario": "NORMAL"})[0] == 200
     status, product = request(catalog, "/api/products/demo")
     assert status == 200 and product["available"]
-    status, normal = request(catalog, "/api/checkouts/demo")
-    assert status == 200 and normal["inventory"] == "available" and normal["assignment"] == "assigned"
-    assert request(inventory, "/lab/scenario", {"scenario": "DOWNSTREAM_TIMEOUT"})[0] == 200
-    status, fault = request(catalog, "/api/checkouts/demo")
-    assert status == 200 and fault["inventory"] == "timeout" and fault["assignment"] == "assigned"
-    assert request(inventory, "/lab/scenario", {"scenario": "NORMAL"})[0] == 200
+    path = "/api/live-lab/traffic"
+    status, _ = request(agent, path, {"service": "catalog-service", "scenario": "NORMAL", "count": 1})
+    assert status == 403
+    for scenario, count, expected in (("NORMAL", 1, 0), ("DOWNSTREAM_TIMEOUT", 2, 2)):
+        status, generated = request(agent, path, {"service": "catalog-service", "scenario": scenario, "count": count},
+            {"X-Triage-Lab": "1"})
+        assert status == 200 and generated["scenario"] == "OBSERVED", (status, generated)
+        assert generated["generatedRequests"] == count and generated["inventoryTimeoutCount"] == expected
+        assert request(inventory, "/lab/scenario")[1]["scenario"] == "NORMAL"
     http = investigate(agent, "catalog-service")
     assert http["status"] == "SUCCEEDED" and valid_citations(http)
     metrics = evidence(http, "read_service_metrics")["data"]

@@ -1,5 +1,6 @@
 package io.github.mochiuaena.triage.api;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.mochiuaena.triage.domain.TriageModel.Scenario;
 import io.github.mochiuaena.triage.tools.LiveObservationClient;
 import io.github.mochiuaena.triage.tools.ObservationSource;
@@ -32,20 +33,26 @@ public class LiveLabController {
     public record TrafficRequest(Scenario scenario, int count, String service) {}
     private final ServiceRegistry registry;
     private final LiveObservationClient observations;
+    private final CheckoutDemo checkoutDemo;
+    private final ObjectMapper json;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofMillis(600)).build();
 
-    public LiveLabController(ServiceRegistry registry, LiveObservationClient observations) {
+    public LiveLabController(ServiceRegistry registry, LiveObservationClient observations, CheckoutDemo checkoutDemo, ObjectMapper json) {
         this.registry = registry;
         this.observations = observations;
+        this.checkoutDemo = checkoutDemo;
+        this.json = json;
     }
 
     @PostMapping("/traffic")
     public synchronized Map<String, Object> traffic(@RequestBody TrafficRequest request, HttpServletRequest servletRequest) {
         if (!allowed(servletRequest)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "仅允许从本机页面生成样例流量。");
         ServiceRegistry.Target target = request.service() == null ? registry.defaultTarget() : registry.require(request.service());
-        if (!target.labEnabled()) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "该服务未开放演示流量控制。");
+        if (!target.labEnabled() && !checkoutDemo.enabledFor(target))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "该服务未开放演示流量控制。");
         if (request.scenario() == null || request.count() < 1 || request.count() > 10)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "场景无效或请求数超出 1–10。");
+        if (checkoutDemo.enabledFor(target)) return checkoutTraffic(target, request);
         if (target.protocol() == ServiceRegistry.Protocol.DATABASE_V2) return databaseTraffic(target, request);
         if (request.scenario() != Scenario.NORMAL && request.scenario() != Scenario.DOWNSTREAM_TIMEOUT)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该服务只支持正常与下游超时场景。");
@@ -62,6 +69,43 @@ public class LiveLabController {
             if (e instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "样例服务请求失败，请检查服务是否运行。");
         }
+    }
+
+    private Map<String, Object> checkoutTraffic(ServiceRegistry.Target catalog, TrafficRequest request) {
+        if (request.scenario() != Scenario.NORMAL && request.scenario() != Scenario.DOWNSTREAM_TIMEOUT)
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "商品结算只支持正常与库存超时场景。");
+        ServiceRegistry.Target order = checkoutDemo.inventoryControls();
+        try {
+            send(order, "POST", "/lab/reset", "{}", 200);
+            send(order, "POST", "/lab/scenario", "{\"scenario\":\"" + request.scenario().name() + "\"}", 200);
+            int inventoryTimeouts = 0;
+            for (int i = 0; i < request.count(); i++)
+                if (sendCheckout(catalog, request.scenario())) inventoryTimeouts++;
+            return Map.of("scenario", Scenario.OBSERVED, "generatedRequests", request.count(),
+                "inventoryTimeoutCount", inventoryTimeouts, "synthetic", false);
+        } catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "商品结算样例请求失败，请检查服务是否运行。");
+        } finally {
+            try { send(order, "POST", "/lab/scenario", "{\"scenario\":\"NORMAL\"}", 200); }
+            catch (IOException | InterruptedException e) {
+                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "库存场景复位失败，请检查样例服务。");
+            }
+        }
+    }
+
+    private boolean sendCheckout(ServiceRegistry.Target catalog, Scenario scenario) throws IOException, InterruptedException {
+        URI uri = URI.create(catalog.baseUrl().toString().replaceAll("/$", "") + "/api/checkouts/demo");
+        HttpResponse<String> response = http.send(HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(2)).GET().build(),
+            HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200)
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "商品结算样例返回了意外状态，请重试。");
+        var result = json.readTree(response.body());
+        String expected = scenario == Scenario.DOWNSTREAM_TIMEOUT ? "timeout" : "available";
+        if (!expected.equals(result.path("inventory").asText()) || !"assigned".equals(result.path("assignment").asText()))
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "商品结算结果与场景不符，请检查样例服务。");
+        return scenario == Scenario.DOWNSTREAM_TIMEOUT;
     }
 
     private Map<String, Object> databaseTraffic(ServiceRegistry.Target target, TrafficRequest request) {

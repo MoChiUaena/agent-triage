@@ -42,7 +42,7 @@ $services = @(
     @{Name='catalog-database'; Jar='catalog-service.jar'; Arguments=@("--server.port=$catalogDatabasePort", '--spring.profiles.active=database')},
     @{Name='assignment'; Jar='assignment-service.jar'; Arguments=@("--server.port=$assignmentPort", '--assignment.delay-millis=700')},
     @{Name='ticket'; Jar='ticket-service.jar'; Arguments=@("--server.port=$ticketPort", "--triage.sdk.downstream-base-url=http://127.0.0.1:$assignmentPort", '--triage.sdk.endpoint-observations=true', '--triage.sdk.exception-locations=true', '--triage.sdk.application-packages=example.helpdesk', '--triage.sdk.source-version-checks=true')},
-    @{Name='agent'; Jar='agent-triage.jar'; Arguments=@("--server.port=$BasePort", '--triage.mode=DEMO', '--spring.config.additional-location=file:./config/services.yml', "--demo.order-port=$orderPort", "--demo.database-port=$databasePort", "--demo.catalog-port=$catalogPort", "--demo.catalog-database-port=$catalogDatabasePort", "--demo.ticket-port=$ticketPort")}
+    @{Name='agent'; Jar='agent-triage.jar'; Arguments=@("--server.port=$BasePort", '--triage.mode=DEMO', '--triage.demo.checkout-enabled=true', '--spring.config.additional-location=file:./config/services.yml', "--demo.order-port=$orderPort", "--demo.database-port=$databasePort", "--demo.catalog-port=$catalogPort", "--demo.catalog-database-port=$catalogDatabasePort", "--demo.ticket-port=$ticketPort")}
 )
 foreach ($service in $services) {
     $service.Path = Join-Path $bundleRoot ('lib/' + $service.Jar)

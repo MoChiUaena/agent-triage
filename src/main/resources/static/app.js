@@ -135,7 +135,7 @@ async function loadConfiguration(serviceId = $("#service").value) {
     }));
     $("#window").value = String(windows.includes(previousWindow) ? previousWindow : Math.min(15, config.maxWindowMinutes));
     const live = config.observationSource === "LIVE";
-    $("#live-lab").hidden = !config.labEnabled;
+    $("#live-lab").hidden = !config.labEnabled && !config.checkoutDemoEnabled;
     configureLab(config);
     $("#scenario").disabled = live;
     $("#scenario-label").textContent = live ? "当前场景" : "场景";
@@ -153,7 +153,7 @@ async function loadConfiguration(serviceId = $("#service").value) {
       if (config.observationAvailable && config.observationRequestCount === 0)
         $("#mode-description").textContent = config.observationMessage;
       $("#composer-note").textContent = config.observationAvailable
-        ? config.labEnabled ? "先生成请求，再排查实际观测" : "读取所选服务的实际观测"
+        ? config.labEnabled || config.checkoutDemoEnabled ? "先生成请求，再排查实际观测" : "读取所选服务的实际观测"
         : "所选服务的观测接口未连接";
     } else {
       $("#mode-description").textContent =
@@ -209,14 +209,18 @@ function element(tag, className, text) {
 
 function configureLab(config) {
   const database = config.protocol === "DATABASE_V2";
-  $("#live-lab-title").textContent = database ? "数据库连接池样例" : "本地订单样例";
-  $("#live-lab").setAttribute("aria-label", database ? "数据库连接池样例" : "本地订单样例");
-  $("#live-lab-description").textContent = database
-    ? "请求会实际获取数据库连接并执行查询。可以触发连接等待，再释放连接验证恢复。"
-    : "订单接口会实际调用库存接口。先生成一组请求，再查看 Agent 读取的指标和错误事件。";
+  const checkout = config.checkoutDemoEnabled;
+  const title = checkout ? "Starter 商品结算" : database ? "数据库连接池样例" : "本地订单样例";
+  $("#live-lab-title").textContent = title;
+  $("#live-lab").setAttribute("aria-label", title);
+  $("#live-lab-description").textContent = checkout
+    ? "结算会实际调用库存和分配服务。选一种情况生成请求，然后查看各下游的观测结果。"
+    : database ? "请求会实际获取数据库连接并执行查询。可以触发连接等待，再释放连接验证恢复。"
+      : "订单接口会实际调用库存接口。先生成一组请求，再查看 Agent 读取的指标和错误事件。";
   $("#live-lab-status").textContent = "等待生成请求";
-  const choices = database ? [["NORMAL", "生成正常请求"], ["DB_POOL_EXHAUSTED", "触发连接池耗尽"], ["DB_POOL_RECOVERY", "释放连接并验证恢复"]]
-    : [["NORMAL", "生成正常请求"], ["DOWNSTREAM_TIMEOUT", "触发库存超时"]];
+  const choices = checkout ? [["NORMAL", "正常结算"], ["DOWNSTREAM_TIMEOUT", "库存超时结算"]]
+    : database ? [["NORMAL", "生成正常请求"], ["DB_POOL_EXHAUSTED", "触发连接池耗尽"], ["DB_POOL_RECOVERY", "释放连接并验证恢复"]]
+      : [["NORMAL", "生成正常请求"], ["DOWNSTREAM_TIMEOUT", "触发库存超时"]];
   $(".live-lab-actions").replaceChildren(...choices.map(([scenario, text], index) => {
     const button = element("button", index === 1 ? "primary" : "secondary", text);
     button.type = "button"; button.dataset.labScenario = scenario;
@@ -273,7 +277,7 @@ async function request(path, options) {
 }
 
 async function generateLabTraffic(scenario) {
-  if (submitting || labBusy || !runtimeConfig?.labEnabled || !runtimeConfig.observationAvailable) return;
+  if (submitting || labBusy || !(runtimeConfig?.labEnabled || runtimeConfig?.checkoutDemoEnabled) || !runtimeConfig.observationAvailable) return;
   labBusy = true;
   $("#service").disabled = true;
   $("#submit-button").disabled = true;
@@ -288,7 +292,9 @@ async function generateLabTraffic(scenario) {
     });
     runtimeConfig.scenario = result.scenario;
     $("#scenario").value = result.scenario;
-    $("#live-lab-status").textContent = runtimeConfig.protocol === "DATABASE_V2"
+    $("#live-lab-status").textContent = runtimeConfig.checkoutDemoEnabled
+      ? "已完成 " + result.generatedRequests + " 次商品结算，库存超时 " + result.inventoryTimeoutCount + " 次。现在可以开始排查。"
+      : runtimeConfig.protocol === "DATABASE_V2"
       ? (result.recoveryVerified ? "已验证连接释放后的恢复。" : "") + "已处理 " + result.requestCount + " 个数据库请求，获取连接超时 "
         + result.acquisitionTimeoutCount + " 次，SQL 查询失败 " + result.queryErrorCount + " 次。现在可以开始排查。"
       :
@@ -298,13 +304,23 @@ async function generateLabTraffic(scenario) {
       result.timeoutCount +
       " 次。现在可以开始排查。";
     $("#form-error").hidden = true;
+    if (runtimeConfig.endpointSupported) {
+      await loadEndpoints(true);
+      if (endpointWindow === null) $("#live-lab-status").textContent = "请求已生成，但接口列表读取失败。请刷新接口后排查。";
+      else if (runtimeConfig.checkoutDemoEnabled) {
+        const checkout = endpointChoices.find(item => item.endpoint.httpMethod === "GET"
+          && item.endpoint.routeTemplate === "/api/checkouts/{id}");
+        if (checkout) $("#endpoint").value = checkout.endpoint.id;
+      }
+    }
   } catch (error) {
     $("#live-lab-status").textContent = "请求生成失败";
     showError(error.message);
   } finally {
     labBusy = false;
     $("#service").disabled = false;
-    $("#submit-button").disabled = submitting || !runtimeConfig?.observationAvailable;
+    $("#submit-button").disabled = submitting || !runtimeConfig?.observationAvailable ||
+      (runtimeConfig.endpointSupported && endpointWindow === null);
     buttons.forEach((button) => (button.disabled = false));
   }
 }
