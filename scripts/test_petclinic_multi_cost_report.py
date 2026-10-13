@@ -67,6 +67,12 @@ class CostReportTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["requests"], 1200)
 
+    def test_long_receipt_reports_late_vs_early_memory_without_changing_acceptance(self):
+        folder, _, _, _ = self.fixture(600)
+        result = verify(folder, self.SOURCE, 600, trust_current_run=True)
+        self.assertEqual(result["rssLateMinusEarlyMiB"], 25.0)
+        self.assertEqual(result["privateLateMinusEarlyMiB"], 25.0)
+
     def test_same_runner_control_requires_its_own_numeric_receipt(self):
         folder, summary, _, _ = self.fixture()
         control = {key: value for key, value in summary.items() if key not in

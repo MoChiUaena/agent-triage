@@ -7,6 +7,7 @@ import json
 import math
 from pathlib import Path
 import re
+from statistics import median
 
 from petclinic_multi_cost import REQUEST_COLUMNS
 from prepare_petclinic_rest import REVISION
@@ -137,10 +138,16 @@ def verify(folder, source_commit, seconds, expected_summary_sha=None, trust_curr
     }.items():
         if data.get(key) != expected_value:
             raise ValueError("Memory summary does not match numeric samples")
-    return {"requests": expected, "p95Ms": data["requestP95Ms"],
+    result = {"requests": expected, "p95Ms": data["requestP95Ms"],
             "rssGrowthMiB": round(data["rssPeakGrowthBytes"] / 1048576, 2),
             "privateGrowthMiB": round(data["privatePeakGrowthBytes"] / 1048576, 2),
             "summarySha256": summary_sha}
+    if len(steady) >= 12:
+        quarter = len(steady) // 4
+        for label, field in (("rssLateMinusEarlyMiB", 1), ("privateLateMinusEarlyMiB", 2)):
+            result[label] = round((median(row[field] for row in steady[-quarter:])
+                                   - median(row[field] for row in steady[:quarter])) / 1048576, 2)
+    return result
 
 
 def main():
