@@ -3,6 +3,8 @@ import csv
 import hashlib
 import json
 from pathlib import Path
+import subprocess
+import sys
 import unittest
 import uuid
 
@@ -14,25 +16,29 @@ from prepare_petclinic_rest import REVISION
 class CostReportTest(unittest.TestCase):
     SOURCE = "a" * 40
 
-    def fixture(self):
+    def fixture(self, seconds=60):
         folder = Path("target/petclinic-cost-report-test") / uuid.uuid4().hex
         folder.mkdir(parents=True)
         requests = [dict(index=i, scheduledElapsedSeconds=round(i * .5, 3),
-            startedElapsedSeconds=round(i * .5, 3), startLagMs=0, durationMs=100) for i in range(120)]
+            startedElapsedSeconds=round(i * .5, 3), startLagMs=0, durationMs=100) for i in range(seconds * 2)]
         samples = [dict(pid=123, elapsedSeconds=seconds, rssBytes=(400 + index) * 1048576,
-            privateBytes=(300 + index) * 1048576) for index, seconds in enumerate((0, 15, 30, 45, 60, 62))]
+            privateBytes=(300 + index) * 1048576) for index, seconds in enumerate(
+                [*range(0, seconds + 1, 15), seconds + 2])]
         samples[-1]["rssBytes"] = samples[-2]["rssBytes"]
         samples[-1]["privateBytes"] = samples[-2]["privateBytes"]
         self.write_csv(folder / "requests.csv", REQUEST_COLUMNS, requests)
         self.write_csv(folder / "cost.csv", ("pid", "elapsedSeconds", "rssBytes", "privateBytes"), samples)
-        summary = dict(artifactVersion=2, durationSeconds=60, completedRequests=120, observedRps=2.0,
-            warmupSeconds=12.0, requestP50Ms=100, requestP95Ms=100, requestMaxMs=100,
-            sampleCount=6, maxStartLagMs=0, maxInterStartGapMs=500,
-            baselineRssBytes=samples[1]["rssBytes"], peakRssBytes=samples[-2]["rssBytes"],
-            rssPeakGrowthBytes=3 * 1048576, finalRssBytes=samples[-1]["rssBytes"],
-            baselinePrivateBytes=samples[1]["privateBytes"], privatePeakGrowthBytes=3 * 1048576,
-            sourceCommit=self.SOURCE, upstreamRevision=REVISION, observedRequests=122,
-            inventoryTimeouts=122, payment2xx=61, payment5xx=61, agentValidated=True)
+        baseline = next(row for row in samples if row["elapsedSeconds"] >= seconds / 5)
+        summary = dict(artifactVersion=2, durationSeconds=seconds, completedRequests=seconds * 2,
+            observedRps=2.0, warmupSeconds=seconds / 5, requestP50Ms=100, requestP95Ms=100,
+            requestMaxMs=100, sampleCount=len(samples), maxStartLagMs=0, maxInterStartGapMs=500,
+            baselineRssBytes=baseline["rssBytes"], peakRssBytes=samples[-2]["rssBytes"],
+            rssPeakGrowthBytes=samples[-2]["rssBytes"] - baseline["rssBytes"],
+            finalRssBytes=samples[-1]["rssBytes"], baselinePrivateBytes=baseline["privateBytes"],
+            privatePeakGrowthBytes=samples[-2]["privateBytes"] - baseline["privateBytes"],
+            sourceCommit=self.SOURCE, upstreamRevision=REVISION, observedRequests=seconds * 2 + 2,
+            inventoryTimeouts=seconds * 2 + 2, payment2xx=seconds + 1, payment5xx=seconds + 1,
+            agentValidated=True)
         self.rehash(folder, summary)
         return folder, summary, requests, samples
 
@@ -52,6 +58,14 @@ class CostReportTest(unittest.TestCase):
         self.assertEqual(verify(folder, self.SOURCE, 60, trust_current_run=True)["requests"], 120)
         with self.assertRaisesRegex(ValueError, "trusted summary"):
             verify(folder, self.SOURCE, 60)
+
+    def test_ten_minute_receipt_is_accepted_by_public_replay_command(self):
+        folder, _, _, _ = self.fixture(600)
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("petclinic_multi_cost_report.py")),
+            str(folder), "--source-commit", self.SOURCE, "--seconds", "600", "--trust-current-run"],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["requests"], 1200)
 
     def test_same_runner_control_requires_its_own_numeric_receipt(self):
         folder, summary, _, _ = self.fixture()

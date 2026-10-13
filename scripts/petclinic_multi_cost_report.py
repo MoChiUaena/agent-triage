@@ -147,7 +147,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--source-commit", required=True)
-    parser.add_argument("--seconds", type=int, choices=(60, 300), required=True)
+    parser.add_argument("--seconds", type=int, choices=(60, 300, 600), required=True)
     trust = parser.add_mutually_exclusive_group(required=True)
     trust.add_argument("--expected-summary-sha256", help="Digest recorded outside the downloaded artifact")
     trust.add_argument("--trust-current-run", action="store_true", help="Use only for files created in this workflow run")
