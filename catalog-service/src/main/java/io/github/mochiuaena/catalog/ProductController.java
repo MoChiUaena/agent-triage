@@ -15,7 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 @ConditionalOnProperty(prefix = "triage.sdk", name = "kind", havingValue = "HTTP", matchIfMissing = true)
 class ProductController {
     private final RestClient inventory;
-    ProductController(RestClient.Builder builder, @Value("${triage.sdk.downstream-base-url}") String origin) {
+    ProductController(RestClient.Builder builder, @Value("${catalog.inventory-url}") String origin) {
         var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(1)).build());
         factory.setReadTimeout(Duration.ofMillis(300));
         inventory = builder.baseUrl(origin).requestFactory(factory).build();

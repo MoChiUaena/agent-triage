@@ -29,7 +29,8 @@ import static org.assertj.core.api.Assertions.*;
 import static org.awaitility.Awaitility.await;
 
 @SpringBootTest(classes = RestTemplateIntegrationTest.Application.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = {"spring.datasource.url=jdbc:h2:mem:template-integration;DB_CLOSE_DELAY=-1", "spring.sql.init.mode=never"})
+    properties = {"spring.config.name=isolated-observation-test",
+        "spring.datasource.url=jdbc:h2:mem:template-integration;DB_CLOSE_DELAY=-1", "spring.sql.init.mode=never"})
 class RestTemplateIntegrationTest {
     private static final ExecutorService workers = Executors.newCachedThreadPool();
     private static final HttpServer downstream = startDownstream();
