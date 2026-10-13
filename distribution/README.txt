@@ -15,11 +15,16 @@ The page service selector includes independent Starter product, price and ticket
 Create product requests at http://127.0.0.1:18088/api/products/demo and price requests at
 http://127.0.0.1:18089/api/prices/demo. These two applications have no fault controls.
 The product service shares the inventory fixture, so delayed inventory responses affect it too.
+The product service also exposes http://127.0.0.1:18088/api/checkouts/demo. It calls inventory and
+assignment separately; select Starter product service in the page after a request to see both V5 rows.
+Use the order lab's inventory-timeout scenario, then request checkout again to see the timeout assigned
+only to inventory. The assignment response remains visible as a separate successful dependency.
 The ticket service runs on 18090; /api/tickets/summary is healthy and /api/tickets/T-1 returns 504.
 Its separate assignment dependency delays actual HTTP responses on 18092. Register the bundled
 projects/ticket-service directory in the source page, then use the integration check and code references.
 Follow SOURCE_DEMO.md to compare endpoints, inspect error positions and test build source differences.
-OBSERVATIONS.md explains inbound HTTP V4, optional request failure counts, response classes, observation tokens and async context wrappers.
+OBSERVATIONS.md explains V5 multi-downstream setup, inbound HTTP V4, optional request failure counts,
+response classes, observation tokens and async context wrappers.
 These new switches stay disabled in the bundled demo; they can be enabled explicitly when integrating another application.
 Ctrl+C stops all eight processes started by the launcher.
 

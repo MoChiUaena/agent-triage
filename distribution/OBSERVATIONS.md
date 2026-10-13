@@ -1,12 +1,12 @@
 # 接入其他 Spring Boot 应用
 
-包内 `sdk/` 提供 0.11.0 的 Starter JAR/POM 和可选 Java Agent JAR。演示无需安装 SDK；接入自己的应用时，先在 SDK 文件所在目录安装：
+包内 `sdk/` 提供 0.12.0 的 Starter JAR/POM 和可选 Java Agent JAR。演示无需安装 SDK；接入自己的应用时，先在 SDK 文件所在目录安装：
 
 ```powershell
-mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.11.0.jar' '-DpomFile=pom.xml'
+mvn org.apache.maven.plugins:maven-install-plugin:3.1.4:install-file '-Dfile=triage-spring-boot-starter-0.12.0.jar' '-DpomFile=pom.xml'
 ```
 
-业务项目依赖坐标为 `io.github.mochiuaena:triage-spring-boot-starter:0.11.0`。观测和 Agent 服务地址只支持本机 HTTP；普通上下文路径可以放在登记地址后，例如 `/petclinic`。
+业务项目依赖坐标为 `io.github.mochiuaena:triage-spring-boot-starter:0.12.0`。观测和 Agent 服务地址只支持本机 HTTP；普通上下文路径可以放在登记地址后，例如 `/petclinic`。
 
 ## 只观察入站请求
 
@@ -50,6 +50,29 @@ triage:
 JPA 需要显式包装业务数据源，并在 Agent 登记独立数据库别名；入站请求和数据库侧分别判断。HTTP 的 503 不能替代数据库查询失败证据。其他客户端和多数据源仍需另行验证接入。
 
 请求或池采样丢失、过期清理后读取旧窗口，会返回 422。遇到这个结果应重新选择完整窗口；系统时钟回拨也不会恢复已丢失样本。
+
+## 同一服务的多个 HTTP 下游
+
+包内商品服务的 `/api/checkouts/demo` 会分别调用库存和分配服务。打开这个地址后，在 Agent 页面选择“Starter 商品服务”进行排查，可看到两个下游各自的请求数、超时和响应类别。库存服务切换到超时场景后再次请求，超时只归于库存；分配服务仍独立显示成功响应。
+
+接入自己的 Spring MVC 应用时，Starter 使用如下配置；出站客户端须由 Spring Boot 注入的 builder 创建：
+
+```yaml
+triage:
+  sdk:
+    enabled: true
+    service-id: checkout-service
+    request-path-prefix: /api/
+    endpoint-observations: true
+    response-status-counts: true
+    downstreams:
+      - id: inventory-service
+        base-url: http://127.0.0.1:18084
+      - id: assignment-service
+        base-url: http://127.0.0.1:18092
+```
+
+Agent 的 `config/services.yml` 为同一服务登记 `OBSERVATIONS_V5`，并填写相同的下游 ID。多个下游不能同时填写旧的 `downstream-id` 和 `downstream-base-url`。按命令行覆盖列表时要同时提供每项的 ID 和地址；只覆盖地址会替换掉原列表中的 ID，导致应用拒绝启动。两端都要使用同一版构建，且该能力不会自动覆盖自行创建的所有 HTTP 客户端。
 
 ## 访问令牌与异步任务
 

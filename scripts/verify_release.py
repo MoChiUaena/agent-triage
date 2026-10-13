@@ -113,6 +113,13 @@ def verify(directory, version, commit=None):
                     compiled = ticket.read(f"BOOT-INF/classes/example/helpdesk/{name}.class")
                     if value != hashlib.sha256(source).hexdigest() + "," + hashlib.sha256(compiled).hexdigest():
                         raise ValueError("Bundled ticket source and runtime class manifest differ")
+        if number >= (0, 12, 0):
+            services = archive.read(prefix + "config/services.yml").decode("utf-8")
+            if "protocol: OBSERVATIONS_V5" not in services or "- id: assignment-service" not in services:
+                raise ValueError("V5 catalog service is missing from the package configuration")
+            with zipfile.ZipFile(io.BytesIO(archive.read(prefix + "lib/catalog-service.jar"))) as catalog:
+                if "BOOT-INF/classes/io/github/mochiuaena/catalog/CheckoutController.class" not in catalog.namelist():
+                    raise ValueError("V5 checkout controller is missing from the package")
         if manifest["files"][f"sdk/{starter_name}.jar"] != entries[f"{starter_name}.jar"] \
                 or manifest["files"]["sdk/pom.xml"] != entries[f"{starter_name}.pom"]:
             raise ValueError("Standalone starter differs from the bundled starter")
@@ -137,6 +144,10 @@ def verify(directory, version, commit=None):
                 "io/github/mochiuaena/triage/sdk/ObservationRecorder$RequestSummary.class",
                 "io/github/mochiuaena/triage/sdk/ObservationRecorder$RequestFailureCounts.class"} <= set(starter.namelist()):
                 raise ValueError("Starter is missing the v0.11 inbound request and failure classes")
+        if number >= (0, 12, 0):
+            if not {"io/github/mochiuaena/triage/sdk/ObservationRecorder$DownstreamWindow.class",
+                "io/github/mochiuaena/triage/sdk/TriageObservationProperties$Downstream.class"} <= set(starter.namelist()):
+                raise ValueError("Starter is missing the v0.12 multi-downstream classes")
     if has_agent:
         with zipfile.ZipFile(directory / agent_name) as runtime_agent:
             classes = [name for name in runtime_agent.namelist() if name.endswith(".class")]
