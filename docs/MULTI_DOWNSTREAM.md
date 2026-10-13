@@ -61,3 +61,5 @@ Agent 只读取登记地址的 `GET /triage/endpoint-observations`。V5 响应�
 自动检查覆盖配置校验、RestClient / RestTemplate / WebClient 归属、V5 窗口、Agent 接口校验、诊断、页面 DOM、API 与历史快照。`verification/multi-downstream-service` 用独立 Spring Boot 应用和两个真实回环 HTTP 服务验证库存读超时、支付 200 与支付 500 的分项。固定提交的[公开 Petclinic REST 验收](validation/2026-10-12-multi-downstream.md)还核对了实际应用进程和 Agent 历史；原有业务类不改，验收控制器默认关闭。长期运行成本仍待验证。
 
 [运行成本验收](validation/2026-10-12-petclinic-multi-cost.md)以每秒 2 请求运行 60／300／600 秒，保存可重放的数字延迟与进程内存样本；三种时长都在同一台 Linux CI 主机完成 Starter 开关对照。每次的两个 JVM 依次启动，差值不能直接算作生产开销，也不替代小时级或数天运行。
+
+需要区分堆、NMT 提交和 Linux 匿名页时，可选用[内存分项诊断](validation/2026-10-13-petclinic-memory-profile.md)。它与常规成本验收分开，启用 NMT 后的进程内存不能与未启用 NMT 的进程直接相减。
