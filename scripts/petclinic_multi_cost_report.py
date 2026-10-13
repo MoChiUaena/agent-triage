@@ -69,7 +69,7 @@ def verify(folder, source_commit, seconds, expected_summary_sha=None, trust_curr
     expected = seconds * 2
     if data.get("completedRequests") != expected:
         raise ValueError("Incomplete or inconsistent V5 workload counts")
-    if not control and seconds == 3600:
+    if not control and seconds in (3600, 7200):
         window = data.get("observedRequests")
         if set(data) != SUMMARY_FIELDS_V3 or data.get("artifactVersion") != 3 \
                 or data.get("recordedRequests") != expected + 2 or data.get("observationWindowMinutes") != 15 \
@@ -79,7 +79,7 @@ def verify(folder, source_commit, seconds, expected_summary_sha=None, trust_curr
                 or abs(data["payment2xx"] - data["payment5xx"]) > 1 \
                 or not isinstance(data.get("agentWindowRequests"), int) \
                 or not 0 <= window - data["agentWindowRequests"] <= 60:
-            raise ValueError("Hour-long lifetime or rolling-window counts are inconsistent")
+            raise ValueError("Long-run lifetime or rolling-window counts are inconsistent")
     elif not control and (set(data) == SUMMARY_FIELDS_V3 or data.get("observedRequests") != expected + 2
             or data.get("inventoryTimeouts") != expected + 2
             or data.get("payment2xx") != 1 + (expected + 1) // 2
@@ -168,7 +168,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--source-commit", required=True)
-    parser.add_argument("--seconds", type=int, choices=(60, 300, 600, 3600), required=True)
+    parser.add_argument("--seconds", type=int, choices=(60, 300, 600, 3600, 7200), required=True)
     trust = parser.add_mutually_exclusive_group(required=True)
     trust.add_argument("--expected-summary-sha256", help="Digest recorded outside the downloaded artifact")
     trust.add_argument("--trust-current-run", action="store_true", help="Use only for files created in this workflow run")

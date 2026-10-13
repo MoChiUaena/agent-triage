@@ -21,7 +21,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--source-commit", required=True)
-    parser.add_argument("--seconds", type=int, choices=(60, 300, 600, 3600), required=True)
+    parser.add_argument("--seconds", type=int, choices=(60, 300, 600, 3600, 7200), required=True)
     parser.add_argument("--trust-current-run", action="store_true",
                         help="Use only for files produced by this workflow run")
     parser.add_argument("--enabled-cost-sha256")

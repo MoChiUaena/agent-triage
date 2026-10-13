@@ -83,6 +83,14 @@ class CostReportTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "lifetime|recorded|count"):
             verify(folder, self.SOURCE, 3600, trust_current_run=True)
 
+    def test_two_hour_receipt_keeps_only_the_last_15_minutes_in_the_window(self):
+        folder, summary, _, _ = self.fixture(7200)
+        summary.update(artifactVersion=3, observedRequests=1795, inventoryTimeouts=1795,
+            payment2xx=897, payment5xx=898, recordedRequests=14402,
+            observationWindowMinutes=15, agentWindowRequests=1792)
+        self.rehash(folder, summary)
+        self.assertEqual(verify(folder, self.SOURCE, 7200, trust_current_run=True)["requests"], 14400)
+
     def test_long_receipt_reports_late_vs_early_memory_without_changing_acceptance(self):
         folder, _, _, _ = self.fixture(600)
         result = verify(folder, self.SOURCE, 600, trust_current_run=True)

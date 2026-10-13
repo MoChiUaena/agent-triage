@@ -106,14 +106,14 @@ def main():
     parser.add_argument("--project-directory", required=True, type=Path)
     parser.add_argument("--base-port", type=int, default=18720)
     parser.add_argument("--load-seconds", type=int, default=0,
-                        help="Opt-in 60..3600 second, two-request-per-second process-memory baseline")
+                        help="Opt-in 60..7200 second, two-request-per-second process-memory baseline")
     parser.add_argument("--compare-starter-off", action="store_true",
                         help="Run the same workload in a second JVM with Starter disabled on this host")
     parser.add_argument("--memory-profile", action="store_true",
                         help="Also capture opt-in numeric JVM/Linux memory phases outside the request schedule")
     args = parser.parse_args()
-    if args.load_seconds != 0 and not 60 <= args.load_seconds <= 3600:
-        parser.error("load-seconds must be 0 or 60..3600")
+    if args.load_seconds != 0 and not (60 <= args.load_seconds <= 600 or args.load_seconds in (3600, 7200)):
+        parser.error("load-seconds must be 0, 60..600, 3600 or 7200")
     if args.compare_starter_off and not args.load_seconds:
         parser.error("compare-starter-off requires load-seconds")
     if args.memory_profile and (os.name == "nt" or not args.compare_starter_off):
