@@ -67,6 +67,22 @@ class CostReportTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.stdout)["requests"], 1200)
 
+    def test_hour_receipt_uses_lifetime_count_and_rolling_window(self):
+        folder, summary, _, _ = self.fixture(3600)
+        summary.update(artifactVersion=3, observedRequests=1796, inventoryTimeouts=1796,
+            payment2xx=898, payment5xx=898, recordedRequests=7202,
+            observationWindowMinutes=15, agentWindowRequests=1792)
+        self.rehash(folder, summary)
+        result = subprocess.run([sys.executable, str(Path(__file__).with_name("petclinic_multi_cost_report.py")),
+            str(folder), "--source-commit", self.SOURCE, "--seconds", "3600", "--trust-current-run"],
+            capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["requests"], 7200)
+        summary["recordedRequests"] = 7201
+        self.rehash(folder, summary)
+        with self.assertRaisesRegex(ValueError, "lifetime|recorded|count"):
+            verify(folder, self.SOURCE, 3600, trust_current_run=True)
+
     def test_long_receipt_reports_late_vs_early_memory_without_changing_acceptance(self):
         folder, _, _, _ = self.fixture(600)
         result = verify(folder, self.SOURCE, 600, trust_current_run=True)

@@ -106,14 +106,14 @@ def main():
     parser.add_argument("--project-directory", required=True, type=Path)
     parser.add_argument("--base-port", type=int, default=18720)
     parser.add_argument("--load-seconds", type=int, default=0,
-                        help="Opt-in 60..600 second, two-request-per-second process-memory baseline")
+                        help="Opt-in 60..3600 second, two-request-per-second process-memory baseline")
     parser.add_argument("--compare-starter-off", action="store_true",
                         help="Run the same workload in a second JVM with Starter disabled on this host")
     parser.add_argument("--memory-profile", action="store_true",
                         help="Also capture opt-in numeric JVM/Linux memory phases outside the request schedule")
     args = parser.parse_args()
-    if args.load_seconds != 0 and not 60 <= args.load_seconds <= 600:
-        parser.error("load-seconds must be 0 or 60..600")
+    if args.load_seconds != 0 and not 60 <= args.load_seconds <= 3600:
+        parser.error("load-seconds must be 0 or 60..3600")
     if args.compare_starter_off and not args.load_seconds:
         parser.error("compare-starter-off requires load-seconds")
     if args.memory_profile and (os.name == "nt" or not args.compare_starter_off):
@@ -269,23 +269,38 @@ def main():
             if args.memory_profile:
                 enabled_profile = finish_enabled_profile()
             expected = 2 + cost["completedRequests"]
-            observed = complete_window(application, 15, expected)
+            if args.load_seconds > 600:
+                status, observed = request(application, "/petclinic/triage/endpoint-observations?" + urlencode({
+                    "windowMinutes": 15, "endTime": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}))
+                assert status == 200 and observed["schemaVersion"] == 5
+                assert observed["recordedRequestCount"] == expected
+                assert 1770 <= observed["requestCount"] <= 1802
+            else:
+                observed = complete_window(application, 15, expected)
             rows = {row["id"]: row for row in observed["downstreams"]}
-            assert rows["inventory-service"]["timeoutCount"] == expected
-            assert rows["inventory-service"]["responseStatuses"]["unknown"] == expected
-            assert rows["payment-service"]["requestCount"] == expected
+            window_count = observed["requestCount"]
+            assert rows["inventory-service"]["timeoutCount"] == window_count
+            assert rows["inventory-service"]["responseStatuses"]["unknown"] == window_count
+            assert rows["payment-service"]["requestCount"] == window_count
             assert rows["payment-service"]["timeoutCount"] == 0
-            assert rows["payment-service"]["responseStatuses"]["successful"] == 1 + (cost["completedRequests"] + 1) // 2
-            assert rows["payment-service"]["responseStatuses"]["serverError"] == 1 + cost["completedRequests"] // 2
+            successful = rows["payment-service"]["responseStatuses"]["successful"]
+            server_error = rows["payment-service"]["responseStatuses"]["serverError"]
+            if args.load_seconds > 600:
+                assert successful + server_error == window_count and abs(successful - server_error) <= 1
+            else:
+                assert successful == 1 + (cost["completedRequests"] + 1) // 2
+                assert server_error == 1 + cost["completedRequests"] // 2
             write_samples(output / "cost.csv", samples)
             source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-            cost.update(sourceCommit=source_commit, upstreamRevision=REVISION, observedRequests=expected,
+            cost.update(sourceCommit=source_commit, upstreamRevision=REVISION, observedRequests=window_count,
                         inventoryTimeouts=rows["inventory-service"]["timeoutCount"],
-                        payment2xx=rows["payment-service"]["responseStatuses"]["successful"],
-                        payment5xx=rows["payment-service"]["responseStatuses"]["serverError"], agentValidated=False,
-                        artifactVersion=2,
+                        payment2xx=successful, payment5xx=server_error, agentValidated=False,
+                        artifactVersion=3 if args.load_seconds > 600 else 2,
                         requestsCsvSha256=hashlib.sha256((output / "requests.csv").read_bytes()).hexdigest(),
                         memoryCsvSha256=hashlib.sha256((output / "cost.csv").read_bytes()).hexdigest())
+            if args.load_seconds > 600:
+                cost.update(recordedRequests=observed["recordedRequestCount"], observationWindowMinutes=15,
+                            agentWindowRequests=0)
             cost_path = output / "cost-summary.json"
             cost_path.write_text(json.dumps(cost, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -298,9 +313,15 @@ def main():
                 _, cost_run = request(agent, "/api/runs/" + cost_run["id"])
             assert cost_run["status"] == "SUCCEEDED" and valid_citations(cost_run), (cost_run["status"], cost_run.get("failure"))
             cost_metrics = evidence(cost_run, "read_service_metrics")["data"]
-            assert cost_metrics["requestCount"] == expected
-            assert {row["id"]: row for row in cost_metrics["downstreams"]}["payment-service"]["responseStatuses"]["serverError"] \
-                == rows["payment-service"]["responseStatuses"]["serverError"]
+            agent_count = cost_metrics["requestCount"]
+            if args.load_seconds > 600:
+                assert 0 <= window_count - agent_count <= 60
+                assert {row["id"]: row for row in cost_metrics["downstreams"]}["inventory-service"]["timeoutCount"] == agent_count
+                cost["agentWindowRequests"] = agent_count
+            else:
+                assert agent_count == expected
+                assert {row["id"]: row for row in cost_metrics["downstreams"]}["payment-service"]["responseStatuses"]["serverError"] \
+                    == server_error
             cost["agentValidated"] = True
             cost_path.write_text(json.dumps(cost, ensure_ascii=False, indent=2), encoding="utf-8")
             if args.memory_profile:

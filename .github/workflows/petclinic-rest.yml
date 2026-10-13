@@ -7,7 +7,7 @@ on:
         required: true
         default: '0'
         type: choice
-        options: ['0', '60', '300', '600']
+        options: ['0', '60', '300', '600', '3600']
       compare_starter_off:
         description: Run a second, Starter-off JVM on the same runner after the V5 workload
         required: true
@@ -23,7 +23,7 @@ permissions:
 jobs:
   public-rest-project:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: ${{ inputs.cost_seconds == '3600' && (inputs.compare_starter_off && 150 || 90) || 35 }}
     steps:
       - name: Validate memory profile selection
         if: inputs.memory_profile && (inputs.cost_seconds == '0' || !inputs.compare_starter_off)

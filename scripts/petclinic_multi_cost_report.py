@@ -19,6 +19,7 @@ SUMMARY_FIELDS_V1 = {"durationSeconds", "completedRequests", "observedRps", "war
     "upstreamRevision", "observedRequests", "inventoryTimeouts", "payment2xx",
     "payment5xx", "agentValidated"}
 SUMMARY_FIELDS_V2 = SUMMARY_FIELDS_V1 | {"artifactVersion", "requestsCsvSha256", "memoryCsvSha256"}
+SUMMARY_FIELDS_V3 = SUMMARY_FIELDS_V2 | {"recordedRequests", "observationWindowMinutes", "agentWindowRequests"}
 SUMMARY_FIELDS_CONTROL = (SUMMARY_FIELDS_V2 - {"observedRequests", "inventoryTimeouts",
     "payment2xx", "payment5xx", "agentValidated"}) | {"starterEnabled", "functionalRequests"}
 
@@ -53,7 +54,7 @@ def verify(folder, source_commit, seconds, expected_summary_sha=None, trust_curr
                                              or summary_sha != expected_summary_sha):
         raise ValueError("Cost summary does not match the trusted SHA-256")
     data = json.loads(summary_path.read_text(encoding="utf-8"))
-    allowed = (SUMMARY_FIELDS_CONTROL,) if control else (SUMMARY_FIELDS_V1, SUMMARY_FIELDS_V2)
+    allowed = (SUMMARY_FIELDS_CONTROL,) if control else (SUMMARY_FIELDS_V1, SUMMARY_FIELDS_V2, SUMMARY_FIELDS_V3)
     if not isinstance(data, dict) or set(data) not in allowed:
         raise ValueError("Unexpected cost summary fields")
     if not re.fullmatch(r"[a-f0-9]{40}", source_commit) or data.get("sourceCommit") != source_commit \
@@ -66,15 +67,28 @@ def verify(folder, source_commit, seconds, expected_summary_sha=None, trust_curr
     elif data.get("agentValidated") is not True:
         raise ValueError("Cost artifact has an incomplete Agent run")
     expected = seconds * 2
-    if data.get("completedRequests") != expected or (not control and
-            (data.get("observedRequests") != expected + 2 or data.get("inventoryTimeouts") != expected + 2
+    if data.get("completedRequests") != expected:
+        raise ValueError("Incomplete or inconsistent V5 workload counts")
+    if not control and seconds == 3600:
+        window = data.get("observedRequests")
+        if set(data) != SUMMARY_FIELDS_V3 or data.get("artifactVersion") != 3 \
+                or data.get("recordedRequests") != expected + 2 or data.get("observationWindowMinutes") != 15 \
+                or not isinstance(window, int) or not 1770 <= window <= 1802 \
+                or data.get("inventoryTimeouts") != window \
+                or data.get("payment2xx", -1) + data.get("payment5xx", -1) != window \
+                or abs(data["payment2xx"] - data["payment5xx"]) > 1 \
+                or not isinstance(data.get("agentWindowRequests"), int) \
+                or not 0 <= window - data["agentWindowRequests"] <= 60:
+            raise ValueError("Hour-long lifetime or rolling-window counts are inconsistent")
+    elif not control and (set(data) == SUMMARY_FIELDS_V3 or data.get("observedRequests") != expected + 2
+            or data.get("inventoryTimeouts") != expected + 2
             or data.get("payment2xx") != 1 + (expected + 1) // 2
-            or data.get("payment5xx") != 1 + expected // 2)):
+            or data.get("payment5xx") != 1 + expected // 2):
         raise ValueError("Incomplete or inconsistent V5 workload counts")
 
     requests_path = summary_path.with_name("control-requests.csv" if control else "requests.csv")
     samples_path = summary_path.with_name("control-cost.csv" if control else "cost.csv")
-    if set(data) in (SUMMARY_FIELDS_V2, SUMMARY_FIELDS_CONTROL) and data["artifactVersion"] == 2:
+    if set(data) in (SUMMARY_FIELDS_V2, SUMMARY_FIELDS_V3, SUMMARY_FIELDS_CONTROL) and data["artifactVersion"] in (2, 3):
         expected_requests_sha, expected_memory_sha = data["requestsCsvSha256"], data["memoryCsvSha256"]
     elif set(data) == SUMMARY_FIELDS_V1 and legacy_requests_sha and legacy_memory_sha:
         expected_requests_sha, expected_memory_sha = legacy_requests_sha, legacy_memory_sha
@@ -154,7 +168,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
     parser.add_argument("--source-commit", required=True)
-    parser.add_argument("--seconds", type=int, choices=(60, 300, 600), required=True)
+    parser.add_argument("--seconds", type=int, choices=(60, 300, 600, 3600), required=True)
     trust = parser.add_mutually_exclusive_group(required=True)
     trust.add_argument("--expected-summary-sha256", help="Digest recorded outside the downloaded artifact")
     trust.add_argument("--trust-current-run", action="store_true", help="Use only for files created in this workflow run")

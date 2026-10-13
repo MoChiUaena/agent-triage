@@ -15,8 +15,8 @@ REQUEST_COLUMNS = ("index", "scheduledElapsedSeconds", "startedElapsedSeconds", 
 
 
 def measure(seconds, pid, invoke, on_sample=None, on_request=None):
-    if not 60 <= seconds <= 600 or pid <= 0:
-        raise ValueError("Cost probe requires 60..600 seconds and an owned application PID")
+    if not 60 <= seconds <= 3600 or pid <= 0:
+        raise ValueError("Cost probe requires 60..3600 seconds and an owned application PID")
     samples, latencies, request_rows = [], [], []
     started = time.monotonic()
     next_sample = started
