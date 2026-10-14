@@ -31,7 +31,7 @@
 .repository-error { padding: 14px 0; color: var(--danger); }
 .repository-list-empty { padding: 22px 0; color: var(--muted); }
 .workflow-panel { margin-top: 18px; }
-.workflow-row { display: grid; grid-template-columns: minmax(120px, 1fr) 90px minmax(100px, 160px) 150px; gap: 12px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.workflow-row { display: grid; grid-template-columns: minmax(120px, 1fr) 75px minmax(80px, 130px) 145px 85px; gap: 10px; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line); }
 .workflow-row:last-child { border-bottom: 0; }
 .workflow-row a { text-decoration: none; overflow-wrap: anywhere; }
 .workflow-row a:hover { text-decoration: underline; color: var(--accent); }
@@ -40,5 +40,22 @@
 .workflow-state.failed { background: #fbeaec; color: var(--danger); }
 .workflow-state.success { background: #e8f5ef; color: var(--success); }
 .workflow-state.running { background: var(--accent-soft); color: var(--accent); }
-@media (max-width: 1000px) { .repository-registration { align-items: stretch; flex-direction: column; gap: 14px; } .repository-registration form { max-width: none; } .repository-panels { grid-template-columns: 1fr; } }
-@media (max-width: 720px) { .repository-toolbar { flex-wrap: wrap; } .repository-toolbar label { min-width: 100%; } .repository-statistics { grid-template-columns: 1fr; gap: 10px; } .repository-statistic { padding: 12px 16px; } .repository-heading { flex-direction: column; gap: 8px; } .workflow-row { grid-template-columns: 1fr 90px; } .repository-registration form { flex-wrap: wrap; } }
+.ci-open-button { font-size: 12px; padding: 6px 8px; }
+.ci-history-item { display: block; text-align: left; width: 100%; padding: 12px 0; border-bottom: 1px solid var(--line); color: var(--accent); }
+.ci-history-item:hover { text-decoration: underline; }
+.ci-report-meta { color: var(--muted); overflow-wrap: anywhere; margin: 10px 0; }
+.ci-summary { margin: 16px 0 8px; line-height: 1.8; }
+.ci-report-link { margin: 12px 0; color: var(--accent); }
+#ci-report-result h3 { font-size: 14px; margin: 20px 0 10px; }
+#ci-report-result li { padding: 4px 0; overflow-wrap: anywhere; }
+.ci-evidence { margin: 12px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.ci-evidence summary { padding: 10px 14px; background: var(--accent-soft); cursor: pointer; }
+.ci-evidence pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 340px; overflow: auto; padding: 14px; background: #f8fafc; margin: 0; font-size: 12px; }
+#ci-job-dialog { width: min(760px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; }
+.ci-job-label { display: grid; gap: 8px; margin: 16px 0; }
+#ci-job-select { border: 1px solid var(--line); padding: 10px; border-radius: 7px; background: #fff; }
+#ci-paste-details { margin: 18px 0; }
+#ci-paste-details summary { cursor: pointer; color: var(--accent); padding-bottom: 10px; }
+#ci-pasted-log { width: 100%; resize: vertical; padding: 12px; border: 1px solid var(--line); border-radius: 7px; font-size: 12px; }
+@media (max-width: 1000px) { .repository-registration { align-items: stretch; flex-direction: column; gap: 14px; } .repository-registration form { max-width: none; } .repository-panels { grid-template-columns: 1fr; } .workflow-row { grid-template-columns: minmax(120px, 1fr) 75px; } .ci-open-button { grid-column: 1 / -1; width: max-content; } }
+@media (max-width: 720px) { .repository-toolbar { flex-wrap: wrap; } .repository-toolbar label { min-width: 100%; } .repository-statistics { grid-template-columns: 1fr; gap: 10px; } .repository-statistic { padding: 12px 16px; } .repository-heading { flex-direction: column; gap: 8px; } .workflow-row { grid-template-columns: 1fr 90px; } .repository-registration form { flex-wrap: wrap; } .ci-open-button { grid-column: 1 / -1; width: max-content; } }

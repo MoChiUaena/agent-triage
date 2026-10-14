@@ -60,10 +60,20 @@ function renderHealth(snapshot) {
     const row = element("div", null, "workflow-row"), [label, style] = workflowState(run);
     row.append(link(run.name, run.url), element("span", label, "workflow-state " + style), element("small", run.branch + " · " + run.headSha.substring(0, 7)), element("small", time(run.updatedAt))); return row;
   });
+  if (window.ciPanel) {
+    window.ciPanel.selectRepository(snapshot.registration.id);
+    const rows = $("#repository-workflows").children;
+    if (health.workflows.available) health.workflows.items.forEach((run, index) => {
+      if (run.status === "completed" && failures.includes(run.conclusion)) {
+        const button = element("button", "排查 CI", "secondary ci-open-button"); button.type = "button";
+        button.addEventListener("click", () => window.ciPanel.openRun(snapshot.registration.id, run.id)); rows[index].append(button);
+      }
+    });
+  }
 }
 async function loadHealth() {
   const id = $("#repository-select").value, version = ++selectionVersion;
-  if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; setBusy(false); return; }
+  if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; window.ciPanel?.selectRepository(""); setBusy(false); return; }
   setBusy(true);
   try { const snapshot = await request("/api/development/repositories/" + id + "/health"); if (version === selectionVersion) renderHealth(snapshot); }
   catch (error) { if (version === selectionVersion) { $("#repository-health").hidden = true; notice(error.message, true); } }

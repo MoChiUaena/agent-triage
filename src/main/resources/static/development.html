@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="/styles.css" /><link rel="stylesheet" href="/settings.css" />
   <link rel="stylesheet" href="/typography.css" /><link rel="stylesheet" href="/theme.css" />
   <link rel="stylesheet" href="/workspace.css" /><link rel="stylesheet" href="/development.css" />
-  <script src="/navigation.js" defer></script><script src="/development.js" defer></script>
+  <script src="/navigation.js" defer></script><script src="/ci.js" defer></script><script src="/development.js" defer></script>
 </head>
 <body class="settings-page">
   <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
@@ -41,9 +41,23 @@
           <section class="management-card"><div class="management-heading"><h2>开放 Pull Request</h2><span class="management-caption" id="pull-scope"></span></div><div id="repository-pulls"></div></section>
         </div>
         <section class="management-card workflow-panel"><div class="management-heading"><h2>默认分支 CI</h2><span class="management-caption" id="workflow-scope"></span></div><div id="repository-workflows"></div></section>
+        <section class="management-card workflow-panel" aria-labelledby="ci-history-heading"><div class="management-heading"><h2 id="ci-history-heading">CI 排障报告</h2><button class="secondary" type="button" id="ci-refresh-reports">刷新报告</button></div><p class="management-caption">选择失败工作流的“排查 CI”开始。这里保留最近 20 份报告。</p><div id="ci-report-history"></div></section>
+        <article class="management-card workflow-panel" id="ci-report-result" hidden>
+          <div class="management-heading"><h2 id="ci-report-title"></h2><span id="ci-report-state" class="repository-label"></span></div>
+          <p id="ci-report-meta" class="ci-report-meta"></p><p id="ci-report-source" class="repository-warning"></p><p id="ci-report-summary" class="ci-summary"></p>
+          <p class="management-caption">日志规则分析 · 在本机处理，不调用模型</p><p id="ci-report-link" class="ci-report-link"></p>
+          <h3>下一步核查</h3><ol id="ci-report-checks"></ol><h3>日志证据</h3><p id="ci-report-scope" class="management-caption"></p><div id="ci-report-evidence"></div>
+          <h3 id="ci-location-heading" hidden>日志提到的位置</h3><ul id="ci-report-locations"></ul>
+        </article>
       </section>
     </main>
   </div>
-  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
+  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照与 CI 报告。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
+  <dialog id="ci-job-dialog" aria-labelledby="ci-dialog-title"><form id="ci-analyze-form"><div class="dialog-heading"><h2 id="ci-dialog-title">排查失败 CI</h2><button class="secondary" id="ci-close-dialog" type="button">关闭</button></div><div class="dialog-content">
+    <p id="ci-run-context" class="ci-report-meta"></p><p id="ci-dialog-notice" class="settings-notice" role="status" hidden></p>
+    <label class="ci-job-label" for="ci-job-select">失败作业<select id="ci-job-select"></select></label>
+    <p id="ci-job-steps" class="management-caption"></p><details id="ci-paste-details"><summary>粘贴失败日志</summary><label class="sr-only" for="ci-pasted-log">失败日志内容</label><textarea id="ci-pasted-log" maxlength="200000" rows="8" placeholder="当 GitHub 权限不允许下载日志时，可粘贴失败步骤的错误和上下文。"></textarea><p class="management-caption">报告会标注粘贴来源；日志与作业的对应关系由你核对。</p></details>
+    <p class="management-caption">日志在本机处理，只保存脱敏后的证据片段和报告。</p>
+  </div><div class="dialog-actions"><button class="primary" id="ci-analyze-button" type="submit" disabled>读取日志并分析</button></div></form></dialog>
 </body>
 </html>

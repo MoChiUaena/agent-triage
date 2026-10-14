@@ -14,7 +14,7 @@ const nodes = new Map(), document = {
   querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, new Element()); return nodes.get(selector); },
   createElement: tag => new Element(tag),
 };
-const context = vm.createContext({ document, URL, Date, console, fetch: () => new Promise(() => {}) });
+const context = vm.createContext({ document, window: {}, URL, Date, console, fetch: () => new Promise(() => {}) });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../src/main/resources/static/development.js"), "utf8"), context);
 const section = items => ({ available: true, items, truncated: false, message: "" });
 const fixture = { registration: { url: "https://github.com/acme/service" }, stale: false, error: null, health: {

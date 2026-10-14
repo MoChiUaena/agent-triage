@@ -42,6 +42,67 @@ public class GithubClient {
     }
     public boolean authenticated() { return !token.isEmpty(); }
 
+    public CiModels.Context ciContext(Key key, long runId, Integer attempt, boolean includeJobs) {
+        if (runId < 1 || attempt != null && attempt < 1) throw new IllegalArgumentException("Invalid CI run");
+        String path = "/repos/" + key.fullName() + "/actions/runs/" + runId;
+        JsonNode run = get(path + (attempt == null ? "" : "/attempts/" + attempt)).data();
+        int selected = (int) positive(run, "run_attempt");
+        String sha = text(run, "head_sha", 64);
+        if (positive(run, "id") != runId || selected < 1 || attempt != null && selected != attempt
+            || !sha.matches("[a-f0-9]{40}") || !key.fullName().equalsIgnoreCase(run.path("repository").path("full_name").asText())) throw invalid();
+        var jobs = new ArrayList<CiModels.Job>(); boolean truncated = false;
+        if (includeJobs) {
+            Payload page = get(path + "/attempts/" + selected + "/jobs?per_page=50");
+            if (!page.data().path("jobs").isArray()) throw invalid();
+            for (var node : page.data().path("jobs")) {
+                if (jobs.size() == 50) { truncated = true; break; }
+                var job = ciJob(key, node);
+                if (job.runId() != runId || job.attempt() != selected || !job.headSha().equals(sha)) throw invalid();
+                jobs.add(job);
+            }
+            truncated |= page.truncated();
+        }
+        return new CiModels.Context(runId, selected, sha, text(run, "name", 160), text(run, "head_branch", 160),
+            text(run, "status", 40), text(run, "conclusion", 40), key.url() + "/actions/runs/" + runId + "/attempts/" + selected,
+            List.copyOf(jobs), truncated);
+    }
+    public CiModels.Job ciJob(Key key, long id) { return ciJob(key, get("/repos/" + key.fullName() + "/actions/jobs/" + id).data()); }
+    private CiModels.Job ciJob(Key key, JsonNode node) {
+        long id = positive(node, "id"), run = positive(node, "run_id");
+        int attempt = (int) positive(node, "run_attempt");
+        String sha = text(node, "head_sha", 64);
+        if (attempt < 1 || !sha.matches("[a-f0-9]{40}") || !node.path("steps").isArray() || node.path("steps").size() > 100) throw invalid();
+        var steps = new ArrayList<CiModels.Step>();
+        for (var step : node.path("steps")) steps.add(new CiModels.Step((int) positive(step, "number"), text(step, "name", 200),
+            text(step, "conclusion", 40), optionalTime(step, "started_at"), optionalTime(step, "completed_at")));
+        return new CiModels.Job(id, run, attempt, sha, text(node, "name", 200), text(node, "status", 40),
+            text(node, "conclusion", 40), List.copyOf(steps), key.url() + "/actions/runs/" + run + "/job/" + id);
+    }
+    public String ciLog(Key key, long jobId) {
+        HttpResponse<byte[]> response = send(URI.create(base + "/repos/" + key.fullName() + "/actions/jobs/" + jobId + "/logs"), true);
+        if (response.statusCode() == 302) {
+            URI target;
+            try { target = URI.create(response.headers().firstValue("Location").orElseThrow()); }
+            catch (RuntimeException error) { throw invalid(); }
+            String host = target.getHost();
+            boolean officialDownload = "https".equals(target.getScheme()) && host != null
+                && (host.endsWith(".blob.core.windows.net") || host.endsWith(".actions.githubusercontent.com"))
+                && (target.getPort() == -1 || target.getPort() == 443);
+            URI origin = URI.create(base);
+            boolean localFixture = "http".equals(origin.getScheme()) && Objects.equals(origin.getHost(), host)
+                && target.getScheme().equals(origin.getScheme()) && target.getPort() == origin.getPort();
+            if ((!officialDownload && !localFixture) || target.getUserInfo() != null || target.getFragment() != null)
+                throw new ResponseStatusException(BAD_GATEWAY, "GitHub 日志下载地址不符合受信来源。");
+            response = send(target, false); // Signed download URLs never receive the API credential.
+        }
+        checkStatus(response);
+        return new String(response.body(), StandardCharsets.UTF_8);
+    }
+    private static Instant optionalTime(JsonNode node, String key) {
+        if (node.path(key).isNull() || node.path(key).isMissingNode()) return null;
+        try { return Instant.parse(node.path(key).asText()); } catch (RuntimeException error) { throw invalid(); }
+    }
+
     public Health read(Key key) {
         String path = "/repos/" + key.fullName();
         JsonNode info = get(path).data();
@@ -95,27 +156,35 @@ public class GithubClient {
         }
     }
     private Payload get(String path) {
-        var builder = HttpRequest.newBuilder(URI.create(base + path)).timeout(Duration.ofSeconds(8)).GET()
+        var response = send(URI.create(base + path), true);
+        checkStatus(response);
+        try {
+            JsonNode data = json.readTree(response.body());
+            if (data == null) throw invalid();
+            return new Payload(data, response.headers().allValues("Link").stream().anyMatch(value -> value.contains("rel=\"next\"")));
+        } catch (IOException error) { throw invalid(); }
+    }
+    private void checkStatus(HttpResponse<?> response) {
+        int status = response.statusCode();
+        if (status == 200) return;
+        if (status == 401) throw new ResponseStatusException(SERVICE_UNAVAILABLE, "GitHub Token 不可用，请检查启动配置。");
+        if (status == 404) throw new ResponseStatusException(NOT_FOUND, "GitHub 仓库或数据不可访问，请核对名称与访问权限。");
+        if (status == 429 || status == 403 && (response.headers().firstValue("X-RateLimit-Remaining").orElse("").equals("0")
+            || response.headers().firstValue("Retry-After").isPresent()))
+            throw new ResponseStatusException(TOO_MANY_REQUESTS, "GitHub 请求额度已用尽，请稍后更新。");
+        if (status == 403) throw new ResponseStatusException(FORBIDDEN, "GitHub 未允许读取这部分数据，请检查访问权限。");
+        if (status >= 300 && status < 400) throw new ResponseStatusException(CONFLICT, "GitHub 地址发生变化，请重新读取对应信息。");
+        throw new ResponseStatusException(BAD_GATEWAY, "GitHub 暂时不可用，请稍后更新。");
+    }
+    private HttpResponse<byte[]> send(URI uri, boolean credential) {
+        var builder = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(8)).GET()
             .header("Accept", "application/vnd.github+json").header("X-GitHub-Api-Version", "2022-11-28")
             .header("User-Agent", "agent-triage");
-        if (!token.isEmpty()) builder.header("Authorization", "Bearer " + token);
+        if (credential && !token.isEmpty()) builder.header("Authorization", "Bearer " + token);
         var body = new BoundedBody();
         var pending = http.sendAsync(builder.build(), info -> body);
         try {
-            var response = pending.get(8, TimeUnit.SECONDS);
-                int status = response.statusCode();
-                if (status == 401) throw new ResponseStatusException(SERVICE_UNAVAILABLE, "GitHub Token 不可用，请检查启动配置。");
-                if (status == 404) throw new ResponseStatusException(NOT_FOUND, "GitHub 仓库或数据不可访问，请核对名称与访问权限。");
-                if (status == 429 || status == 403 && (response.headers().firstValue("X-RateLimit-Remaining").orElse("").equals("0")
-                    || response.headers().firstValue("Retry-After").isPresent()))
-                    throw new ResponseStatusException(TOO_MANY_REQUESTS, "GitHub 请求额度已用尽，请稍后更新。");
-                if (status == 403) throw new ResponseStatusException(FORBIDDEN, "GitHub 未允许读取这部分数据，请检查访问权限。");
-                if (status >= 300 && status < 400) throw new ResponseStatusException(CONFLICT, "GitHub 仓库地址发生变化，请登记新地址。");
-                if (status != 200) throw new ResponseStatusException(BAD_GATEWAY, "GitHub 暂时不可用，请稍后更新。");
-                byte[] bytes = response.body();
-                JsonNode data = json.readTree(bytes);
-                if (data == null) throw invalid();
-                return new Payload(data, response.headers().allValues("Link").stream().anyMatch(value -> value.contains("rel=\"next\"")));
+            return pending.get(8, TimeUnit.SECONDS);
         } catch (TimeoutException error) {
             body.cancel(); pending.cancel(true);
             throw new ResponseStatusException(BAD_GATEWAY, "GitHub 读取超时，请稍后更新。");
@@ -127,7 +196,7 @@ public class GithubClient {
             for (Throwable cause = error; cause != null; cause = cause.getCause())
                 if (cause instanceof ResponseStatusException problem) throw problem;
             throw new ResponseStatusException(BAD_GATEWAY, "GitHub 连接或响应不可用，请稍后更新。");
-        } catch (IOException | IllegalArgumentException error) {
+        } catch (IllegalArgumentException error) {
             throw new ResponseStatusException(BAD_GATEWAY, "GitHub 连接或响应不可用，请稍后更新。");
         }
     }
