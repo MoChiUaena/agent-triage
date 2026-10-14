@@ -13,6 +13,8 @@ public class ApiExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
         MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})
     public ResponseEntity<ProblemDetail> badRequest(Exception e, jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getServletPath().contains("/issue/"))
+            return problem(HttpStatus.BAD_REQUEST, "Issue 参数无效，请核对编号、预览和源码路径；最多三个仓库相对 Java 路径。");
         if (request.getServletPath().contains("/pr/"))
             return problem(HttpStatus.BAD_REQUEST, "PR 参数无效，请核对仓库、PR 编号与 base/head 提交 SHA。");
         if (request.getServletPath().contains("/ci/"))

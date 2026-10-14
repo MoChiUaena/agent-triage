@@ -1,5 +1,7 @@
 .development-workspace { max-width: 1320px; }
 .development-workspace h2 { font-size: 16px; }
+.development-workspace .management-heading h2 { min-width: 0; overflow-wrap: anywhere; }
+.development-workspace .management-heading > .repository-label { flex-shrink: 0; white-space: nowrap; }
 .access-badge { color: var(--muted); background: var(--accent-soft); border-radius: 20px; padding: 6px 12px; font-size: 12px; }
 .repository-registration { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .repository-registration form { display: flex; gap: 10px; flex: 1; max-width: 580px; }
@@ -66,6 +68,22 @@
 .pr-file-table td:not(:first-child) { white-space: nowrap; }
 #pr-review-dialog { width: min(700px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; }
 .pr-dialog-versions { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: #f8fafc; border-radius: 7px; font-size: 12px; margin: 14px 0; }
+.issue-classification { padding: 12px 16px; border-radius: 8px; color: var(--accent); background: var(--accent-soft); margin: 16px 0; }
+.issue-reference-set { display: inline-flex; gap: 6px; flex-wrap: wrap; margin-left: 8px; }
+.issue-reference { color: var(--accent); background: var(--accent-soft); border-radius: 4px; font-size: 12px; padding: 2px 6px; }
+.issue-reference:hover { text-decoration: underline; }
+#issue-report-result h3 { font-size: 14px; margin: 22px 0 12px; }
+#issue-report-result li { padding: 5px 0; line-height: 1.7; overflow-wrap: anywhere; }
+.issue-model-state { margin-top: 12px; line-height: 1.7; }
+#issue-triage-dialog { width: min(850px, calc(100vw - 32px)); max-height: 90vh; overflow: auto; }
+.issue-path-label { display: grid; gap: 8px; margin: 14px 0 10px; }
+#issue-code-paths { resize: vertical; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 7px; }
+.issue-preview-details { margin: 18px 0; }
+.issue-preview-details > summary { color: var(--accent); cursor: pointer; margin-bottom: 10px; }
+#issue-preview-evidence { max-height: 330px; overflow: auto; padding-right: 6px; }
+.issue-model-consent { display: flex; align-items: start; gap: 8px; margin: 18px 0 8px; line-height: 1.7; }
+.issue-model-consent input { margin-top: 6px; flex: none; }
+.ci-evidence > a { display: inline-block; margin: 8px 14px; color: var(--accent); }
 @media (max-width: 720px) { .pr-context-grid { grid-template-columns: 1fr; gap: 0; } .pr-version { flex-direction: column; gap: 3px; margin-bottom: 8px; } .pr-number-form { flex-wrap: wrap; } }
 .ci-history-item { display: block; text-align: left; width: 100%; padding: 12px 0; border-bottom: 1px solid var(--line); color: var(--accent); }
 .ci-history-item:hover { text-decoration: underline; }

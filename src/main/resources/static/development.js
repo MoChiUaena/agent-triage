@@ -52,6 +52,14 @@ function renderHealth(snapshot) {
     const row = element("div", null, "repository-item"); row.append(link("#" + issue.number + " " + issue.title, issue.url));
     const meta = element("div", null, "repository-item-meta"); meta.append(element("span", time(issue.updatedAt)), ...issue.labels.map(label => element("span", label, "repository-label"))); row.append(meta); return row;
   });
+  if (window.issuePanel) {
+    window.issuePanel.selectRepository(snapshot.registration.id);
+    if (health.issues.available) health.issues.items.forEach((issue, index) => {
+      const button = element("button", "分诊", "secondary ci-open-button"); button.type = "button";
+      button.addEventListener("click", () => window.issuePanel.openIssue(snapshot.registration.id, issue.number));
+      $("#repository-issues").children[index].append(button);
+    });
+  }
   renderList("#repository-pulls", health.pullRequests, pr => {
     const row = element("div", null, "repository-item"); row.append(link("#" + pr.number + " " + pr.title, pr.url));
     const meta = element("div", null, "repository-item-meta"); meta.append(element("span", time(pr.updatedAt))); if (pr.draft) meta.append(element("span", "草稿", "repository-label")); row.append(meta); return row;
@@ -81,6 +89,7 @@ function renderHealth(snapshot) {
 }
 async function loadHealth() {
   const id = $("#repository-select").value, version = ++selectionVersion;
+  window.issuePanel?.selectRepository(id);
   window.prPanel?.selectRepository(id);
   if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; window.ciPanel?.selectRepository(""); setBusy(false); return; }
   setBusy(true);

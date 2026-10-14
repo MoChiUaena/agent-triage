@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="/styles.css" /><link rel="stylesheet" href="/settings.css" />
   <link rel="stylesheet" href="/typography.css" /><link rel="stylesheet" href="/theme.css" />
   <link rel="stylesheet" href="/workspace.css" /><link rel="stylesheet" href="/development.css" />
-  <script src="/navigation.js" defer></script><script src="/ci.js" defer></script><script src="/pr.js" defer></script><script src="/development.js" defer></script>
+  <script src="/navigation.js" defer></script><script src="/ci.js" defer></script><script src="/pr.js" defer></script><script src="/issue.js" defer></script><script src="/development.js" defer></script>
 </head>
 <body class="settings-page">
   <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
@@ -41,6 +41,16 @@
           <section class="management-card"><div class="management-heading"><h2>开放 Pull Request</h2><span class="management-caption" id="pull-scope"></span></div><div id="repository-pulls"></div></section>
         </div>
         <section class="management-card workflow-panel"><div class="management-heading"><h2>默认分支 CI</h2><span class="management-caption" id="workflow-scope"></span></div><div id="repository-workflows"></div></section>
+        <section class="management-card workflow-panel" aria-labelledby="issue-history-heading"><div class="management-heading"><h2 id="issue-history-heading">Issue 分诊报告</h2><button class="secondary" type="button" id="issue-refresh-reports">刷新报告</button></div><p class="management-caption">选择 Issue 的“分诊”，或按编号读取。最近 20 份报告保存在本机。</p><form id="issue-number-form" class="pr-number-form"><label for="issue-number-input">Issue 编号</label><input id="issue-number-input" type="number" min="1" max="2147483647" required placeholder="例如 2" /><button class="secondary" id="issue-open-number" type="submit">读取 Issue</button></form><div id="issue-report-history"></div></section>
+        <article class="management-card workflow-panel" id="issue-report-result" hidden>
+          <div class="management-heading"><h2 id="issue-report-title"></h2><span id="issue-report-mode" class="repository-label"></span></div>
+          <p id="issue-report-meta" class="ci-report-meta"></p><p id="issue-report-version" class="ci-report-meta"></p><p id="issue-report-link" class="ci-report-link"></p>
+          <p id="issue-report-classification" class="issue-classification"></p><p id="issue-report-summary" class="ci-summary"></p><p id="issue-report-reason"></p>
+          <p id="issue-report-model" class="management-caption issue-model-state"></p>
+          <div class="pr-context-grid"><section><h3>待补充信息</h3><ul id="issue-report-questions"></ul></section><section><h3>行动清单</h3><ol id="issue-report-actions"></ol></section></div>
+          <h3>负责人候选</h3><p class="management-caption">只从已读取贡献者中提出候选，没有分配 Issue 或核对当前工作量。</p><ul id="issue-report-owners"></ul>
+          <h3>读取缺口</h3><ul id="issue-report-gaps"></ul><h3>原始证据</h3><p class="management-caption">Issue 内容是报告者描述，代码与提交只提供核查线索；本次没有运行或修复代码。</p><div id="issue-report-evidence"></div>
+        </article>
         <section class="management-card workflow-panel" aria-labelledby="pr-history-heading">
           <div class="management-heading"><h2 id="pr-history-heading">PR 审查报告</h2><button class="secondary" type="button" id="pr-refresh-reports">刷新报告</button></div>
           <p class="management-caption">选择 PR 的“审查变更”，或按编号读取。这里保留最近 20 份报告。</p>
@@ -67,7 +77,13 @@
       </section>
     </main>
   </div>
-  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照、CI 与 PR 报告。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
+  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照、CI、PR 与 Issue 报告。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
+  <dialog id="issue-triage-dialog" aria-labelledby="issue-dialog-title"><form id="issue-generate-form"><div class="dialog-heading"><h2 id="issue-dialog-title">Issue 分诊</h2><button class="secondary" id="issue-close-dialog" type="button">关闭</button></div><div class="dialog-content">
+    <p id="issue-preview-title"></p><p id="issue-preview-version" class="ci-report-meta"></p><p id="issue-dialog-notice" class="settings-notice" role="status" hidden></p>
+    <label class="issue-path-label" for="issue-code-paths">补充 Java 文件路径（可选）<textarea id="issue-code-paths" maxlength="1200" rows="2" placeholder="每行一个仓库相对路径，最多三个。也会读取 Issue 正文明确提到的路径。"></textarea></label><button class="secondary" id="issue-read-context" type="button">重新读取上下文</button>
+    <details class="issue-preview-details" open><summary>已读取的脱敏上下文</summary><div id="issue-preview-evidence"></div><ul id="issue-preview-gaps"></ul></details>
+    <label class="issue-model-consent"><input id="issue-use-model" type="checkbox" disabled /><span>使用模型建议：将上方脱敏内容（含代码和贡献者）发送给下方启用模型。</span></label><p id="issue-model-destination" class="management-caption"></p><p class="management-caption"><a href="/settings.html">模型设置</a> · 只调用一轮，最多等待 30 秒；可能产生模型费用。</p>
+  </div><div class="dialog-actions"><button class="primary" id="issue-generate-button" type="submit" disabled>生成分诊报告</button></div></form></dialog>
   <dialog id="pr-review-dialog" aria-labelledby="pr-dialog-title"><form id="pr-review-form"><div class="dialog-heading"><h2 id="pr-dialog-title">审查 PR 变更</h2><button class="secondary" id="pr-close-dialog" type="button">关闭</button></div><div class="dialog-content"><p id="pr-pull-context"></p><pre id="pr-pull-versions" class="pr-dialog-versions"></pre><p id="pr-dialog-notice" class="settings-notice" role="status" hidden></p><p class="management-caption">在本机进行规则检查，不调用模型。保存脱敏证据与版本，不保存完整补丁。</p></div><div class="dialog-actions"><button class="primary" id="pr-review-button" type="submit" disabled>生成审查报告</button></div></form></dialog>
   <dialog id="ci-job-dialog" aria-labelledby="ci-dialog-title"><form id="ci-analyze-form"><div class="dialog-heading"><h2 id="ci-dialog-title">排查失败 CI</h2><button class="secondary" id="ci-close-dialog" type="button">关闭</button></div><div class="dialog-content">
     <p id="ci-run-context" class="ci-report-meta"></p><p id="ci-dialog-notice" class="settings-notice" role="status" hidden></p>
