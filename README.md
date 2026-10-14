@@ -27,6 +27,7 @@ Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口�
 - 查询服务指标、近期错误日志，检索 Markdown 排障文档。
 - 在[研发协作页面](docs/GITHUB_REPOSITORIES.md)接入 GitHub 仓库，查看开放 Issue、PR 和默认分支 CI，保留读取时间与来源链接。后续分析功能按[开发计划](docs/DEVELOPMENT_COLLABORATION.md)推进。
 - 从失败 CI 查看作业、读取或粘贴错误日志，生成[带行号证据的本机分析报告](docs/CI_TRIAGE.md)，保留提交版本、运行尝试和日志来源。
+- 按固定提交版本[审查 PR 变更](docs/PR_REVIEW.md)，查看带文件行号的规则提醒、提交检查、正文 Issue 引用和读取缺口；结果保存在本机历史中。
 - 通过服务白名单登记多个本地应用，在页面选择服务；接入接口与示例见[接入说明](docs/SERVICE_INTEGRATION.md)。
 - 在[项目源码页](docs/SOURCE_INTEGRATION.md)登记、修改或解绑本机 Java 项目，按类、方法或接口检索；排查结果展示带行号的代码引用和静态调用关系，按观测类型提示核查位置，模型读取需要单独授权。
 - 开启 [MVC 接口观测](docs/STARTER.md)后可按接口分别排查，依据实际匹配的处理方法关联源码入口；正常接口与超时接口的窗口统计分别计算。

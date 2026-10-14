@@ -13,6 +13,8 @@ public class ApiExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
         MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})
     public ResponseEntity<ProblemDetail> badRequest(Exception e, jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getServletPath().contains("/pr/"))
+            return problem(HttpStatus.BAD_REQUEST, "PR 参数无效，请核对仓库、PR 编号与 base/head 提交 SHA。");
         if (request.getServletPath().contains("/ci/"))
             return problem(HttpStatus.BAD_REQUEST, "CI 参数无效，请核对工作流、作业、提交 SHA 和日志内容；粘贴日志最多 200,000 字符。");
         if (request.getServletPath().startsWith("/api/development"))

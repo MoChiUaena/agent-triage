@@ -40,7 +40,7 @@ public class CiLogAnalyzer {
     private static final Pattern STAMP = Pattern.compile("^(\\d{4}-\\d{2}-\\d{2}T[0-9:.]+Z)\\s+(.*)$");
     private static final Pattern TOKEN = Pattern.compile("gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{16,}|AKIA[0-9A-Z]{16}");
     private static final String CREDENTIAL_KEY = "(?:authorization|[A-Z0-9_-]{0,64}(?:TOKEN|SECRET|PASSWORD|API[-_]?KEY|PRIVATE[-_]?KEY)[A-Z0-9_-]{0,32})";
-    private static final String QUOTED_VALUE = "(?:\"(?:\\\\.|[^\"\\\\])*(?:\"|$)|'(?:\\\\.|[^'\\\\])*(?:'|$))";
+    private static final String QUOTED_VALUE = "(?:\"(?:\\\\.|[^\"\\\\])*+(?:\"|$)|'(?:\\\\.|[^'\\\\])*+(?:'|$))";
     private static final Pattern SECRET = Pattern.compile("(?i)(?<![A-Z0-9_-])(" + CREDENTIAL_KEY + "\\s*[:=]\\s*)(?:" + QUOTED_VALUE + "|(?:Bearer\\s+|Basic\\s+)?[^\\s,;]+)");
     private static final Pattern JSON_SECRET = Pattern.compile("(?i)([\"']" + CREDENTIAL_KEY + "[\"']\\s*:\\s*)(?:" + QUOTED_VALUE + "|[^\\s,}\\]]+)");
     private static final Pattern FILE = Pattern.compile("([\\p{L}\\p{N}_.$/\\\\ -]{1,240}\\.(?:java|kt|py|js|ts))(?::\\[(\\d+),\\d+\\]|:(\\d+)(?::\\d+)?|\", line (\\d+))");
@@ -118,7 +118,7 @@ public class CiLogAnalyzer {
         return new Analysis(decision.code(), "OBSERVED", decision.title(), decision.summary(), decision.checks(),
             List.copyOf(blocks), List.copyOf(locations), scope, clipped || offset > 0);
     }
-    private static String redact(String text) {
+    static String redact(String text) {
         String clean = text.replaceAll("\\x1B\\[[0-9;]*[A-Za-z]", "");
         clean = JSON_SECRET.matcher(clean).replaceAll("$1\"[REDACTED]\"");
         clean = TOKEN.matcher(clean).replaceAll("[REDACTED]");

@@ -56,6 +56,10 @@ class CiLogAnalyzerTest {
     @Test void longEncodedLinesDoNotCauseCredentialPatternBacktracking() {
         assertTimeout(Duration.ofSeconds(2), () -> analyzer.analyze("[ERROR] Build failed\n" + "A".repeat(16000), job));
     }
+    @Test void longQuotedCredentialsAreRedactedWithoutOverflowBeforeClipping() {
+        var result = analyzer.analyze("[ERROR] Permission denied\nPASSWORD=\"" + "q".repeat(8000) + "\"", job);
+        assertThat(result.evidence().toString()).contains("[REDACTED]").doesNotContain("q".repeat(50));
+    }
     @Test void sharedCompletionSecondCannotAttributeTheNextStepsErrorToTheFailedStep() {
         var scoped = new Job(1, 2, 1, "a".repeat(40), "Build", "completed", "failure", List.of(
             new Step(2, "Compile", "failure", Instant.parse("2026-10-14T00:01:00Z"), Instant.parse("2026-10-14T00:01:01Z")),

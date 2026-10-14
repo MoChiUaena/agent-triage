@@ -22,7 +22,7 @@ import static org.springframework.http.HttpStatus.*;
 /** Only reads fixed GitHub REST routes; no user-supplied host or redirect is followed. */
 @Component
 public class GithubClient {
-    private record Payload(JsonNode data, boolean truncated) {}
+    record Payload(JsonNode data, boolean truncated) {}
     private final String base;
     private final String token;
     private final ObjectMapper json;
@@ -155,7 +155,7 @@ public class GithubClient {
             return new Section<>(false, List.of(), false, error.getReason());
         }
     }
-    private Payload get(String path) {
+    Payload get(String path) {
         var response = send(URI.create(base + path), true);
         checkStatus(response);
         try {
@@ -227,7 +227,7 @@ public class GithubClient {
             Flow.Subscription value = subscription; if (value != null) value.cancel();
         }
     }
-    private static String text(JsonNode value, String field, int max) {
+    static String text(JsonNode value, String field, int max) {
         String text = value.path(field).isTextual() ? value.path(field).asText() : "";
         return text.length() <= max ? text : text.substring(0, max);
     }
@@ -239,5 +239,5 @@ public class GithubClient {
         try { return Instant.parse(value.path("updated_at").asText()); }
         catch (RuntimeException error) { throw invalid(); }
     }
-    private static ResponseStatusException invalid() { return new ResponseStatusException(BAD_GATEWAY, "GitHub 响应格式不完整，请稍后更新。"); }
+    static ResponseStatusException invalid() { return new ResponseStatusException(BAD_GATEWAY, "GitHub 响应格式不完整，请稍后更新。"); }
 }

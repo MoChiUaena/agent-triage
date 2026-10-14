@@ -56,6 +56,14 @@ function renderHealth(snapshot) {
     const row = element("div", null, "repository-item"); row.append(link("#" + pr.number + " " + pr.title, pr.url));
     const meta = element("div", null, "repository-item-meta"); meta.append(element("span", time(pr.updatedAt))); if (pr.draft) meta.append(element("span", "草稿", "repository-label")); row.append(meta); return row;
   });
+  if (window.prPanel) {
+    window.prPanel.selectRepository(snapshot.registration.id);
+    if (health.pullRequests.available) health.pullRequests.items.forEach((pr, index) => {
+      const button = element("button", "审查变更", "secondary ci-open-button"); button.type = "button";
+      button.addEventListener("click", () => window.prPanel.openPull(snapshot.registration.id, pr.number));
+      $("#repository-pulls").children[index].append(button);
+    });
+  }
   renderList("#repository-workflows", health.workflows, run => {
     const row = element("div", null, "workflow-row"), [label, style] = workflowState(run);
     row.append(link(run.name, run.url), element("span", label, "workflow-state " + style), element("small", run.branch + " · " + run.headSha.substring(0, 7)), element("small", time(run.updatedAt))); return row;
@@ -73,6 +81,7 @@ function renderHealth(snapshot) {
 }
 async function loadHealth() {
   const id = $("#repository-select").value, version = ++selectionVersion;
+  window.prPanel?.selectRepository(id);
   if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; window.ciPanel?.selectRepository(""); setBusy(false); return; }
   setBusy(true);
   try { const snapshot = await request("/api/development/repositories/" + id + "/health"); if (version === selectionVersion) renderHealth(snapshot); }
