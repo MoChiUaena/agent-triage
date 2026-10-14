@@ -6,7 +6,7 @@
   <link rel="stylesheet" href="/styles.css" /><link rel="stylesheet" href="/settings.css" />
   <link rel="stylesheet" href="/typography.css" /><link rel="stylesheet" href="/theme.css" />
   <link rel="stylesheet" href="/workspace.css" /><link rel="stylesheet" href="/development.css" />
-  <script src="/navigation.js" defer></script><script src="/ci.js" defer></script><script src="/pr.js" defer></script><script src="/issue.js" defer></script><script src="/development.js" defer></script>
+  <script src="/navigation.js" defer></script><script src="/ci.js" defer></script><script src="/pr.js" defer></script><script src="/issue.js" defer></script><script src="/workflow.js" defer></script><script src="/development.js" defer></script>
 </head>
 <body class="settings-page">
   <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
@@ -36,6 +36,15 @@
         <div class="repository-heading"><div><h2 id="repository-name"></h2><p id="repository-description" class="management-caption"></p></div><a id="repository-link" target="_blank" rel="noopener noreferrer">在 GitHub 查看 ↗</a></div>
         <p id="repository-freshness" class="management-caption" role="status"></p><p id="repository-warning" class="repository-warning" hidden></p>
         <div class="repository-statistics" id="repository-statistics"></div>
+        <section class="management-card workflow-setup" aria-labelledby="workflow-heading"><div class="management-heading"><h2 id="workflow-heading">PR 协同检查</h2><span class="repository-label">依赖任务与综合报告</span></div><p class="management-caption">组合仓库、PR、Issue 和 CI 分析，先确认计划再执行。已有报告保留原版本，不发起新的模型调用。</p>
+          <p id="workflow-notice" class="settings-notice" role="status" hidden></p>
+          <form id="workflow-plan-form" class="workflow-form"><label>PR 编号<input id="workflow-pr-number" type="number" min="1" max="2147483647" required placeholder="例如 7" /></label><label>Issue 编号（可选）<input id="workflow-issue-number" type="number" min="1" max="2147483647" placeholder="留空使用 PR 明确引用" /></label><label>Issue 材料<select id="workflow-issue-report"></select></label><label>CI 材料<select id="workflow-ci-report"></select></label><button id="workflow-plan-button" class="primary" type="submit">生成执行计划</button></form>
+        </section>
+        <article class="management-card workflow-panel" id="workflow-result" hidden><div class="management-heading"><h2 id="workflow-result-title"></h2><span id="workflow-state" class="repository-label"></span></div><p id="workflow-result-meta" class="ci-report-meta"></p><p id="workflow-result-message"></p><div class="workflow-controls"><p id="workflow-progress" role="status" class="management-caption"></p><button id="workflow-refresh-state" type="button" class="secondary">刷新任务状态</button><button id="workflow-cancel" type="button" class="secondary" disabled>取消执行</button></div>
+          <ol id="workflow-tasks" class="workflow-task-list"></ol><h3>证据核验</h3><ul id="workflow-checks"></ul>
+          <section id="workflow-summary" hidden><h3>综合报告</h3><p id="workflow-summary-state" class="issue-classification"></p><p id="workflow-summary-text" class="ci-summary"></p><h3>下一步核查</h3><ol id="workflow-summary-actions"></ol><h3>读取缺口</h3><ul id="workflow-summary-gaps"></ul><h3>适用报告来源</h3><div id="workflow-summary-sources" class="workflow-references"></div><p id="workflow-summary-scope" class="management-caption"></p></section>
+        </article>
+        <section class="management-card workflow-panel" aria-labelledby="workflow-history-heading"><div class="management-heading"><h2 id="workflow-history-heading">协同工作流记录</h2><button id="workflow-refresh-history" type="button" class="secondary">刷新工作流与材料</button></div><p class="management-caption">最近 20 次执行。运行中的任务可重新打开，已结束结果保持执行时的版本。</p><div id="workflow-history"></div></section>
         <div class="repository-panels">
           <section class="management-card"><div class="management-heading"><h2>开放 Issue</h2><span class="management-caption" id="issue-scope"></span></div><div id="repository-issues"></div></section>
           <section class="management-card"><div class="management-heading"><h2>开放 Pull Request</h2><span class="management-caption" id="pull-scope"></span></div><div id="repository-pulls"></div></section>
@@ -77,7 +86,8 @@
       </section>
     </main>
   </div>
-  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照、CI、PR 与 Issue 报告。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
+  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照、CI、PR、Issue 报告与协同工作流。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
+  <dialog id="workflow-plan-dialog" aria-labelledby="workflow-plan-heading"><div class="dialog-heading"><h2 id="workflow-plan-heading">确认执行计划</h2><button id="workflow-close-plan" type="button" class="secondary">返回修改</button></div><div class="dialog-content"><pre id="workflow-plan-context" class="pr-dialog-versions"></pre><ol id="workflow-plan-tasks" class="workflow-plan-tasks"></ol><p id="workflow-plan-notice" class="management-caption"></p><p class="management-caption">计划五分钟内有效，所有外部读取均为只读操作。任务失败仍会生成包含缺口的综合报告。</p></div><div class="dialog-actions"><button id="workflow-execute" type="button" class="primary" disabled>执行工作流</button></div></dialog>
   <dialog id="issue-triage-dialog" aria-labelledby="issue-dialog-title"><form id="issue-generate-form"><div class="dialog-heading"><h2 id="issue-dialog-title">Issue 分诊</h2><button class="secondary" id="issue-close-dialog" type="button">关闭</button></div><div class="dialog-content">
     <p id="issue-preview-title"></p><p id="issue-preview-version" class="ci-report-meta"></p><p id="issue-dialog-notice" class="settings-notice" role="status" hidden></p>
     <label class="issue-path-label" for="issue-code-paths">补充 Java 文件路径（可选）<textarea id="issue-code-paths" maxlength="1200" rows="2" placeholder="每行一个仓库相对路径，最多三个。也会读取 Issue 正文明确提到的路径。"></textarea></label><button class="secondary" id="issue-read-context" type="button">重新读取上下文</button>

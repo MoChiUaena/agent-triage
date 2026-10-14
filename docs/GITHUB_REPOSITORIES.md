@@ -8,7 +8,7 @@ Issue 和 PR 各最多显示 20 条。Issue 从最近 50 条开放事项中过�
 
 打开页面读取本机保存的快照。点击“更新 GitHub 状态”才请求新的数据，默认两次更新至少间隔 30 秒；超过两分钟的快照提示更新。读取仓库信息失败时保留旧快照及原时间；某一列表失败时，其余列表仍可查看。最多登记 10 个仓库。
 
-“移除登记”只删除本机仓库记录、概览快照、CI、PR 与 Issue 报告，需在页面确认。所有 GitHub 请求均为 GET，不创建评论、修改标签或合并 PR。已提供[CI 失败日志排查](CI_TRIAGE.md)、[PR 变更审查](PR_REVIEW.md)和[Issue 分诊](ISSUE_TRIAGE.md)；协同工作流按[功能计划](DEVELOPMENT_COLLABORATION.md)继续实现。
+“移除登记”只删除本机仓库记录、概览快照、CI、PR、Issue 报告与协同工作流，需在页面确认。所有 GitHub 请求均为 GET，不创建评论、修改标签或合并 PR。已提供[CI 失败日志排查](CI_TRIAGE.md)、[PR 变更审查](PR_REVIEW.md)、[Issue 分诊](ISSUE_TRIAGE.md)和[PR 协同工作流](DEVELOPMENT_WORKFLOWS.md)。
 
 API：
 

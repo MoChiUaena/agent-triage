@@ -1,0 +1,94 @@
+package io.github.mochiuaena.triage.development;
+
+import io.github.mochiuaena.triage.development.WorkflowModels.*;
+import jakarta.annotation.*;
+import java.time.*;
+import java.util.*;
+import java.util.concurrent.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
+import static org.springframework.http.HttpStatus.*;
+import static io.github.mochiuaena.triage.development.WorkflowModels.terminal;
+
+@Service
+public class WorkflowService {
+    private final WorkflowPlanner planner; private final WorkflowTasks runner; private final WorkflowStore store; private final GithubRepositoryStore repositories;
+    private final Duration timeout;
+    private final Semaphore admission = new Semaphore(2);
+    private final Map<UUID, Actor> active = new ConcurrentHashMap<>();
+    private final ExecutorService workers = new ThreadPoolExecutor(2,2,0,TimeUnit.MILLISECONDS,new ArrayBlockingQueue<>(2),Thread.ofPlatform().daemon(true).name("development-workflow-",0).factory());
+    private final ScheduledExecutorService timers = Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().daemon(true).name("workflow-deadline-",0).factory());
+    public WorkflowService(WorkflowPlanner planner, WorkflowTasks runner, WorkflowStore store, GithubRepositoryStore repositories,
+                           @Value("${triage.development.workflow-timeout:180s}") Duration timeout) {
+        this.planner=planner; this.runner=runner; this.store=store; this.repositories=repositories; this.timeout=timeout;
+        if (timeout.toMillis() < 1 || timeout.compareTo(Duration.ofSeconds(180)) > 0) throw new IllegalArgumentException("Invalid workflow deadline");
+    }
+    @PostConstruct void recover() { store.recover(); }
+    public List<Snapshot> list(UUID repository) { repositories.require(repository); return store.list(repository); }
+    public Snapshot get(UUID id) { return store.require(id); }
+    public Snapshot create(UUID repository, UUID planId) {
+        Plan plan=planner.require(repository, planId);
+        if (!admission.tryAcquire()) throw new ResponseStatusException(TOO_MANY_REQUESTS, "已有两个协同工作流在执行，请稍后再试。");
+        Instant now=Instant.now(); UUID id=UUID.randomUUID();
+        var tasks=plan.tasks().stream().map(spec -> new Task(spec.id(),spec.title(),spec.requires(),spec.after(),"PENDING","等待前置任务。","",null,null,List.of())).toList();
+        Actor actor=new Actor(new Snapshot(id,repository,plan.repository(),plan,"PLANNED","已接受工作流，等待执行。",now,now,tasks,Data.empty()));
+        try {
+            store.insert(actor.value); active.put(id,actor);
+            actor.pending = new FutureTask<>(() -> { actor.run(); return null; });
+            actor.timer=timers.schedule(() -> actor.stop("TIMED_OUT","执行期限已到，保留已完成结果，其余任务已停止。"),timeout.toMillis(),TimeUnit.MILLISECONDS);
+            workers.execute(() -> { try { actor.pending.run(); } finally { actor.cleanup(); } });
+            return actor.value;
+        } catch (RuntimeException error) {
+            actor.stop("FAILED","执行线程未接受工作流，需重新创建。"); actor.cleanup();
+            if (error instanceof org.springframework.dao.DataIntegrityViolationException) throw new ResponseStatusException(CONFLICT,"仓库登记已被移除，请重新选择仓库。");
+            throw error;
+        }
+    }
+    public Snapshot cancel(UUID id) {
+        store.require(id); Actor actor=active.get(id);
+        if (actor!=null) actor.stop("CANCELLED","已取消，保留已完成结果，未开始的任务已跳过。");
+        return store.require(id);
+    }
+    private final class Actor {
+        volatile Snapshot value; volatile FutureTask<Void> pending; volatile ScheduledFuture<?> timer; boolean removed;
+        final java.util.concurrent.atomic.AtomicBoolean cleaned = new java.util.concurrent.atomic.AtomicBoolean();
+        Actor(Snapshot value) { this.value=value; }
+        synchronized boolean publish(Snapshot next) { if (removed) return false; if (!store.update(next)) { removed=true; return false; } value=next; return true; }
+        synchronized void task(int index, String state, String message, String code, List<Reference> references, Data data) {
+            if (removed || terminal(value.state())) return;
+            var tasks=new ArrayList<>(value.tasks()); Task old=tasks.get(index); Instant now=Instant.now();
+            tasks.set(index,new Task(old.id(),old.title(),old.requires(),old.after(),state,message,code,state.equals("RUNNING")?now:old.startedAt(),state.equals("RUNNING")?null:now,references));
+            publish(new Snapshot(value.id(),value.repositoryId(),value.repository(),value.plan(),"RUNNING","正在执行："+old.title(),value.createdAt(),now,List.copyOf(tasks),data));
+        }
+        synchronized void stop(String state,String message) {
+            if (removed || terminal(value.state())) return;
+            Instant now=Instant.now(); var tasks=value.tasks().stream().map(task -> Set.of("PENDING","RUNNING").contains(task.state()) ? new Task(task.id(),task.title(),task.requires(),task.after(),task.state().equals("RUNNING")?"CANCELLED":"SKIPPED",message,state,task.startedAt(),now,task.references()) : task).toList();
+            publish(new Snapshot(value.id(),value.repositoryId(),value.repository(),value.plan(),state,message,value.createdAt(),now,tasks,value.data()));
+            if (pending!=null) pending.cancel(true);
+        }
+        void run() {
+                for (int i=0;i<value.tasks().size();i++) {
+                    if (removed || terminal(value.state()) || Thread.currentThread().isInterrupted()) break;
+                    Task task=value.tasks().get(i);
+                    List<String> failed=task.requires().stream().filter(required -> value.tasks().stream().filter(candidate -> candidate.id().equals(required)).noneMatch(candidate -> Set.of("SUCCEEDED","PARTIAL").contains(candidate.state()))).toList();
+                    if (!failed.isEmpty()) { task(i,"SKIPPED","前置任务未完成："+String.join(", ",failed),"DEPENDENCY_FAILED",List.of(),value.data()); continue; }
+                    task(i,"RUNNING","正在读取或处理已选材料。","",List.of(),value.data());
+                    try { Result result=runner.execute(task.id(),value.plan(),value.data(),value.tasks()); task(i,result.state(),result.message(),"",result.references(),result.data()); }
+                    catch (CancellationException error) { stop("CANCELLED","执行已中断，保留已完成结果。"); }
+                    catch (ResponseStatusException error) { task(i,"FAILED",error.getReason()==null?"任务读取失败。":error.getReason(),"UPSTREAM_"+error.getStatusCode().value(),List.of(),value.data()); }
+                    catch (RuntimeException error) { task(i,"FAILED","任务执行失败，请在对应功能中重新核查。","INTERNAL_ERROR",List.of(),value.data()); }
+                }
+                finish();
+        }
+        void cleanup() { if (cleaned.compareAndSet(false,true)) { if (timer!=null) timer.cancel(false); active.remove(value.id(),this); admission.release(); } }
+        synchronized void finish() {
+            if (removed || terminal(value.state())) return;
+            boolean primaryFailure=value.tasks().stream().anyMatch(task -> Set.of("REPOSITORY","PR").contains(task.id()) && task.state().equals("FAILED"));
+            boolean gaps=value.tasks().stream().anyMatch(task -> Set.of("FAILED","PARTIAL").contains(task.state()));
+            String state=primaryFailure?"FAILED":gaps?"COMPLETED_WITH_GAPS":"COMPLETED";
+            publish(new Snapshot(value.id(),value.repositoryId(),value.repository(),value.plan(),state,primaryFailure?"核心材料未读取，综合报告保留失败与缺口。":gaps?"工作流已结束，部分材料需要进一步核对。":"所选任务已完成，请核对综合报告的范围。",value.createdAt(),Instant.now(),value.tasks(),value.data()));
+        }
+    }
+    @PreDestroy public void close() { active.values().forEach(actor -> actor.stop("INTERRUPTED","应用正在关闭，保留已完成结果，没有自动重跑。")); workers.shutdownNow(); timers.shutdownNow(); }
+}

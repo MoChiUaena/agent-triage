@@ -36,6 +36,7 @@ function workflowState(run) {
 }
 function renderHealth(snapshot) {
   const health = snapshot.health; $("#repository-empty").hidden = true; $("#repository-health").hidden = false;
+  window.workflowPanel?.selectRepository(snapshot.registration.id);
   $("#repository-name").textContent = health.repository.fullName;
   $("#repository-description").textContent = health.repository.description || "仓库未填写描述。";
   $("#repository-link").href = snapshot.registration.url;
@@ -89,6 +90,7 @@ function renderHealth(snapshot) {
 }
 async function loadHealth() {
   const id = $("#repository-select").value, version = ++selectionVersion;
+  window.workflowPanel?.selectRepository(id);
   window.issuePanel?.selectRepository(id);
   window.prPanel?.selectRepository(id);
   if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; window.ciPanel?.selectRepository(""); setBusy(false); return; }
