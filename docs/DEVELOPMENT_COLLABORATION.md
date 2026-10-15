@@ -1,6 +1,6 @@
 # 研发协作功能计划
 
-参考 [DevFlow 的公开功能说明](https://xiaolincoding.com/project/devflow.html)，Agent Triage 将在 Java 服务排查之外增加 GitHub 研发协作。下面列的是网站自身的功能；开发时通过命令行查看 GitHub 或处理 CI，不计入产品能力。
+参考 [DevFlow 的公开功能说明](https://xiaolincoding.com/project/devflow.html)，Agent Triage 在 Java 服务排查之外提供 GitHub 研发协作。仓库概览、CI 排障、PR 审查、Issue 分诊与协同工作流已合入主分支；知识、记忆、报告与操作草稿继续按下方计划推进。
 
 ## 当前差距
 

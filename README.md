@@ -19,28 +19,30 @@
 
 ## 项目介绍
 
-Agent Triage 帮助 Java 开发者排查慢请求、HTTP 下游超时和数据库访问异常。选择服务与时间窗口后，它读取实际观测，关联错误位置与本机源码，整理出可核查的证据和检查建议。排查过程、工具调用和结果都可从网页查看。
+Agent Triage 帮助 Java 开发者排查慢请求、HTTP 下游超时和数据库访问异常。选择服务与时间窗口后，它读取实际观测，关联错误位置与本机源码，整理出可核查的证据和检查建议。也可以接入 GitHub 仓库，将 PR、Issue 与 CI 检查组合成带版本和来源的工作流。
 
 无需模型密钥也能运行规则模式。启用模型后，由模型选择工具、判断类型和证据引用，再由应用核对观测并生成结论。项目提供独立的 Spring Boot 样例，以及用于接入现有应用的 Starter。
 
 ![当前开发版的服务排查结果](docs/assets/service-triage-current.jpg)
 
-*当前开发分支界面，截图于 2026-10-15。使用规则模式读取实际订单请求：5 次请求、5 次库存调用超时。已发布演示包的界面可能不同。*
+*当前主分支界面，截图于 2026-10-15。使用规则模式读取实际订单请求：5 次请求、5 次库存调用超时。已发布演示包的界面可能不同。*
 
 ## 功能
 
 | 能力 | 可以做什么 |
 | --- | --- |
 | 服务排查 | 查询窗口指标与错误事件，核对 HTTP 下游超时、请求执行异常、连接池耗尽和 SQL 执行阶段失败 |
+| 多下游观测 | 按依赖分别显示 HTTP 请求、超时、p95 和响应类别，区分同一请求中的多个下游 |
 | 源码定位 | 按类、方法和接口检索 Java 项目，将观测关联到接口入口、业务错误行和静态调用关系，核对构建源码摘要 |
 | Spring Boot 接入 | 通过 Starter 提供只读观测接口，支持 MVC、HTTP、JDBC，以及显式接入的 JPA 与异步上下文观测 |
 | 模型配置 | 在页面添加、测试和切换模型，提供 DeepSeek、百炼、GLM、Kimi、LM Studio 与兼容接口预设 |
 | 排查记录 | SSE 实时进度、证据引用、主动取消、历史筛选、事件重放和模型用量统计 |
 | 本机存储 | H2 开箱即用，也可切换 PostgreSQL；模型密钥加密保存，源码发送单独授权 |
+| GitHub 协作 | 仓库概览、CI 日志排障、固定版本 PR 审查、Issue 分诊和带依赖的协同工作流 |
 
-### 开发中的研发协作
+### GitHub 研发协作
 
-[开发分支](https://github.com/MoChiUaena/agent-triage/tree/feature/development-workflows)已提供 GitHub 仓库概览、CI 日志排障、固定版本 PR 审查、Issue 分诊和 PR 协同工作流，入口与范围见[研发协作说明](https://github.com/MoChiUaena/agent-triage/blob/feature/development-workflows/docs/DEVELOPMENT_COLLABORATION.md)。这些功能仍在独立 PR 中，尚未包含在 `main` 或 v0.11.0 演示包中。
+从“研发协作”登记仓库，查看 Issue、PR 和默认分支 CI，也可按 PR 编号生成协同检查计划。页面展示任务依赖、执行状态、版本核验和综合报告，所有 GitHub 请求只读。使用方法见[研发协作说明](docs/DEVELOPMENT_COLLABORATION.md)和[工作流说明](docs/DEVELOPMENT_WORKFLOWS.md)。当前源码已包含这些功能；v0.11.0 演示包仍保留原版本内容。
 
 <details>
 <summary>查看当前协同工作流界面</summary>
