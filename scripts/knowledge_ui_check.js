@@ -32,6 +32,60 @@ const context = vm.createContext({ window, document, URLSearchParams, Date, enco
 const ok = value => ({ ok: true, json: async () => value });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../src/main/resources/static/knowledge.js"), "utf8"), context);
 const tick = () => new Promise(resolve => setImmediate(resolve));
+
+function bootHarness(deferSources = false) {
+  const localNodes = new Map(), scopeRequests = [], versionRequests = [], sourceRequests = [];
+  const localDocument = { querySelector(s) { if (!localNodes.has(s)) localNodes.set(s, new Element()); return localNodes.get(s); }, createElement() { return new Element(); } };
+  const localWindow = { location: { search: "?scopeKind=REPOSITORY&scopeId=repo&version=original-version" }, confirm: () => true };
+  const localContext = vm.createContext({ window: localWindow, document: localDocument, URLSearchParams, Date, encodeURIComponent, console, setTimeout: () => 1, clearTimeout() {}, fetch: async url => {
+    if (url === "/api/materials/scopes") return new Promise(resolve => scopeRequests.push(resolve));
+    if (url.startsWith("/api/knowledge/versions/")) return new Promise(resolve => versionRequests.push({ url, resolve }));
+    if (url.startsWith("/api/knowledge/sources?")) return deferSources ? new Promise(resolve => sourceRequests.push(resolve)) : ok([]);
+    if (url.startsWith("/api/knowledge/jobs?")) return ok([]);
+    throw new Error("Unexpected boot request " + url);
+  } });
+  vm.runInContext(fs.readFileSync(path.join(__dirname, "../src/main/resources/static/knowledge.js"), "utf8"), localContext);
+  const original = { id: "original-version", sourceId: "source", path: "README.md", title: "Saved version", origin: "GITHUB", root: "fixture/repo", commitSha: "a".repeat(40), text: "Historical original <script>", importedAt: "2026-10-15T00:00:00Z" };
+  return { window: localWindow, document: localDocument, scopeRequests, versionRequests, sourceRequests, original };
+}
+
+async function bootDeepLinkSurvivesScopeRefresh(oldFirst, registered) {
+  const h = bootHarness(), values = registered ? [repo, scope] : [];
+  const renderRefresh = h.window.knowledgePanel.refreshScopes();
+  h.scopeRequests[oldFirst ? 0 : 1](ok(values)); await tick();
+  h.scopeRequests[oldFirst ? 1 : 0](ok(values)); await tick();
+  assert.equal(h.versionRequests.length, 1, "Winning scope lifecycle should request the initial original once");
+  h.versionRequests[0].resolve(ok(h.original)); await tick(); await renderRefresh;
+  assert.match(h.document.querySelector("#knowledge-original").textContent, /Historical original <script>/, "Initial version must survive boot/render scope refresh in either response order");
+  if (!registered) assert.match(h.document.querySelector("#knowledge-original").textContent, /历史原文/);
+  const laterRefresh = h.window.knowledgePanel.refreshScopes(); h.scopeRequests[2](ok(values)); await laterRefresh;
+  assert.equal(h.versionRequests.length, 1, "A later refresh must not reopen the startup version");
+}
+
+async function explicitSelectionRetiresStartupVersion() {
+  const h = bootHarness(); h.scopeRequests[0](ok([repo, scope])); await tick();
+  assert.equal(h.versionRequests.length, 1);
+  const selector = h.document.querySelector("#knowledge-scope"); selector.value = "PROJECT:project";
+  await selector.events.change(); h.versionRequests[0].resolve(ok(h.original)); await tick();
+  assert.equal(h.document.querySelector("#knowledge-original").textContent, "");
+  const refresh = h.window.knowledgePanel.refreshScopes(); h.scopeRequests[1](ok([repo, scope])); await refresh;
+  assert.equal(selector.value, "PROJECT:project"); assert.equal(h.versionRequests.length, 1);
+  selector.value = ""; await selector.events.change();
+  const cleared = h.window.knowledgePanel.refreshScopes(); h.scopeRequests[2](ok([repo, scope])); await cleared;
+  assert.equal(selector.value, "", "Explicit clearing must not restore the URL's old scope");
+  assert.equal(h.versionRequests.length, 1); assert.equal(h.document.querySelector("#knowledge-original").textContent, "");
+}
+
+async function explicitSelectionBeforeOriginalRequestRetiresStartupIntent() {
+  const h = bootHarness(true); h.scopeRequests[0](ok([repo, scope])); await tick();
+  const renderRefresh = h.window.knowledgePanel.refreshScopes();
+  const selector = h.document.querySelector("#knowledge-scope"); selector.value = "PROJECT:project";
+  const selection = selector.events.change(); h.sourceRequests[1](ok([])); await selection;
+  h.sourceRequests[0](ok([])); await tick();
+  h.scopeRequests[1](ok([repo, scope])); await renderRefresh;
+  assert.equal(h.versionRequests.length, 0, "A user selection during scope/source loading must retire the startup version before it is requested");
+  assert.equal(selector.value, "PROJECT:project"); assert.equal(h.document.querySelector("#knowledge-original").textContent, "");
+}
 (async () => {
   document.querySelector("#knowledge-directory").value = "typed during scope load";
   document.querySelector("#knowledge-directory").events.input();
@@ -81,5 +135,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   assert.equal(sourceButton.disabled, true); assert.equal(knowledgeButton.disabled, false, "Source indexing must not lock knowledge buttons");
   knowledgeButton.disabled = true; vm.runInContext("lock(false)", sourceContext);
   assert.equal(knowledgeButton.disabled, true, "Source unlocking must not remove knowledge consent lock");
+  for (const oldFirst of [true, false]) for (const registered of [true, false]) await bootDeepLinkSurvivesScopeRefresh(oldFirst, registered);
+  await explicitSelectionRetiresStartupVersion();
+  await explicitSelectionBeforeOriginalRequestRetiresStartupIntent();
   console.log("Knowledge UI passed: safe text, explicit scope/preview/consent, update revision, unbind and stale selection guards");
 })().catch(e => { console.error(e); process.exitCode = 1; });

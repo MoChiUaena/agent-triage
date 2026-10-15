@@ -3,6 +3,8 @@
   const $ = s => document.querySelector(s);
   const node = (tag, text) => { const n = document.createElement(tag); if (text != null) n.textContent = text; return n; };
   const params = new URLSearchParams(window.location.search);
+  let startupIntent = ["PROJECT", "REPOSITORY"].includes(params.get("scopeKind")) && params.get("scopeId")
+    ? { scope: { kind: params.get("scopeKind"), id: params.get("scopeId") }, version: params.get("version") } : null;
   let scopes = [], knownSources = [], generation = 0, formGeneration = 0, scopeGeneration = 0, detailGeneration = 0, previewValue = null, selectedSource = null, timer = null;
   const query = scope => "?" + new URLSearchParams({ scopeKind: scope.kind, scopeId: scope.id });
   const selected = () => { const [kind, id] = $("#knowledge-scope").value.split(":"); return id ? { kind, id } : null; };
@@ -85,7 +87,8 @@
     const scope = selected(); if (!scope) return; const [values] = await Promise.all([request("/api/knowledge/sources" + query(scope)), jobs(current)]);
     if (current !== generation) return; renderSources(values, current);
   }
-  async function select() {
+  async function select(automatic = false) {
+    if (automatic !== true) startupIntent = null;
     const current = ++generation; clearTimeout(timer); selectedSource = null; knownSources = []; invalidate(); message("");
     for (const name of ["sources", "jobs", "versions", "original"]) $("#knowledge-" + name).replaceChildren();
     const scope = selected(); $("#knowledge-local").hidden = scope?.kind !== "PROJECT"; $("#knowledge-github").hidden = scope?.kind !== "REPOSITORY";
@@ -93,7 +96,7 @@
     try { await refresh(current); } catch (e) { if (current === generation) message(e.message); }
   }
   $("#knowledge-form").addEventListener("submit", e => { e.preventDefault(); preview(); });
-  $("#knowledge-scope").addEventListener("change", select);
+  $("#knowledge-scope").addEventListener("change", () => select());
   for (const name of ["directory", "commit"]) $("#knowledge-" + name).addEventListener("input", () => { if (name === "directory") selectedSource = null; invalidate(); });
   $("#knowledge-confirm").addEventListener("change", () => { $("#knowledge-import").disabled = !previewValue || !$("#knowledge-confirm").checked; });
   $("#knowledge-refresh").addEventListener("click", async () => { const current = generation; try { await loadScopes(); await refresh(current); } catch (e) { if (current === generation) message(e.message); } });
@@ -108,13 +111,14 @@
     const previous = $("#knowledge-scope").value;
     scopes = values.filter(s => ["PROJECT", "REPOSITORY"].includes(s.kind)); const empty = node("option", "请选择已登记项目或仓库"); empty.value = "";
     $("#knowledge-scope").replaceChildren(empty, ...scopes.map(s => { const n = node("option", (s.kind === "PROJECT" ? "本机项目 · " : "GitHub 仓库 · ") + s.name); n.value = s.kind + ":" + s.id; return n; }));
-    const requested = params.get("scopeKind") + ":" + params.get("scopeId");
+    const requested = startupIntent ? startupIntent.scope.kind + ":" + startupIntent.scope.id : null;
     if (scopes.some(s => s.kind + ":" + s.id === previous)) $("#knowledge-scope").value = previous;
-    else if (!previous && scopes.some(s => s.kind + ":" + s.id === requested)) { $("#knowledge-scope").value = requested; await select(); }
-    else if (previous) { $("#knowledge-scope").value = ""; await select(); }
+    else if (!previous && scopes.some(s => s.kind + ":" + s.id === requested)) { $("#knowledge-scope").value = requested; await select(true); }
+    else if (previous) { $("#knowledge-scope").value = ""; await select(true); }
+    if (current !== scopeGeneration || !startupIntent) return;
+    const intent = startupIntent; startupIntent = null;
+    if (intent.version) await openVersion(intent.version, intent.scope);
   }
   window.knowledgePanel = { select, preview, openVersion, refreshScopes: () => loadScopes().catch(e => message(e.message)) };
-  loadScopes().then(async () => {
-    if (params.get("version") && ["PROJECT", "REPOSITORY"].includes(params.get("scopeKind")) && params.get("scopeId")) await openVersion(params.get("version"), { kind: params.get("scopeKind"), id: params.get("scopeId") });
-  }).catch(e => message(e.message));
+  loadScopes().catch(e => message(e.message));
 })();
