@@ -99,6 +99,21 @@ public class ProviderRegistry {
         return environmentEngine;
     }
 
+    /** One-shot development analysis reuses the enabled provider without exposing its credential. */
+    public synchronized ModelAccess activeModel() {
+        Selection selected = selection();
+        if (!"MODEL".equals(selected.mode())) throw error(SERVICE_UNAVAILABLE, "请先在模型设置中启用一个模型服务。");
+        if (selected.providerId() != null) {
+            Stored stored = find(selected.providerId()); Resolved resolved = resolve(stored.id());
+            return new ModelAccess(resolved.client(), stored.model(), new ModelSource(stored.id(), stored.displayName(), stored.version()), resolved.timeout(), stored.baseUrl());
+        }
+        try { return new ModelAccess(ModelConfiguration.createClient(environment), environment.name(), null, environment.timeout(), environment.baseUrl()); }
+        catch (IllegalArgumentException error) { throw error(SERVICE_UNAVAILABLE, "启动配置中的模型不可用，请在模型设置中添加并启用服务。"); }
+    }
+    public record ModelAccess(ChatClient client, String modelName, ModelSource source, java.time.Duration timeout, String baseUrl) {
+        @Override public String toString() { return "ActiveModelAccess[credentials=redacted]"; }
+    }
+
     synchronized Resolved resolve(UUID id) {
         Stored stored = find(id);
         Resolved previous = cache.get(id);

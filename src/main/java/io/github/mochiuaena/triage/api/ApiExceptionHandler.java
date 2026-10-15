@@ -13,6 +13,16 @@ public class ApiExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
         MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})
     public ResponseEntity<ProblemDetail> badRequest(Exception e, jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getServletPath().contains("/workflows"))
+            return problem(HttpStatus.BAD_REQUEST, "工作流参数无效，请核对 PR、Issue、已有报告与所选仓库；执行前需要未过期的计划。");
+        if (request.getServletPath().contains("/issue/"))
+            return problem(HttpStatus.BAD_REQUEST, "Issue 参数无效，请核对编号、预览和源码路径；最多三个仓库相对 Java 路径。");
+        if (request.getServletPath().contains("/pr/"))
+            return problem(HttpStatus.BAD_REQUEST, "PR 参数无效，请核对仓库、PR 编号与 base/head 提交 SHA。");
+        if (request.getServletPath().contains("/ci/"))
+            return problem(HttpStatus.BAD_REQUEST, "CI 参数无效，请核对工作流、作业、提交 SHA 和日志内容；粘贴日志最多 200,000 字符。");
+        if (request.getServletPath().startsWith("/api/development"))
+            return problem(HttpStatus.BAD_REQUEST, "仓库参数无效，请使用 owner/repository 或标准 GitHub 仓库链接，并核对所选仓库与移除确认。");
         if (request.getServletPath().startsWith("/api/source-projects")) return problem(HttpStatus.BAD_REQUEST, "源码参数无效，请检查项目名称、本机目录、服务与搜索内容。");
         if (request.getServletPath().startsWith("/api/history") || request.getServletPath().startsWith("/api/statistics"))
             return problem(HttpStatus.BAD_REQUEST, "历史筛选参数无效，请检查服务、状态、模式、日期范围、分页或删除确认。");

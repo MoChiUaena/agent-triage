@@ -7,12 +7,25 @@ spring:
     hikari:
       maximum-pool-size: 2
       connection-timeout: 300
+catalog:
+  inventory-url: http://127.0.0.1:18084
+  assignment-url: http://127.0.0.1:18092
+---
+spring:
+  config:
+    activate:
+      on-profile: '!database'
 triage:
   sdk:
     enabled: true
     service-id: catalog-service
-    downstream-id: inventory-service
-    downstream-base-url: http://127.0.0.1:18084
+    endpoint-observations: true
+    response-status-counts: true
+    downstreams:
+      - id: inventory-service
+        base-url: http://127.0.0.1:18084
+      - id: assignment-service
+        base-url: http://127.0.0.1:18092
     max-window-minutes: 15
 ---
 spring:
@@ -23,6 +36,7 @@ server:
   port: 18099
 triage:
   sdk:
+    enabled: true
     kind: DATABASE
     service-id: catalog-db-service
     downstream-id: catalog-db

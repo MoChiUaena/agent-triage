@@ -19,13 +19,32 @@ def main():
     for identity in services:
         status, selected = request(agent, "/api/config?service=" + identity)
         assert status == 200 and selected["observationAvailable"]
+        assert selected["checkoutDemoEnabled"] == (identity == "catalog-service")
     assert request(f"http://127.0.0.1:{args.base_port + 2}", "/lab/scenario", {"scenario": "NORMAL"})[0] == 200
     assert request(agent, "/api/config?service=order-service")[1]["observationAvailable"]
-    status, product = request(f"http://127.0.0.1:{args.base_port + 8}", "/api/products/demo")
+    inventory = f"http://127.0.0.1:{args.base_port + 4}"
+    catalog = f"http://127.0.0.1:{args.base_port + 8}"
+    status, product = request(catalog, "/api/products/demo")
     assert status == 200 and product["available"]
+    path = "/api/live-lab/traffic"
+    status, _ = request(agent, path, {"service": "catalog-service", "scenario": "NORMAL", "count": 1})
+    assert status == 403
+    for scenario, count, expected in (("NORMAL", 1, 0), ("DOWNSTREAM_TIMEOUT", 2, 2)):
+        status, generated = request(agent, path, {"service": "catalog-service", "scenario": scenario, "count": count},
+            {"X-Triage-Lab": "1"})
+        assert status == 200 and generated["scenario"] == "OBSERVED", (status, generated)
+        assert generated["generatedRequests"] == count and generated["inventoryTimeoutCount"] == expected
+        assert request(inventory, "/lab/scenario")[1]["scenario"] == "NORMAL"
     http = investigate(agent, "catalog-service")
     assert http["status"] == "SUCCEEDED" and valid_citations(http)
-    assert evidence(http, "read_service_metrics")["data"]["requestCount"] >= 1
+    metrics = evidence(http, "read_service_metrics")["data"]
+    assert metrics["observationType"] == "HTTP_DOWNSTREAMS" and metrics["requestCount"] >= 3
+    downstreams = {row["id"]: row for row in metrics["downstreams"]}
+    assert downstreams["inventory-service"]["timeoutCount"] >= 1
+    assert downstreams["assignment-service"]["requestCount"] >= 2
+    assert downstreams["assignment-service"]["timeoutCount"] == 0
+    assert any("库存服务" in row["text"] for row in http["diagnosis"]["possibleCauses"])
+    assert all("分配服务" not in row["text"] for row in http["diagnosis"]["possibleCauses"])
     assert request(f"http://127.0.0.1:{args.base_port + 9}", "/api/prices/demo")[0] == 200
     database = investigate(agent, "catalog-db-service")
     assert database["status"] == "SUCCEEDED" and valid_citations(database)
@@ -70,7 +89,7 @@ def main():
         finally:
             gateway.write_bytes(original)
             request(agent, "/api/source-projects/" + binding["id"] + "/reindex", {}, {"X-Triage-Source":"1"})
-    print("Bundle services passed: five registrations, HTTP/JDBC/V3, independent assignment timeout, packaged source digests, version mismatch and frozen history")
+    print("Bundle services passed: five registrations, V5/JDBC/V3, independent assignment timeout, packaged source digests, version mismatch and frozen history")
 
 
 if __name__ == "__main__":

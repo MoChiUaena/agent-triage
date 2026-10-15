@@ -59,7 +59,7 @@ java -jar lib/order-service.jar "--server.port=$order_port" "--sample.inventory.
 pids+=($!)
 java -jar lib/database-service.jar "--server.port=$database_port" > logs/database.out.log 2> logs/database.err.log &
 pids+=($!)
-java -jar lib/catalog-service.jar "--server.port=$catalog_port" "--triage.sdk.downstream-base-url=http://127.0.0.1:$inventory_port" > logs/catalog.out.log 2> logs/catalog.err.log &
+java -jar lib/catalog-service.jar "--server.port=$catalog_port" "--catalog.inventory-url=http://127.0.0.1:$inventory_port" "--catalog.assignment-url=http://127.0.0.1:$assignment_port" "--triage.sdk.downstreams[0].id=inventory-service" "--triage.sdk.downstreams[0].base-url=http://127.0.0.1:$inventory_port" "--triage.sdk.downstreams[1].id=assignment-service" "--triage.sdk.downstreams[1].base-url=http://127.0.0.1:$assignment_port" > logs/catalog.out.log 2> logs/catalog.err.log &
 pids+=($!)
 java -jar lib/catalog-service.jar "--server.port=$catalog_database_port" --spring.profiles.active=database > logs/catalog-database.out.log 2> logs/catalog-database.err.log &
 pids+=($!)
@@ -67,7 +67,7 @@ java -jar lib/assignment-service.jar "--server.port=$assignment_port" --assignme
 pids+=($!)
 java -jar lib/ticket-service.jar "--server.port=$ticket_port" "--triage.sdk.downstream-base-url=http://127.0.0.1:$assignment_port" --triage.sdk.endpoint-observations=true --triage.sdk.exception-locations=true --triage.sdk.application-packages=example.helpdesk --triage.sdk.source-version-checks=true > logs/ticket.out.log 2> logs/ticket.err.log &
 pids+=($!)
-java -jar lib/agent-triage.jar "--server.port=$base_port" --triage.mode=DEMO --spring.config.additional-location=file:./config/services.yml "--demo.order-port=$order_port" "--demo.database-port=$database_port" "--demo.catalog-port=$catalog_port" "--demo.catalog-database-port=$catalog_database_port" "--demo.ticket-port=$ticket_port" > logs/agent.out.log 2> logs/agent.err.log &
+java -jar lib/agent-triage.jar "--server.port=$base_port" --triage.mode=DEMO --triage.demo.checkout-enabled=true --spring.config.additional-location=file:./config/services.yml "--demo.order-port=$order_port" "--demo.database-port=$database_port" "--demo.catalog-port=$catalog_port" "--demo.catalog-database-port=$catalog_database_port" "--demo.ticket-port=$ticket_port" > logs/agent.out.log 2> logs/agent.err.log &
 pids+=($!)
 ready=false
 for attempt in {1..90}; do

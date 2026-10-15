@@ -19,7 +19,9 @@ public final class QuestionScope {
         var info = context.serviceInfo();
         boolean statusSupported = context.target() != null && context.target().protocol().supportsEndpoints()
             && responseStatusQuestion(question);
-        return statusSupported || supports(question) || java.util.stream.Stream.of(info.id(), info.name(), info.downstreamId(), info.downstreamName())
+        return statusSupported || supports(question) || java.util.stream.Stream.concat(
+                java.util.stream.Stream.of(info.id(), info.name(), info.downstreamId(), info.downstreamName()),
+                info.downstreams().stream().flatMap(value -> java.util.stream.Stream.of(value.id(), value.name())))
             .filter(java.util.Objects::nonNull).map(value -> value.toLowerCase(Locale.ROOT)).anyMatch(normalized::contains);
     }
     public static boolean responseStatusQuestion(String question) {

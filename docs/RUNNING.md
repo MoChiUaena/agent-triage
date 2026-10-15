@@ -24,7 +24,7 @@ macOS / Linux 请确认 `JAVA_HOME` 指向 JDK 21+。首次构建需下载 Maven
 
 ```powershell
 .\mvnw.cmd package
-java -jar target/agent-triage-0.11.0.jar
+java -jar target/agent-triage-0.12.0.jar
 ```
 
 macOS / Linux 将 `.\mvnw.cmd` 换为 `./mvnw`。打开 <http://127.0.0.1:18080>，按 `Ctrl+C` 停止。后续版本的 JAR 名称以根项目 `pom.xml` 为准；Windows 重新打包前需停止正在运行的 JAR。

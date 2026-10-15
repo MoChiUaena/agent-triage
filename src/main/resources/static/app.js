@@ -135,7 +135,7 @@ async function loadConfiguration(serviceId = $("#service").value) {
     }));
     $("#window").value = String(windows.includes(previousWindow) ? previousWindow : Math.min(15, config.maxWindowMinutes));
     const live = config.observationSource === "LIVE";
-    $("#live-lab").hidden = !config.labEnabled;
+    $("#live-lab").hidden = !config.labEnabled && !config.checkoutDemoEnabled;
     configureLab(config);
     $("#scenario").disabled = live;
     $("#scenario-label").textContent = live ? "当前场景" : "场景";
@@ -153,7 +153,7 @@ async function loadConfiguration(serviceId = $("#service").value) {
       if (config.observationAvailable && config.observationRequestCount === 0)
         $("#mode-description").textContent = config.observationMessage;
       $("#composer-note").textContent = config.observationAvailable
-        ? config.labEnabled ? "先生成请求，再排查实际观测" : "读取所选服务的实际观测"
+        ? config.labEnabled || config.checkoutDemoEnabled ? "先生成请求，再排查实际观测" : "读取所选服务的实际观测"
         : "所选服务的观测接口未连接";
     } else {
       $("#mode-description").textContent =
@@ -209,14 +209,18 @@ function element(tag, className, text) {
 
 function configureLab(config) {
   const database = config.protocol === "DATABASE_V2";
-  $("#live-lab-title").textContent = database ? "数据库连接池样例" : "本地订单样例";
-  $("#live-lab").setAttribute("aria-label", database ? "数据库连接池样例" : "本地订单样例");
-  $("#live-lab-description").textContent = database
-    ? "请求会实际获取数据库连接并执行查询。可以触发连接等待，再释放连接验证恢复。"
-    : "订单接口会实际调用库存接口。先生成一组请求，再查看 Agent 读取的指标和错误事件。";
+  const checkout = config.checkoutDemoEnabled;
+  const title = checkout ? "Starter 商品结算" : database ? "数据库连接池样例" : "本地订单样例";
+  $("#live-lab-title").textContent = title;
+  $("#live-lab").setAttribute("aria-label", title);
+  $("#live-lab-description").textContent = checkout
+    ? "结算会实际调用库存和分配服务。选一种情况生成请求，然后查看各下游的观测结果。"
+    : database ? "请求会实际获取数据库连接并执行查询。可以触发连接等待，再释放连接验证恢复。"
+      : "订单接口会实际调用库存接口。先生成一组请求，再查看 Agent 读取的指标和错误事件。";
   $("#live-lab-status").textContent = "等待生成请求";
-  const choices = database ? [["NORMAL", "生成正常请求"], ["DB_POOL_EXHAUSTED", "触发连接池耗尽"], ["DB_POOL_RECOVERY", "释放连接并验证恢复"]]
-    : [["NORMAL", "生成正常请求"], ["DOWNSTREAM_TIMEOUT", "触发库存超时"]];
+  const choices = checkout ? [["NORMAL", "正常结算"], ["DOWNSTREAM_TIMEOUT", "库存超时结算"]]
+    : database ? [["NORMAL", "生成正常请求"], ["DB_POOL_EXHAUSTED", "触发连接池耗尽"], ["DB_POOL_RECOVERY", "释放连接并验证恢复"]]
+      : [["NORMAL", "生成正常请求"], ["DOWNSTREAM_TIMEOUT", "触发库存超时"]];
   $(".live-lab-actions").replaceChildren(...choices.map(([scenario, text], index) => {
     const button = element("button", index === 1 ? "primary" : "secondary", text);
     button.type = "button"; button.dataset.labScenario = scenario;
@@ -273,7 +277,7 @@ async function request(path, options) {
 }
 
 async function generateLabTraffic(scenario) {
-  if (submitting || labBusy || !runtimeConfig?.labEnabled || !runtimeConfig.observationAvailable) return;
+  if (submitting || labBusy || !(runtimeConfig?.labEnabled || runtimeConfig?.checkoutDemoEnabled) || !runtimeConfig.observationAvailable) return;
   labBusy = true;
   $("#service").disabled = true;
   $("#submit-button").disabled = true;
@@ -288,7 +292,9 @@ async function generateLabTraffic(scenario) {
     });
     runtimeConfig.scenario = result.scenario;
     $("#scenario").value = result.scenario;
-    $("#live-lab-status").textContent = runtimeConfig.protocol === "DATABASE_V2"
+    $("#live-lab-status").textContent = runtimeConfig.checkoutDemoEnabled
+      ? "已完成 " + result.generatedRequests + " 次商品结算，库存超时 " + result.inventoryTimeoutCount + " 次。现在可以开始排查。"
+      : runtimeConfig.protocol === "DATABASE_V2"
       ? (result.recoveryVerified ? "已验证连接释放后的恢复。" : "") + "已处理 " + result.requestCount + " 个数据库请求，获取连接超时 "
         + result.acquisitionTimeoutCount + " 次，SQL 查询失败 " + result.queryErrorCount + " 次。现在可以开始排查。"
       :
@@ -298,13 +304,23 @@ async function generateLabTraffic(scenario) {
       result.timeoutCount +
       " 次。现在可以开始排查。";
     $("#form-error").hidden = true;
+    if (runtimeConfig.endpointSupported) {
+      await loadEndpoints(true);
+      if (endpointWindow === null) $("#live-lab-status").textContent = "请求已生成，但接口列表读取失败。请刷新接口后排查。";
+      else if (runtimeConfig.checkoutDemoEnabled) {
+        const checkout = endpointChoices.find(item => item.endpoint.httpMethod === "GET"
+          && item.endpoint.routeTemplate === "/api/checkouts/{id}");
+        if (checkout) $("#endpoint").value = checkout.endpoint.id;
+      }
+    }
   } catch (error) {
     $("#live-lab-status").textContent = "请求生成失败";
     showError(error.message);
   } finally {
     labBusy = false;
     $("#service").disabled = false;
-    $("#submit-button").disabled = submitting || !runtimeConfig?.observationAvailable;
+    $("#submit-button").disabled = submitting || !runtimeConfig?.observationAvailable ||
+      (runtimeConfig.endpointSupported && endpointWindow === null);
     buttons.forEach((button) => (button.disabled = false));
   }
 }
@@ -496,6 +512,7 @@ function renderMetrics(run) {
   const requestP95 = data.requestP95Ms ?? data.orderP95Ms;
   const baseline = data.baselineRequestP95Ms ?? data.baselineOrderP95Ms;
   const inbound = data.observationType === "HTTP_REQUESTS";
+  const multi = data.observationType === "HTTP_DOWNSTREAMS" && Array.isArray(data.downstreams);
   const values = inbound ? [
     [labels.name + "请求 p95", hasRequests ? requestP95 : null, "ms", "仅采集入站请求"],
     ["窗口请求数", data.requestCount, "次", "最近 " + run.windowMinutes + " 分钟"],
@@ -509,14 +526,14 @@ function renderMetrics(run) {
       baseline != null && requestP95 > baseline,
     ],
     [
-      "下游调用 p95",
+      multi ? "下游调用 p95（总体）" : "下游调用 p95",
       hasRequests ? data.downstreamP95Ms : null,
       "ms",
-      labels.downstreamId,
+      multi ? "所有已配置下游" : labels.downstreamId,
       false,
     ],
     [
-      "下游超时率",
+      multi ? "请求级超时率" : "下游超时率",
       hasRequests
         ? Number((data.downstreamTimeoutRate * 100).toFixed(2))
         : null,
@@ -552,11 +569,31 @@ function renderMetrics(run) {
     );
     $("#metrics").append(item);
   }
+  if (multi) {
+    const panel = element("section", "downstream-panel");
+    panel.append(element("h3", "downstream-heading", "下游调用分项"));
+    for (const row of data.downstreams) {
+      const counts = row.responseStatuses;
+      const line = element("div", "downstream-row" + (row.timeoutCount > 0 || counts?.clientError > 0 || counts?.serverError > 0 ? " warning" : ""));
+      line.append(element("strong", "", row.name || row.id),
+        element("span", "", row.requestCount + " 个请求"),
+        element("span", "downstream-timeouts", row.timeoutCount + " 次超时"),
+        element("span", "", "p95 " + row.downstreamP95Ms + " ms · 超时率 "
+          + Number((row.downstreamTimeoutRate * 100).toFixed(2)) + "%"));
+      line.append(element("div", "downstream-response", counts
+        ? "响应 1xx " + counts.informational + " · 2xx " + counts.successful + " · 3xx " + counts.redirection
+          + " · 4xx " + counts.clientError + " · 5xx " + counts.serverError + " · 状态未知 " + counts.unknown
+        : "响应分类未采集"));
+      panel.append(line);
+    }
+    panel.append(element("p", "downstream-note", "同一请求可调用多个下游，分项请求数不能相加；2xx 表示已收到响应状态，正文仍可能超时。"));
+    $("#metrics").append(panel);
+  }
   if (data.requestDetails) {
     const counts = data.responseStatuses;
     $("#metrics").append(element("p", "metrics-note", counts
       ? "1xx " + counts.informational + " 次 · 3xx " + counts.redirection + " 次 · 状态未知 " + counts.unknown + " 次。响应分类只说明窗口分布，不能确定某个状态码的根因。"
-      : "响应状态分类未采集；已有请求数不能换算成成功或错误响应数。"));
+      : multi ? "入站响应分类未采集；下游响应分类见上方分项。" : "响应状态分类未采集；已有请求数不能换算成成功或错误响应数。"));
   }
 }
 
@@ -789,6 +826,18 @@ function renderEvidence(run) {
         rows.push(["请求失败分类", failure ? "已采集" : "未采集"]);
         if (failure) rows.push(["请求执行异常 / 仅返回 5xx", failure.executionFailures + " / " + failure.serverErrorResponses],
           ["异步超时 / 错误", failure.asyncTimeouts + " / " + failure.asyncErrors], ["已处理异常", failure.handledExceptions]);
+      }
+      if (data.observationType === "HTTP_DOWNSTREAMS" && Array.isArray(data.downstreams)) {
+        for (const row of data.downstreams) {
+          rows.push([row.name || row.id,
+            row.requestCount + " 个请求 · " + row.timeoutCount + " 次超时 · p95 " + row.downstreamP95Ms + " ms"]);
+          const counts = row.responseStatuses;
+          rows.push([(row.name || row.id) + "响应分类", counts
+            ? "1xx " + counts.informational + " · 2xx " + counts.successful + " · 3xx " + counts.redirection
+              + " · 4xx " + counts.clientError + " · 5xx " + counts.serverError + " · 状态未知 " + counts.unknown
+            : "未采集"]);
+        }
+        rows.push(["分项口径", "同一请求可涉及多个下游，分项请求数不能相加"]);
       }
       rows.forEach(([label, value]) => {
         const row = element("div");

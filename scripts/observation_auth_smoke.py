@@ -88,6 +88,10 @@ def main():
 
     def catalog(previous_token=None, name="catalog"):
         options = [f"--server.port={args.base_port + 2}", "--server.address=127.0.0.1",
+            "--spring.config.name=isolated-starter-smoke", "--triage.sdk.enabled=true",
+            "--triage.sdk.service-id=catalog-service", "--triage.sdk.downstream-id=inventory-service",
+            "--triage.sdk.downstream-base-url=http://127.0.0.1:1",
+            "--catalog.inventory-url=http://127.0.0.1:1", "--catalog.assignment-url=http://127.0.0.1:2",
             f"--triage.sdk.observation-access-token={current}"]
         if previous_token is not None:
             options.append(f"--triage.sdk.observation-previous-token={previous_token}")

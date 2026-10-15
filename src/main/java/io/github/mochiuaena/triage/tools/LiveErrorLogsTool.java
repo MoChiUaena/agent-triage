@@ -56,6 +56,15 @@ public class LiveErrorLogsTool implements ReadOnlyTool {
             return List.of(new Evidence("LOGS-DB-" + context.endTime().toEpochMilli(), name(), "数据库错误事件（最多 3 条）",
                 entries.isEmpty() ? "本窗口没有记录数据库错误事件。" : "展示本窗口最近 " + entries.size() + " 条数据库错误事件；获取连接失败与 SQL 查询失败分别记录。", data));
         }
+        if (observation.downstreams() != null) {
+            data.put("observationType", "HTTP_DOWNSTREAMS");
+            data.put("downstreams", LiveMetricsTool.downstreamRows(context, observation));
+            String summary = "本窗口请求级下游超时 " + observation.timeoutCount() + " 次，展示最近 " + entries.size()
+                + " 条错误事件。" + LiveMetricsTool.downstreamSummary(context, observation)
+                + " 错误事件仅是窗口样本，不能凭消息文本推断事件所属下游。";
+            return List.of(new Evidence("LOGS-LIVE-" + context.endTime().toEpochMilli(), name(),
+                context.serviceInfo().name() + "错误事件（实际请求，最多 3 条）", summary, data));
+        }
         String summary = observation.timeoutCount() > 0
             ? "该窗口记录了 " + observation.timeoutCount() + " 次" + context.serviceInfo().downstreamName() + "请求超时，展示最近 " + entries.size() + " 条错误事件。"
             : !entries.isEmpty()

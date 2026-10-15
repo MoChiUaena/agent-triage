@@ -9,7 +9,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        prior: ['0.6.0', '0.10.0']
+        prior: ['0.6.0', '0.10.0', '0.11.0']
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -19,7 +19,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - name: Build v0.11.0
+      - name: Build v0.12.0
         shell: bash
         run: ./mvnw -B -ntp -DskipTests package
       - name: Download and verify prior published assets
@@ -38,4 +38,4 @@ jobs:
         shell: bash
         env:
           PRIOR_VERSION: ${{ matrix.prior }}
-        run: python scripts/upgrade_smoke.py --old-jar "$RUNNER_TEMP/triage-prior/agent-triage.jar" --prior-version "$PRIOR_VERSION" --new-jar target/agent-triage-0.11.0.jar
+        run: python scripts/upgrade_smoke.py --old-jar "$RUNNER_TEMP/triage-prior/agent-triage.jar" --prior-version "$PRIOR_VERSION" --new-jar target/agent-triage-0.12.0.jar

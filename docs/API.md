@@ -23,7 +23,7 @@
 
 每次运行以提交时刻为窗口终点，起点为终点减去 windowMinutes。
 
-支持 V3 的服务可以先调用 `GET /api/services/{id}/endpoints?windowMinutes=5` 获取本窗口接口列表，再在提交体传入 `endpointId`。省略时查询整个服务窗口。所选接口的描述保存在 `run.endpoint`，后续指标和错误事件沿用提交时的接口与时间窗口；接口已离开可选列表返回 409。旧记录该字段为空。该列表仅允许本机同源读取。
+支持 V3/V5 的服务可以先调用 `GET /api/services/{id}/endpoints?windowMinutes=5` 获取本窗口接口列表，再在提交体传入 `endpointId`。省略时查询整个服务窗口。所选接口的描述保存在 `run.endpoint`，后续指标和错误事件沿用提交时的接口与时间窗口；接口已离开可选列表返回 409。旧记录该字段为空。该列表仅允许本机同源读取。V5 的下游分项字段和计数口径见[多下游接入](MULTI_DOWNSTREAM.md)。
 
 源码检索可额外传入 `includeSource: true`、`expectedSourceProjectId` 和 `expectedSourceRevision`，并带 `X-Triage-Source: 1`。页面同时核对项目 ID 与版本，删除后重新登记也会要求刷新。`allowSourceModel: true` 还要求项目已授权给当前已保存的模型配置；两项默认关闭。结果中的 `sourceAnalysis` 保存当时的项目版本与代码片段，旧记录该字段为空。源码配置变化返回 409，未带标记返回 403。
 

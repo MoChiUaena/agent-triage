@@ -11,7 +11,14 @@ public final class TriageModel {
 
     public enum Scenario { NORMAL, DOWNSTREAM_TIMEOUT, OBSERVED, DB_POOL_EXHAUSTED, DB_POOL_RECOVERY, DB_QUERY_LOCK_WAIT }
 
-    public record ServiceInfo(String id, String name, String downstreamId, String downstreamName) {
+    public record Downstream(String id, String name) {}
+    public record ServiceInfo(String id, String name, String downstreamId, String downstreamName,
+                              @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
+                              List<Downstream> downstreams) {
+        public ServiceInfo { downstreams = downstreams == null ? List.of() : List.copyOf(downstreams); }
+        public ServiceInfo(String id, String name, String downstreamId, String downstreamName) {
+            this(id, name, downstreamId, downstreamName, List.of());
+        }
         public static ServiceInfo order() { return new ServiceInfo("order-service", "订单服务", "inventory-service", "库存服务"); }
     }
     public record RequestEndpoint(String id, String httpMethod, String routeTemplate, String handlerClass, String handlerMethod,

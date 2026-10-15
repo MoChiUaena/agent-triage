@@ -149,7 +149,11 @@ def main():
         start(ROOT / "inventory-service", "inventory", [f"--server.port={ports[1]}"])
         capacity = ["--triage.sdk.capacity=32"] if args.capacity_check else []
         endpoints = ["--triage.sdk.endpoint-observations=true", "--triage.sdk.response-status-counts=true"] if args.capacity_check else []
-        start(ROOT / "catalog-service", "catalog", [f"--server.port={ports[2]}", f"--triage.sdk.downstream-base-url={inventory}", *capacity, *endpoints])
+        start(ROOT / "catalog-service", "catalog", [f"--server.port={ports[2]}", "--server.address=127.0.0.1",
+            "--spring.config.name=isolated-starter-smoke", "--triage.sdk.enabled=true",
+            "--triage.sdk.service-id=catalog-service", "--triage.sdk.downstream-id=inventory-service",
+            f"--triage.sdk.downstream-base-url={inventory}", f"--catalog.inventory-url={inventory}",
+            "--catalog.assignment-url=http://127.0.0.1:1", *capacity, *endpoints])
         start(ROOT / "catalog-service", "database", [f"--server.port={ports[3]}", "--spring.profiles.active=database", *capacity])
         start(ROOT, "agent", [f"--server.port={ports[0]}", "--triage.mode=DEMO",
             "--spring.datasource.url=jdbc:h2:mem:starter-smoke;DB_CLOSE_DELAY=-1", f"--triage.settings.key-file={output / 'local.key'}",

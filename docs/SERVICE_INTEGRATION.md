@@ -2,7 +2,7 @@
 
 Agent 从启动配置读取服务白名单。页面选择服务后，只读工具访问该服务的观测接口，执行记录保留当时的服务名称和下游名称。
 
-目前支持本机 HTTP 服务，可排查请求延迟、单一下游 HTTP 超时和数据库阶段。Spring MVC 应用可使用 [Spring Boot Starter](STARTER.md) 提供观测接口；其他应用需把已有指标与错误事件转换为接入契约。没有 HTTP 下游时可选[入站请求 V4](INBOUND_HTTP.md)。Agent 不会自动解析任意 Actuator 指标或日志文件。远程地址尚未支持，观测接口可选使用共享令牌。
+目前支持本机 HTTP 服务，可排查请求延迟、已登记下游的 HTTP 超时和数据库阶段。Spring MVC 应用可使用 [Spring Boot Starter](STARTER.md) 提供观测接口；其他应用需把已有指标与错误事件转换为接入契约。没有 HTTP 下游时可选[入站请求 V4](INBOUND_HTTP.md)。Agent 不会自动解析任意 Actuator 指标或日志文件。远程地址尚未支持，观测接口可选使用共享令牌。
 
 服务登记后，可以在“项目源码”页面绑定本机 Java 项目，把排查结果关联到代码位置，详见[源码接入](SOURCE_INTEGRATION.md)。
 
@@ -23,10 +23,11 @@ Agent 从启动配置读取服务白名单。页面选择服务后，只读工�
 | 配置 | 含义 |
 |---|---|
 | `id`、`name` | 服务标识和页面名称，标识须为小写字母、数字及连字符 |
-| `downstream-id`、`downstream-name` | 本次观测覆盖的下游；`HTTP_REQUESTS_V4` 不填写 |
+| `downstream-id`、`downstream-name` | V1/V3 的单个下游；`HTTP_REQUESTS_V4` 和 V5 不填写 |
+| `downstreams` | V5 的 1–8 个下游 ID 与名称，须与 Starter 配置的 ID 一致，见[多下游接入](MULTI_DOWNSTREAM.md) |
 | `base-url` | 带端口的本机 HTTP 地址，可有普通上下文路径，例如 `http://127.0.0.1:9966/petclinic`；不接受凭据、查询参数、编码路径或 `..` |
 | `access-token` | 可选；Starter 开启观测令牌时填写相同的随机值，只由 Agent 向该服务的固定观测路由发送 |
-| `protocol` | HTTP 窗口观测用 `OBSERVATIONS_V1`；按接口用 `OBSERVATIONS_V3`；只观察入站请求用 `HTTP_REQUESTS_V4`；数据库用 `DATABASE_V2`；`LAB` 保留给原有订单演示 |
+| `protocol` | 单下游 HTTP 窗口用 `OBSERVATIONS_V1`，按接口用 `OBSERVATIONS_V3`；多下游用 `OBSERVATIONS_V5`；只观察入站请求用 `HTTP_REQUESTS_V4`；数据库用 `DATABASE_V2`；`LAB` 保留给原有订单演示 |
 | `max-window-minutes` | 允许查询的最长窗口，1–60，默认 60 |
 | `lab-enabled` | 默认关闭；`LAB` 和 `DATABASE_V2` 可显式开启样例流量控制 |
 

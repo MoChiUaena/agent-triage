@@ -16,6 +16,8 @@ spring:
       request-timeout: 30000
 triage:
   mode: ${TRIAGE_MODE:DEMO}
+  github:
+    token: ${TRIAGE_GITHUB_TOKEN:}
   observation:
     source: ${TRIAGE_OBSERVATION_SOURCE:SYNTHETIC}
     base-url: ${TRIAGE_OBSERVATION_BASE_URL:http://127.0.0.1:18082}

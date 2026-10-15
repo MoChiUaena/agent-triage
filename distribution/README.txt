@@ -13,14 +13,19 @@ Open http://127.0.0.1:18080. Generate normal or inventory-timeout requests, then
 Order and inventory services run on 18082 and 18084. The database sample runs on 18086.
 The page service selector includes independent Starter product, price and ticket services.
 Create product requests at http://127.0.0.1:18088/api/products/demo and price requests at
-http://127.0.0.1:18089/api/prices/demo. These two applications have no fault controls.
+http://127.0.0.1:18089/api/prices/demo. The price example has no fault control.
 The product service shares the inventory fixture, so delayed inventory responses affect it too.
+Select Starter product service on the home page, then click Normal checkout or Inventory timeout checkout.
+The checkout calls inventory and assignment separately; click Start investigation to inspect both V5 rows.
+The inventory scenario returns to normal after each button action. The assignment response remains
+visible as a separate successful dependency. The underlying checkout URL is /api/checkouts/demo.
 The ticket service runs on 18090; /api/tickets/summary is healthy and /api/tickets/T-1 returns 504.
 Its separate assignment dependency delays actual HTTP responses on 18092. Register the bundled
 projects/ticket-service directory in the source page, then use the integration check and code references.
 Follow SOURCE_DEMO.md to compare endpoints, inspect error positions and test build source differences.
-OBSERVATIONS.md explains inbound HTTP V4, optional request failure counts, response classes, observation tokens and async context wrappers.
-These new switches stay disabled in the bundled demo; they can be enabled explicitly when integrating another application.
+OBSERVATIONS.md explains V5 multi-downstream setup, inbound HTTP V4, optional request failure counts,
+response classes, observation tokens and async context wrappers.
+Optional observation tokens and async context wrappers stay disabled in the bundled demo.
 Ctrl+C stops all eight processes started by the launcher.
 
 If the ports are occupied, use an alternative base port:

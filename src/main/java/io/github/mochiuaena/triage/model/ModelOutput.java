@@ -108,7 +108,7 @@ final class ModelOutput {
             if (!byId.keySet().containsAll(response.evidenceIds()))
                 throw invalid("模型选择了不属于本次执行的证据 ID，未保存为排查结果。");
             List<Evidence> selected = response.evidenceIds().stream().map(byId::get).toList();
-            if (response.assessment() != Assessment.INSUFFICIENT_EVIDENCE) validateAssessment(response.assessment(), selected);
+            if (response.assessment() != Assessment.INSUFFICIENT_EVIDENCE) validateAssessment(response.assessment(), selected, info);
             if (!allowedChecks(response.assessment(), evidence).containsAll(response.nextChecks()))
                 throw new RunFailure("MODEL_CHECKS_MISMATCH", "模型检查项重复已有查询，或缺少对应观测，未保存为排查结果。");
             List<Check> prioritized = prioritize(response.assessment(), response.nextChecks());
@@ -190,7 +190,7 @@ final class ModelOutput {
         return Collections.unmodifiableSet(checks);
     }
 
-    private void validateAssessment(Assessment assessment, List<Evidence> selected) {
+    private void validateAssessment(Assessment assessment, List<Evidence> selected, ServiceInfo info) {
         Evidence metrics = one(selected, "read_service_metrics");
         Evidence logs = one(selected, "query_error_logs");
         if (EvidenceRules.inbound(metrics)) {
@@ -225,6 +225,8 @@ final class ModelOutput {
             return;
         }
         if (databaseAssessment(assessment)) throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "HTTP 观测不能支持数据库阶段判断。");
+        if (MultiDownstreamEvidence.isMulti(metrics) && !MultiDownstreamEvidence.matches(metrics, logs, info))
+            throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "多下游分项与本次服务或日志证据不一致，已拒绝。");
         double rate = number(metrics, "downstreamTimeoutRate");
         if (rate > 1) throw new IllegalArgumentException();
         number(metrics, "orderP95Ms");
@@ -235,7 +237,8 @@ final class ModelOutput {
             || !(logs.data().get("timeoutCount") instanceof Number timeouts)) throw new IllegalArgumentException();
         boolean timeout = assessment == Assessment.DOWNSTREAM_TIMEOUT_OBSERVED;
         if ((timeout && (rate <= 0 || timeouts.longValue() <= 0 || entries.isEmpty()))
-            || (!timeout && (rate != 0 || timeouts.longValue() != 0 || !entries.isEmpty() || EvidenceRules.responseStatusGap(metrics))))
+            || (!timeout && (rate != 0 || timeouts.longValue() != 0 || !entries.isEmpty() || EvidenceRules.responseStatusGap(metrics)
+                || MultiDownstreamEvidence.responseGap(metrics))))
             throw new RunFailure("MODEL_ASSESSMENT_MISMATCH", "模型判断与本窗口指标或错误事件不符，已拒绝。");
         String rule = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
         if (selected.stream().noneMatch(item -> item.source().equals("search_runbooks") && item.id().startsWith(rule)))
@@ -259,7 +262,9 @@ final class ModelOutput {
     private Diagnosis render(Response response, List<Evidence> selected, List<Check> prioritized, ServiceInfo info) {
         String service = info.equals(ServiceInfo.order()) ? "订单" : info.name();
         String downstream = info.equals(ServiceInfo.order()) ? "库存" : info.downstreamName();
-        if (info.downstreamId() == null) {
+        Evidence multiMetrics = selected.stream().filter(item -> item.source().equals("read_service_metrics") && MultiDownstreamEvidence.isMulti(item)).findFirst().orElse(null);
+        if (multiMetrics != null || !info.downstreams().isEmpty()) return renderMulti(response, selected, prioritized, info, multiMetrics);
+        if (info.downstreamId() == null && info.downstreams().isEmpty()) {
             var observations = selected.stream().filter(item -> Set.of("read_service_metrics", "query_error_logs").contains(item.source()))
                 .map(item -> new Finding(item.summary(), List.of(item.id()))).toList();
             var next = prioritized.stream().map(check -> switch (check) {
@@ -303,6 +308,33 @@ final class ModelOutput {
         }
         List<String> nextSteps = prioritized.stream().map(check -> checkText(check, service, downstream, info.downstreamName())).toList();
         return new Diagnosis(observations, causes, nextSteps, uncertainty);
+    }
+
+    private Diagnosis renderMulti(Response response, List<Evidence> selected, List<Check> prioritized, ServiceInfo info, Evidence metrics) {
+        var affected = MultiDownstreamEvidence.affected(metrics, info);
+        boolean timeout = response.assessment() == Assessment.DOWNSTREAM_TIMEOUT_OBSERVED;
+        String names = timeout && !affected.isEmpty()
+            ? String.join("、", affected.stream().map(Downstream::name).toList()) : "已配置下游";
+        var observations = selected.stream().filter(item -> Set.of("read_service_metrics", "query_error_logs").contains(item.source()))
+            .map(item -> new Finding(item.summary(), List.of(item.id()))).toList();
+        List<Finding> causes = List.of();
+        if (response.assessment() != Assessment.INSUFFICIENT_EVIDENCE) {
+            String rulePrefix = timeout ? "DOC-DOWNSTREAM-TIMEOUT#" : "DOC-HEALTHY-BASELINE#";
+            Evidence rule = selected.stream().filter(item -> item.id().startsWith(rulePrefix) && item.source().equals("search_runbooks"))
+                .findFirst().orElseThrow();
+            causes = List.of(new Finding(timeout
+                ? "本窗口观察到" + names + "调用超时，可能影响" + info.name() + "请求；其余下游没有超时计数不代表服务整体健康。"
+                : "本窗口未发现已配置下游调用超时；其他延迟来源仍需补充观测。",
+                List.of(one(selected, "read_service_metrics").id(), one(selected, "query_error_logs").id(), rule.id())));
+        }
+        var next = prioritized.stream().map(check -> switch (check) {
+            case INSPECT_INVENTORY_LATENCY -> "核对同一窗口内" + names + "接口的实际处理耗时和错误率。";
+            case CORRELATE_TRACE -> "使用错误事件中已有的 traceId 核对" + info.name() + "请求与" + names + "调用的耗时。";
+            case COLLECT_RESOURCE_METRICS -> "补充" + names + "的 CPU、连接池、网络及数据库指标后再判断内部原因。";
+            case VERIFY_REQUEST_TIMEOUT -> "核对" + info.name() + "客户端的请求总时限，并结合" + names + "接口耗时验证。";
+            default -> checkText(check, info.name(), names, names);
+        }).toList();
+        return new Diagnosis(observations, causes, next, "分项只覆盖本窗口已采集的调用；未采集下游内部、网络和数据库指标，不能确认内部根因或服务整体健康。");
     }
 
     private String checkText(Check check, String service, String downstream, String downstreamName) {

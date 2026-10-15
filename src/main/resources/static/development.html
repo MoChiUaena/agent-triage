@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>研发协作 · Agent Triage</title><link rel="icon" href="data:," />
+  <link rel="stylesheet" href="/styles.css" /><link rel="stylesheet" href="/settings.css" />
+  <link rel="stylesheet" href="/typography.css" /><link rel="stylesheet" href="/theme.css" />
+  <link rel="stylesheet" href="/workspace.css" /><link rel="stylesheet" href="/development.css" />
+  <script src="/navigation.js" defer></script><script src="/ci.js" defer></script><script src="/pr.js" defer></script><script src="/issue.js" defer></script><script src="/workflow.js" defer></script><script src="/development.js" defer></script>
+</head>
+<body class="settings-page">
+  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+  <aside class="sidebar settings-sidebar" id="sidebar" aria-label="工作区导航">
+    <a class="brand" href="/"><span class="brand-mark"><svg class="icon"><use href="/icons.svg#activity" /></svg></span><span>Agent Triage</span></a>
+    <nav class="settings-links">
+      <a href="/"><svg class="icon"><use href="/icons.svg#search" /></svg>服务排查</a>
+      <a href="/development.html" aria-current="page"><svg class="icon"><use href="/icons.svg#server" /></svg>研发协作</a>
+      <a href="/workspace.html"><svg class="icon"><use href="/icons.svg#logs" /></svg>历史与统计</a>
+      <a href="/sources.html"><svg class="icon"><use href="/icons.svg#file" /></svg>项目源码</a>
+      <a href="/settings.html"><svg class="icon"><use href="/icons.svg#settings" /></svg>模型设置</a>
+    </nav>
+    <div class="sidebar-footer"><svg class="icon"><use href="/icons.svg#server" /></svg><div><strong>GitHub 仓库</strong><span>查看当前研发状态</span></div></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><button class="icon-button mobile-menu" id="sidebar-toggle" type="button" aria-label="打开导航菜单" aria-controls="sidebar" aria-expanded="false"><svg class="icon"><use href="/icons.svg#menu" /></svg></button><nav class="breadcrumb" aria-label="当前位置"><a href="/">工作区</a><span class="divider">/</span><strong>研发协作</strong></nav></header>
+    <main class="workspace management-workspace development-workspace">
+      <div class="settings-heading"><div><h1>研发协作</h1><p>查看仓库状态，排查失败 CI，核对 PR 变更。</p></div><span class="access-badge" id="github-access">读取访问配置…</span></div>
+      <p class="settings-notice" id="development-notice" role="status" hidden></p>
+      <section class="management-card repository-registration" aria-labelledby="registration-heading">
+        <div><h2 id="registration-heading">接入 GitHub 仓库</h2><p class="management-caption">支持 owner/repository 或标准 GitHub 仓库链接。</p></div>
+        <form id="register-repository"><label class="sr-only" for="repository-input">GitHub 仓库</label><input id="repository-input" maxlength="200" required placeholder="例如 spring-projects/spring-boot" autocomplete="off" /><button class="primary" id="register-button" type="submit">接入仓库</button></form>
+      </section>
+      <section class="repository-toolbar" aria-label="仓库选择"><label>仓库<select id="repository-select"><option value="">尚未登记仓库</option></select></label><button class="secondary" id="refresh-repository" type="button" disabled><svg class="icon"><use href="/icons.svg#refresh" /></svg>更新 GitHub 状态</button><button class="secondary" id="remove-repository" type="button" disabled>移除登记</button></section>
+      <section class="management-card repository-empty" id="repository-empty"><svg class="icon"><use href="/icons.svg#server" /></svg><h2>接入第一个仓库</h2><p>登记后，这里会显示来自 GitHub 的 Issue、PR 和工作流。可以先使用一个公开仓库。</p></section>
+      <section id="repository-health" hidden>
+        <div class="repository-heading"><div><h2 id="repository-name"></h2><p id="repository-description" class="management-caption"></p></div><a id="repository-link" target="_blank" rel="noopener noreferrer">在 GitHub 查看 ↗</a></div>
+        <p id="repository-freshness" class="management-caption" role="status"></p><p id="repository-warning" class="repository-warning" hidden></p>
+        <div class="repository-statistics" id="repository-statistics"></div>
+        <section class="management-card workflow-setup" aria-labelledby="workflow-heading"><div class="management-heading"><h2 id="workflow-heading">PR 协同检查</h2><span class="repository-label">依赖任务与综合报告</span></div><p class="management-caption">组合仓库、PR、Issue 和 CI 分析，先确认计划再执行。已有报告保留原版本，不发起新的模型调用。</p>
+          <p id="workflow-notice" class="settings-notice" role="status" hidden></p>
+          <form id="workflow-plan-form" class="workflow-form"><label>PR 编号<input id="workflow-pr-number" type="number" min="1" max="2147483647" required placeholder="例如 7" /></label><label>Issue 编号（可选）<input id="workflow-issue-number" type="number" min="1" max="2147483647" placeholder="留空使用 PR 明确引用" /></label><label>Issue 材料<select id="workflow-issue-report"></select></label><label>CI 材料<select id="workflow-ci-report"></select></label><button id="workflow-plan-button" class="primary" type="submit">生成执行计划</button></form>
+        </section>
+        <article class="management-card workflow-panel" id="workflow-result" hidden><div class="management-heading"><h2 id="workflow-result-title"></h2><span id="workflow-state" class="repository-label"></span></div><p id="workflow-result-meta" class="ci-report-meta"></p><p id="workflow-result-message"></p><div class="workflow-controls"><p id="workflow-progress" role="status" class="management-caption"></p><button id="workflow-refresh-state" type="button" class="secondary">刷新任务状态</button><button id="workflow-cancel" type="button" class="secondary" disabled>取消执行</button></div>
+          <ol id="workflow-tasks" class="workflow-task-list"></ol><h3>证据核验</h3><ul id="workflow-checks"></ul>
+          <section id="workflow-summary" hidden><h3>综合报告</h3><p id="workflow-summary-state" class="issue-classification"></p><p id="workflow-summary-text" class="ci-summary"></p><h3>下一步核查</h3><ol id="workflow-summary-actions"></ol><h3>读取缺口</h3><ul id="workflow-summary-gaps"></ul><h3>适用报告来源</h3><div id="workflow-summary-sources" class="workflow-references"></div><p id="workflow-summary-scope" class="management-caption"></p></section>
+        </article>
+        <section class="management-card workflow-panel" aria-labelledby="workflow-history-heading"><div class="management-heading"><h2 id="workflow-history-heading">协同工作流记录</h2><button id="workflow-refresh-history" type="button" class="secondary">刷新工作流与材料</button></div><p class="management-caption">最近 20 次执行。运行中的任务可重新打开，已结束结果保持执行时的版本。</p><div id="workflow-history"></div></section>
+        <div class="repository-panels">
+          <section class="management-card"><div class="management-heading"><h2>开放 Issue</h2><span class="management-caption" id="issue-scope"></span></div><div id="repository-issues"></div></section>
+          <section class="management-card"><div class="management-heading"><h2>开放 Pull Request</h2><span class="management-caption" id="pull-scope"></span></div><div id="repository-pulls"></div></section>
+        </div>
+        <section class="management-card workflow-panel"><div class="management-heading"><h2>默认分支 CI</h2><span class="management-caption" id="workflow-scope"></span></div><div id="repository-workflows"></div></section>
+        <section class="management-card workflow-panel" aria-labelledby="issue-history-heading"><div class="management-heading"><h2 id="issue-history-heading">Issue 分诊报告</h2><button class="secondary" type="button" id="issue-refresh-reports">刷新报告</button></div><p class="management-caption">选择 Issue 的“分诊”，或按编号读取。最近 20 份报告保存在本机。</p><form id="issue-number-form" class="pr-number-form"><label for="issue-number-input">Issue 编号</label><input id="issue-number-input" type="number" min="1" max="2147483647" required placeholder="例如 2" /><button class="secondary" id="issue-open-number" type="submit">读取 Issue</button></form><div id="issue-report-history"></div></section>
+        <article class="management-card workflow-panel" id="issue-report-result" hidden>
+          <div class="management-heading"><h2 id="issue-report-title"></h2><span id="issue-report-mode" class="repository-label"></span></div>
+          <p id="issue-report-meta" class="ci-report-meta"></p><p id="issue-report-version" class="ci-report-meta"></p><p id="issue-report-link" class="ci-report-link"></p>
+          <p id="issue-report-classification" class="issue-classification"></p><p id="issue-report-summary" class="ci-summary"></p><p id="issue-report-reason"></p>
+          <p id="issue-report-model" class="management-caption issue-model-state"></p>
+          <div class="pr-context-grid"><section><h3>待补充信息</h3><ul id="issue-report-questions"></ul></section><section><h3>行动清单</h3><ol id="issue-report-actions"></ol></section></div>
+          <h3>负责人候选</h3><p class="management-caption">只从已读取贡献者中提出候选，没有分配 Issue 或核对当前工作量。</p><ul id="issue-report-owners"></ul>
+          <h3>读取缺口</h3><ul id="issue-report-gaps"></ul><h3>原始证据</h3><p class="management-caption">Issue 内容是报告者描述，代码与提交只提供核查线索；本次没有运行或修复代码。</p><div id="issue-report-evidence"></div>
+        </article>
+        <section class="management-card workflow-panel" aria-labelledby="pr-history-heading">
+          <div class="management-heading"><h2 id="pr-history-heading">PR 审查报告</h2><button class="secondary" type="button" id="pr-refresh-reports">刷新报告</button></div>
+          <p class="management-caption">选择 PR 的“审查变更”，或按编号读取。这里保留最近 20 份报告。</p>
+          <form id="pr-number-form" class="pr-number-form"><label for="pr-number-input">PR 编号</label><input id="pr-number-input" type="number" min="1" max="2147483647" required placeholder="例如 5" /><button class="secondary" id="pr-open-number" type="submit">读取 PR</button></form>
+          <div id="pr-report-history"></div>
+        </section>
+        <article class="management-card workflow-panel" id="pr-report-result" hidden>
+          <div class="management-heading"><h2 id="pr-report-title"></h2><span class="repository-label">差异规则分析</span></div>
+          <p id="pr-report-meta" class="ci-report-meta"></p><p id="pr-report-counts" class="pr-report-counts"></p>
+          <div id="pr-report-versions" class="pr-versions"></div><p id="pr-report-link" class="ci-report-link"></p><p id="pr-report-notice" class="repository-warning"></p>
+          <h3>变更提醒</h3><div id="pr-report-findings"></div>
+          <div class="pr-context-grid"><section><h3>Head 提交检查</h3><p id="pr-report-ci-state" class="repository-label"></p><ul id="pr-report-ci"></ul></section><section><h3>正文引用的 Issue</h3><ul id="pr-report-issues"></ul></section></div>
+          <h3>读取缺口</h3><ul id="pr-report-gaps"></ul>
+          <details class="pr-file-details"><summary>文件与检查范围</summary><p class="management-caption">最多 100 个文件、200,000 个补丁字符、12 条提醒。只检查部分 Java、SQL 与数据库配置模式；未执行代码、分析完整调用链或核对合入条件。</p><div class="pr-file-scroll"><table class="pr-file-table"><thead><tr><th>文件</th><th>变更</th><th>行数</th><th>补丁范围</th></tr></thead><tbody id="pr-report-files"></tbody></table></div></details>
+        </article>
+        <section class="management-card workflow-panel" aria-labelledby="ci-history-heading"><div class="management-heading"><h2 id="ci-history-heading">CI 排障报告</h2><button class="secondary" type="button" id="ci-refresh-reports">刷新报告</button></div><p class="management-caption">选择失败工作流的“排查 CI”开始。这里保留最近 20 份报告。</p><div id="ci-report-history"></div></section>
+        <article class="management-card workflow-panel" id="ci-report-result" hidden>
+          <div class="management-heading"><h2 id="ci-report-title"></h2><span id="ci-report-state" class="repository-label"></span></div>
+          <p id="ci-report-meta" class="ci-report-meta"></p><p id="ci-report-source" class="repository-warning"></p><p id="ci-report-summary" class="ci-summary"></p>
+          <p class="management-caption">日志规则分析 · 在本机处理，不调用模型</p><p id="ci-report-link" class="ci-report-link"></p>
+          <h3>下一步核查</h3><ol id="ci-report-checks"></ol><h3>日志证据</h3><p id="ci-report-scope" class="management-caption"></p><div id="ci-report-evidence"></div>
+          <h3 id="ci-location-heading" hidden>日志提到的位置</h3><ul id="ci-report-locations"></ul>
+        </article>
+      </section>
+    </main>
+  </div>
+  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照、CI、PR、Issue 报告与协同工作流。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
+  <dialog id="workflow-plan-dialog" aria-labelledby="workflow-plan-heading"><div class="dialog-heading"><h2 id="workflow-plan-heading">确认执行计划</h2><button id="workflow-close-plan" type="button" class="secondary">返回修改</button></div><div class="dialog-content"><pre id="workflow-plan-context" class="pr-dialog-versions"></pre><ol id="workflow-plan-tasks" class="workflow-plan-tasks"></ol><p id="workflow-plan-notice" class="management-caption"></p><p class="management-caption">计划五分钟内有效，所有外部读取均为只读操作。任务失败仍会生成包含缺口的综合报告。</p></div><div class="dialog-actions"><button id="workflow-execute" type="button" class="primary" disabled>执行工作流</button></div></dialog>
+  <dialog id="issue-triage-dialog" aria-labelledby="issue-dialog-title"><form id="issue-generate-form"><div class="dialog-heading"><h2 id="issue-dialog-title">Issue 分诊</h2><button class="secondary" id="issue-close-dialog" type="button">关闭</button></div><div class="dialog-content">
+    <p id="issue-preview-title"></p><p id="issue-preview-version" class="ci-report-meta"></p><p id="issue-dialog-notice" class="settings-notice" role="status" hidden></p>
+    <label class="issue-path-label" for="issue-code-paths">补充 Java 文件路径（可选）<textarea id="issue-code-paths" maxlength="1200" rows="2" placeholder="每行一个仓库相对路径，最多三个。也会读取 Issue 正文明确提到的路径。"></textarea></label><button class="secondary" id="issue-read-context" type="button">重新读取上下文</button>
+    <details class="issue-preview-details" open><summary>已读取的脱敏上下文</summary><div id="issue-preview-evidence"></div><ul id="issue-preview-gaps"></ul></details>
+    <label class="issue-model-consent"><input id="issue-use-model" type="checkbox" disabled /><span>使用模型建议：将上方脱敏内容（含代码和贡献者）发送给下方启用模型。</span></label><p id="issue-model-destination" class="management-caption"></p><p class="management-caption"><a href="/settings.html">模型设置</a> · 只调用一轮，最多等待 30 秒；可能产生模型费用。</p>
+  </div><div class="dialog-actions"><button class="primary" id="issue-generate-button" type="submit" disabled>生成分诊报告</button></div></form></dialog>
+  <dialog id="pr-review-dialog" aria-labelledby="pr-dialog-title"><form id="pr-review-form"><div class="dialog-heading"><h2 id="pr-dialog-title">审查 PR 变更</h2><button class="secondary" id="pr-close-dialog" type="button">关闭</button></div><div class="dialog-content"><p id="pr-pull-context"></p><pre id="pr-pull-versions" class="pr-dialog-versions"></pre><p id="pr-dialog-notice" class="settings-notice" role="status" hidden></p><p class="management-caption">在本机进行规则检查，不调用模型。保存脱敏证据与版本，不保存完整补丁。</p></div><div class="dialog-actions"><button class="primary" id="pr-review-button" type="submit" disabled>生成审查报告</button></div></form></dialog>
+  <dialog id="ci-job-dialog" aria-labelledby="ci-dialog-title"><form id="ci-analyze-form"><div class="dialog-heading"><h2 id="ci-dialog-title">排查失败 CI</h2><button class="secondary" id="ci-close-dialog" type="button">关闭</button></div><div class="dialog-content">
+    <p id="ci-run-context" class="ci-report-meta"></p><p id="ci-dialog-notice" class="settings-notice" role="status" hidden></p>
+    <label class="ci-job-label" for="ci-job-select">失败作业<select id="ci-job-select"></select></label>
+    <p id="ci-job-steps" class="management-caption"></p><details id="ci-paste-details"><summary>粘贴失败日志</summary><label class="sr-only" for="ci-pasted-log">失败日志内容</label><textarea id="ci-pasted-log" maxlength="200000" rows="8" placeholder="当 GitHub 权限不允许下载日志时，可粘贴失败步骤的错误和上下文。"></textarea><p class="management-caption">报告会标注粘贴来源；日志与作业的对应关系由你核对。</p></details>
+    <p class="management-caption">日志在本机处理，只保存脱敏后的证据片段和报告。</p>
+  </div><div class="dialog-actions"><button class="primary" id="ci-analyze-button" type="submit" disabled>读取日志并分析</button></div></form></dialog>
+</body>
+</html>

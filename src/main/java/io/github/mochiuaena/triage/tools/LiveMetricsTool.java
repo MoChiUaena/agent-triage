@@ -5,6 +5,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -35,6 +36,10 @@ public class LiveMetricsTool implements ReadOnlyTool {
         data.put("timeoutCount", observation.timeoutCount());
         data.put("observedScenario", observation.scenario().name());
         data.put("synthetic", false);
+        if (observation.downstreams() != null) {
+            data.put("observationType", "HTTP_DOWNSTREAMS");
+            data.put("downstreams", downstreamRows(context, observation));
+        }
         boolean scoped = context.endpoint() != null;
         if (observation.requestDetails() != null) {
             data.put("requestDetails", observation.requestDetails()); data.put("endpointScoped", scoped);
@@ -44,6 +49,10 @@ public class LiveMetricsTool implements ReadOnlyTool {
         }
         String summary = observation.requestCount() == 0
             ? "该时间窗口尚无" + context.serviceInfo().name() + "请求，不能判断延迟或超时。"
+            : observation.downstreams() != null
+                ? (scoped ? "所选接口窗口处理 " : "本窗口处理 ") + observation.requestCount() + " 个" + context.serviceInfo().name()
+                    + "请求；请求级超时 " + observation.timeoutCount() + " 次，请求 p95 为 " + observation.orderP95Ms()
+                    + "ms。" + downstreamSummary(context, observation)
             : (scoped ? "所选接口窗口处理 " : "本窗口处理 ") + observation.requestCount() + " 个" + context.serviceInfo().name() + "请求，其中" + context.serviceInfo().downstreamName() + "调用超时 "
                 + observation.timeoutCount() + " 次；请求 p95 为 " + observation.orderP95Ms()
                 + "ms，下游调用 p95 为 " + observation.downstreamP95Ms() + "ms，本窗口超时率为 "
@@ -55,6 +64,37 @@ public class LiveMetricsTool implements ReadOnlyTool {
         }
         return List.of(new Evidence("METRICS-LIVE-" + context.endTime().toEpochMilli(), name(),
             (scoped ? "所选接口" : context.serviceInfo().name()) + "窗口指标（实际请求）", summary, data));
+    }
+
+    static List<Map<String, Object>> downstreamRows(ToolContext context, LiveObservationClient.Snapshot observation) {
+        var rows = new ArrayList<Map<String, Object>>();
+        for (int i = 0; i < observation.downstreams().size(); i++) {
+            var identity = context.serviceInfo().downstreams().get(i);
+            var value = observation.downstreams().get(i);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", identity.id()); row.put("name", identity.name());
+            row.put("requestCount", value.requestCount()); row.put("timeoutCount", value.timeoutCount());
+            row.put("downstreamP95Ms", value.downstreamP95Ms()); row.put("downstreamTimeoutRate", value.downstreamTimeoutRate());
+            var classes = value.responseStatuses();
+            row.put("responseStatuses", Map.of("informational", classes.informational(), "successful", classes.successful(),
+                "redirection", classes.redirection(), "clientError", classes.clientError(), "serverError", classes.serverError(),
+                "unknown", classes.unknown()));
+            rows.add(row);
+        }
+        return List.copyOf(rows);
+    }
+
+    static String downstreamSummary(ToolContext context, LiveObservationClient.Snapshot observation) {
+        var parts = new ArrayList<String>();
+        for (int i = 0; i < observation.downstreams().size(); i++) {
+            var identity = context.serviceInfo().downstreams().get(i);
+            var value = observation.downstreams().get(i);
+            parts.add(identity.name() + "调用涉及 " + value.requestCount() + " 个请求、超时 " + value.timeoutCount()
+                + " 次、p95 " + value.downstreamP95Ms() + "ms；已观察响应 2xx " + value.responseStatuses().successful()
+                + " 次、4xx " + value.responseStatuses().clientError() + " 次、5xx " + value.responseStatuses().serverError()
+                + " 次、状态未知 " + value.responseStatuses().unknown() + " 次");
+        }
+        return " 分项：" + String.join("；", parts) + "。同一请求可涉及多个下游，分项请求数不能相加作为总请求数。";
     }
 
     private List<Evidence> inbound(ToolContext context, LiveObservationClient.Snapshot value, Map<String, Object> data) {
