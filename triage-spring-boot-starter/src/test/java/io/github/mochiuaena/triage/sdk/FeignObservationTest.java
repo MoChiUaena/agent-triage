@@ -111,8 +111,13 @@ class FeignObservationTest {
         var properties = ObservationRecorderTest.properties();
         properties.setDownstreamBaseUrl(URI.create("http://127.0.0.1:18084"));
         var recorder = new ObservationRecorder(properties);
-        Client delegate = (request, options) -> Response.builder().status(503).request(request)
-            .body("private-server-body", StandardCharsets.UTF_8).build();
+        Client delegate = (request, options) -> {
+            // Keep the simulated wait above the window's displayed duration precision.
+            try { Thread.sleep(15); }
+            catch (InterruptedException failure) { Thread.currentThread().interrupt(); throw new java.io.IOException(failure); }
+            return Response.builder().status(503).request(request)
+                .body("private-server-body", StandardCharsets.UTF_8).build();
+        };
         var client = new TriageFeignCapability(properties).enrich(delegate);
 
         new TriageRequestFilter(recorder).doFilter(new MockHttpServletRequest("GET", "/api/products/item"),

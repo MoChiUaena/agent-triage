@@ -12,9 +12,10 @@ final class TriageFeignBody implements Response.Body {
     private final Response.Body delegate;
     private final TriageRequestFilter.Context context;
     private final TriageObservationProperties properties;
+    private final String downstreamId;
 
-    TriageFeignBody(Response.Body delegate, TriageRequestFilter.Context context, TriageObservationProperties properties) {
-        this.delegate = delegate; this.context = context; this.properties = properties;
+    TriageFeignBody(Response.Body delegate, TriageRequestFilter.Context context, TriageObservationProperties properties, String downstreamId) {
+        this.delegate = delegate; this.context = context; this.properties = properties; this.downstreamId = downstreamId;
     }
 
     @Override public Integer length() { return delegate.length(); }
@@ -68,9 +69,9 @@ final class TriageFeignBody implements Response.Body {
 
     @Override public void close() throws IOException { delegate.close(); }
 
-    private void recordDuration(long started) { context.addDownstreamMillis(ObservationRecorder.elapsed(started)); }
+    private void recordDuration(long started) { context.addDownstreamMillis(downstreamId, ObservationRecorder.elapsed(started)); }
     private void markFailure(Throwable error) {
-        context.recordFailure(TriageHttpTimeouts.isTimeout(error),
+        context.recordFailure(downstreamId, TriageHttpTimeouts.isTimeout(error),
             () -> FailureLocations.capture(error, properties, "HTTP_CLIENT_FAILURE"));
     }
 }

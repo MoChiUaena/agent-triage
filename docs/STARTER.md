@@ -97,6 +97,8 @@ interface InventoryClient {
 
 在有效的 MVC 请求中调用 Spring Cloud 管理的 Feign 客户端时，Starter 注册的 Feign Capability 记录匹配下游的请求执行与正文读取等待；有类型的响应头或正文超时计入原请求。应用原有客户端、解码器、重试与关闭行为保持不变；普通 4xx/5xx 和连接拒绝不算超时。匹配依据是发起请求的 URL，客户端自行跟随的跨 origin 重定向不核对最终地址。正文在请求完成后才读取时，不会改写已保存窗口。手动调用 `Feign.builder()` 创建的客户端不会自动接入，异步 Feign 客户端尚未覆盖。组件不保存 URL、请求头或正文。
 
+使用 V5 多下游配置时，Feign 的执行、正文读取、超时和响应分类按匹配的下游 ID 记录；无正文响应也保留状态分类。该组合有本机协议回归，公开应用验收目前仍为单下游配置。
+
 ## 显式包装工作线程
 
 在仍处于请求线程时调用 `TriageObservationContext.capture()`，再用快照包装即将交给执行器的 Runnable 或 Callable。例如 DeferredResult 的生产任务：

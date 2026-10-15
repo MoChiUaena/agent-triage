@@ -11,7 +11,7 @@
 | HTTP 请求窗口 | 添加 Starter，配置服务身份、请求前缀和观测窗口 | 登记本机地址、身份与 V1 协议 |
 | 只观察入站请求 | 主分支选择 `HTTP_REQUESTS`，不填写下游配置 | 选择 `HTTP_REQUESTS_V4`，指标明确显示未采集下游 |
 | 下游 HTTP 超时 | 配置被观测 origin，使用 Spring 注入的 `RestClient.Builder` 创建客户端 | 登记对应下游身份 |
-| Spring Cloud Feign 下游调用 | 添加 OpenFeign 依赖，使用 Spring 管理的 Feign 客户端 | 已验证单下游 HTTP 配置；多 origin 组合需另行核对 |
+| Spring Cloud Feign 下游调用 | 添加 OpenFeign 依赖，使用 Spring 管理的 Feign 客户端 | 沿用 HTTP 配置，V5 按 origin 记录分项；公开应用验收目前为单下游 |
 | 一个请求调用多个 HTTP 下游 | 为每个 origin 配置不同 ID，开启 `endpoint-observations`，使用 Boot 注入的客户端 builder | 按 V5 登记相同的下游 ID；页面分项展示，超时按依赖归因 |
 | 按 MVC 接口排查 | 开启 `endpoint-observations`；可选响应分类 | 改为 V3 协议，产生请求后选择接口 |
 | 业务异常位置 | 开启异常位置，明确业务包范围 | 绑定同一服务的本机源码索引 |

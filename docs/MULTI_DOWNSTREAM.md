@@ -18,7 +18,7 @@ triage:
         base-url: http://127.0.0.1:18085
 ```
 
-出站调用须使用 Boot 注入的 `RestClient.Builder`、`RestTemplateBuilder` 或 `WebClient.Builder` 创建客户端。Starter 按请求的 scheme、host、port 匹配下游。配置多个下游时必须开启 `endpoint-observations`，否则启动时拒绝。列表允许 1–8 项；ID 和 origin 不能重复，不能同时填写旧的 `downstream-id` / `downstream-base-url`。未匹配的地址不会计入任何下游。
+出站调用须使用 Boot 注入的 `RestClient.Builder`、`RestTemplateBuilder`、`WebClient.Builder`，或 Spring Cloud 管理的同步 Feign 客户端。Starter 按请求的 scheme、host、port 匹配下游。配置多个下游时必须开启 `endpoint-observations`，否则启动时拒绝。列表允许 1–8 项；ID 和 origin 不能重复，不能同时填写旧的 `downstream-id` / `downstream-base-url`。未匹配的地址不会计入任何下游。Feign 的多下游组合有本机协议回归，公开应用中的组合仍需单独验证。
 
 Agent 在启动配置中登记同样的服务 ID 和下游 ID；名称只用于页面和诊断文案：
 

@@ -205,7 +205,8 @@ v0.1 聚焦订单查询变慢这一场景，通过日志、指标和排障文档
 
 - [x] Boot 注入的 `WebClient.Builder` 观测同步 MVC 请求内创建、跨线程订阅的调用；独立商品服务通过真实回环验收。[结果](validation/2026-10-11-webclient.md)
 - [x] Spring Cloud 管理的同步 Feign 客户端接入已有 HTTP 证据窗口，核对正常、响应头超时与正文超时；Feign 保持可选依赖。[结果](validation/2026-10-12-feign.md)
-- [ ] 自行创建的客户端、异步 Feign 及 Feign 的多 origin 组合分别评估，不将本轮能力写成自动覆盖所有 HTTP 调用。
+- [x] 合并 Feign 与 V5 多下游观测时保留下游 ID，覆盖执行超时、正文超时、无正文响应、状态分类和未登记 origin。
+- [ ] 自行创建的客户端、异步 Feign 及公开应用中的 Feign 多 origin 组合分别评估，不将本轮能力写成自动覆盖所有 HTTP 调用。
 
 ## 多下游 HTTP 观测
 
