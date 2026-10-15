@@ -23,9 +23,9 @@ Agent Triage 帮助 Java 开发者排查慢请求、HTTP 下游超时和数据�
 
 无需模型密钥也能运行规则模式。启用模型后，由模型选择工具、判断类型和证据引用，再由应用核对观测并生成结论。项目提供独立的 Spring Boot 样例，以及用于接入现有应用的 Starter。
 
-![实际订单请求发生库存调用超时后的排查结果](docs/assets/live-triage.png)
+![当前开发版的服务排查结果](docs/assets/service-triage-current.jpg)
 
-*真实请求演示：窗口中 4 次请求、1 次库存调用超时。[50 秒录像](docs/assets/agent-triage-demo.mp4)展示操作过程，其中模型部分为已保存的百炼结果回放。*
+*当前开发分支界面，截图于 2026-10-15。使用规则模式读取实际订单请求：5 次请求、5 次库存调用超时。已发布演示包的界面可能不同。*
 
 ## 功能
 
@@ -38,18 +38,20 @@ Agent Triage 帮助 Java 开发者排查慢请求、HTTP 下游超时和数据�
 | 排查记录 | SSE 实时进度、证据引用、主动取消、历史筛选、事件重放和模型用量统计 |
 | 本机存储 | H2 开箱即用，也可切换 PostgreSQL；模型密钥加密保存，源码发送单独授权 |
 
-<details>
-<summary>查看源码排查截图</summary>
-
-![HTTP 超时观测关联到业务源码行](docs/assets/source-triage.png)
-
-[源码演示录像](docs/assets/agent-triage-source-demo.mp4)展示接口对照、错误位置、构建摘要差异和接入检查。
-
-</details>
-
 ### 开发中的研发协作
 
 [开发分支](https://github.com/MoChiUaena/agent-triage/tree/feature/development-workflows)已提供 GitHub 仓库概览、CI 日志排障、固定版本 PR 审查、Issue 分诊和 PR 协同工作流，入口与范围见[研发协作说明](https://github.com/MoChiUaena/agent-triage/blob/feature/development-workflows/docs/DEVELOPMENT_COLLABORATION.md)。这些功能仍在独立 PR 中，尚未包含在 `main` 或 v0.11.0 演示包中。
+
+<details>
+<summary>查看当前协同工作流界面</summary>
+
+![当前开发版的 PR 协同工作流](docs/assets/development-workflow-current.jpg)
+
+图为当前研发协作页面中已保存的 PR 检查记录，展示任务依赖、执行状态与报告入口。
+
+</details>
+
+早期版本的订单与源码演示录像保留在[演示记录](docs/DEMO.md)，其中界面不代表当前开发版。
 
 ## 快速开始
 
