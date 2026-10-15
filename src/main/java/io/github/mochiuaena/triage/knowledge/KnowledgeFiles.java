@@ -324,21 +324,26 @@ public class KnowledgeFiles {
                     && end > start
                     && Character.isHighSurrogate(text.charAt(end - 1))) end--;
             String part = text.substring(start, end);
-            int endLine = line;
-            for (int i = 0; i < part.length(); i++)
-                if (part.charAt(i) == '\n' && i < part.length() - 1) endLine++;
+            int startLine = line, endLine = line;
+            for (int i = start; i < end; i++) {
+                endLine = line;
+                char character = text.charAt(i);
+                // Keep both CRLF characters on their original line, even across chunks.
+                if (character == '\n'
+                        || character == '\r'
+                                && (i + 1 == text.length() || text.charAt(i + 1) != '\n')) line++;
+            }
             result.add(
                     new Chunk(
                             UUID.randomUUID(),
                             version,
                             ordinal++,
-                            line,
+                            startLine,
                             endLine,
                             start,
                             end,
                             MaterialService.sha(part),
                             part));
-            for (int i = 0; i < part.length(); i++) if (part.charAt(i) == '\n') line++;
             start = end;
         } while (start < text.length());
         return result;
