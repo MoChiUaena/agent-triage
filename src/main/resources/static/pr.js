@@ -30,7 +30,8 @@
     $("#pr-report-versions").replaceChildren(...[["Base", report.pull.baseSha], ["Head", report.pull.headSha], ["Merge-base（删除行）", report.mergeBaseSha]].map(([name, sha]) => {
       const row = node("div", null, "pr-version"); row.append(node("span", name), node("code", sha)); return row;
     }));
-    $("#pr-report-link").replaceChildren(link("在 GitHub 查看 PR ↗", report.pull.url));
+    const materialLink = node("a", "材料 / 发送预览"); materialLink.href = "/workspace.html?type=PR&repository=" + encodeURIComponent(report.repositoryId) + "&report=" + encodeURIComponent(report.id) + "#materials";
+    $("#pr-report-link").replaceChildren(link("在 GitHub 查看 PR ↗", report.pull.url), node("span", " · "), materialLink);
     $("#pr-report-counts").textContent = "读取 " + report.files.length + " / " + report.pull.changedFiles + " 个文件 · PR +" + report.pull.additions + " / −" + report.pull.deletions + " 行 · " + report.findings.length + " 条变更提醒";
     $("#pr-report-findings").replaceChildren(...report.findings.map(finding => {
       const card = node("section", null, "pr-finding");

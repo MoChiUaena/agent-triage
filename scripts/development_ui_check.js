@@ -37,3 +37,18 @@ assert.equal(document.querySelector("#repository-statistics").children[2].childr
 assert.match(document.querySelector("#repository-workflows").textContent, /没有 Actions 读取权限/);
 assert.match(document.querySelector("#repository-warning").textContent, /暂时不可用/);
 console.log("Development UI passed: real state labels, unavailable sections, drafts and text rendering");
+let completeReport,rendered=null;
+context.fetch=async()=>new Promise(resolve=>completeReport=resolve);
+context.window.prPanel={render:report=>rendered=report};
+document.querySelector("#repository-select").value="repo";
+context.requestedParameters=new URL("http://localhost/development.html?repository=repo&reportType=PR&report=saved").searchParams;
+(async()=>{
+  const pending=vm.runInContext("openSavedReport(requestedParameters)",context);
+  completeReport({ok:true,json:async()=>({id:"saved",repositoryId:"repo"})});await pending;
+  assert.equal(rendered.id,"saved");rendered=null;
+  const stale=vm.runInContext("openSavedReport(requestedParameters)",context);
+  vm.runInContext("selectionVersion++",context);
+  completeReport({ok:true,json:async()=>({id:"saved",repositoryId:"repo"})});await stale;
+  assert.equal(rendered,null);
+  console.log("Development original-report links passed: saved report opening and stale scope guard");
+})().catch(error=>{console.error(error);process.exitCode=1;});

@@ -42,6 +42,8 @@
     if (!analysis.evidence.length) $("#ci-report-evidence").append(node("p", "没有可引用的错误片段。", "management-caption"));
     $("#ci-location-heading").hidden = !analysis.locations.length;
     $("#ci-report-locations").replaceChildren(...analysis.locations.map(location => node("li", location.file + ":" + location.line)));
+    const materialLink = node("a", "材料 / 发送预览"); materialLink.href = "/workspace.html?type=CI&repository=" + encodeURIComponent(report.repositoryId) + "&report=" + encodeURIComponent(report.id) + "#materials";
+    $("#ci-report-meta").append(node("span", " · "), materialLink);
     $("#ci-report-result").scrollIntoView({ behavior: "smooth", block: "start" });
   }
   async function loadReports() {

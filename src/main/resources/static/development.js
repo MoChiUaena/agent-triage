@@ -127,4 +127,15 @@ $("#remove-repository-form").addEventListener("submit", async event => {
   try { await request("/api/development/repositories/" + id + "?confirmId=" + id, { method: "DELETE", headers: writeHeaders }); $("#remove-repository-dialog").close(); await loadRepositories(""); notice("仓库登记已移除。"); }
   catch (error) { notice(error.message, true); } finally { setBusy(false); }
 });
-Promise.all([loadRepositories(), request("/api/development/settings").then(settings => $("#github-access").textContent = settings.authenticated ? "已配置 GitHub 凭据" : "公开仓库访问")]).catch(error => notice(error.message, true));
+async function openSavedReport(parameters) {
+  const kind = parameters.get("reportType")?.toLowerCase(), id = parameters.get("report"), repository = parameters.get("repository");
+  if (!id || !["pr", "issue", "ci", "workflow"].includes(kind) || repository !== $("#repository-select").value) return;
+  const version = selectionVersion;
+  if (kind === "workflow") { await window.workflowPanel?.openRun(id); return; }
+  const report = await request("/api/development/" + kind + "/reports/" + encodeURIComponent(id));
+  if (version !== selectionVersion || repository !== $("#repository-select").value) return;
+  if (report.repositoryId !== repository) throw new Error("保存报告不属于当前仓库。");
+  ({ pr: window.prPanel, issue: window.issuePanel, ci: window.ciPanel })[kind]?.render(report);
+}
+const reportParameters = new URL(window.location?.href || "http://localhost/development.html").searchParams;
+Promise.all([loadRepositories(reportParameters.get("repository") || undefined).then(() => openSavedReport(reportParameters)), request("/api/development/settings").then(settings => $("#github-access").textContent = settings.authenticated ? "已配置 GitHub 凭据" : "公开仓库访问")]).catch(error => notice(error.message, true));

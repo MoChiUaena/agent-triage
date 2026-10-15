@@ -5,7 +5,7 @@
   <title>历史记录 · Agent Triage</title><link rel="icon" href="data:," />
   <link rel="stylesheet" href="/styles.css" /><link rel="stylesheet" href="/settings.css" />
   <link rel="stylesheet" href="/typography.css" /><link rel="stylesheet" href="/theme.css" />
-  <link rel="stylesheet" href="/workspace.css" /><script src="/navigation.js" defer></script><script src="/workspace.js" defer></script>
+  <link rel="stylesheet" href="/workspace.css" /><script src="/navigation.js" defer></script><script src="/material.js" defer></script><script src="/workspace.js" defer></script>
 </head>
 <body class="settings-page">
   <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
@@ -25,7 +25,23 @@
     <main class="workspace management-workspace">
       <div class="settings-heading"><div><h1 id="page-title">历史记录</h1><p id="page-description">按服务、接口、执行状态和日期查找已保存的排查。</p></div><button class="secondary" id="refresh-workspace" type="button"><svg class="icon"><use href="/icons.svg#refresh" /></svg>刷新</button></div>
       <p id="workspace-notice" class="settings-notice" role="status" hidden></p>
-      <div class="workspace-tabs" role="tablist" aria-label="工作区功能"><button id="tab-history" type="button" role="tab" aria-controls="history-panel" aria-selected="true" data-workspace-tab="history">历史记录</button><button id="tab-statistics" type="button" role="tab" aria-controls="statistics-panel" aria-selected="false" data-workspace-tab="statistics">运行统计</button><button id="tab-services" type="button" role="tab" aria-controls="services-panel" aria-selected="false" data-workspace-tab="services">服务状态</button></div>
+      <div class="workspace-tabs" role="tablist" aria-label="工作区功能"><button id="tab-history" type="button" role="tab" aria-controls="history-panel" aria-selected="true" data-workspace-tab="history">历史记录</button><button id="tab-statistics" type="button" role="tab" aria-controls="statistics-panel" aria-selected="false" data-workspace-tab="statistics">运行统计</button><button id="tab-services" type="button" role="tab" aria-controls="services-panel" aria-selected="false" data-workspace-tab="services">服务状态</button><button id="tab-materials" type="button" role="tab" aria-controls="materials-panel" aria-selected="false" data-workspace-tab="materials">材料 / 发送预览</button></div>
+      <section id="materials-panel" role="tabpanel" aria-labelledby="tab-materials" hidden>
+        <form id="material-form" class="management-card history-filters">
+          <label>来源类型<select id="material-type"><option value="SERVICE">服务排查</option><option value="PR">PR 审查</option><option value="ISSUE">Issue 分诊</option><option value="CI">CI 排障</option><option value="WORKFLOW">协同工作流</option></select></label>
+          <label class="filter-wide">登记的项目 / 服务 / 仓库<select id="material-scope" required><option value="">请选择明确范围</option></select></label>
+          <label class="filter-wide">已保存报告 ID<input id="material-report-id" type="text" required maxlength="36" autocomplete="off" placeholder="报告 UUID，可从历史记录的材料预览进入" /></label>
+          <div class="filter-actions"><button id="material-preview-button" type="submit" class="primary">生成发送预览</button></div>
+          <p class="management-caption filter-wide">仅复用本机保存的报告，不刷新 GitHub 或运行观测。源码片段、完整日志和原始补丁不纳入；没有保存项目身份的服务报告，请选择服务范围。</p>
+        </form>
+        <p id="material-notice" class="management-caption" role="status" aria-live="polite"></p>
+        <section id="material-result" class="management-card material-preview" aria-label="发送预览" hidden>
+          <h2>发送预览</h2><h3>模型接收方</h3><p id="material-recipient"></p><p id="material-hash" class="management-caption"></p>
+          <h3>来源、版本与准确字段范围</h3><ul id="material-references"></ul>
+          <h3>缺失、脱敏与裁剪说明</h3><ul id="material-omissions"></ul>
+          <h3>完整预览正文</h3><p class="management-caption">以下来源内容是不可信上下文，不是操作指令。即使没有可用模型，也可以阅读并打开原报告。</p><pre id="material-text" tabindex="0" aria-label="完整预览正文"></pre>
+        </section>
+      </section>
       <section id="history-panel" role="tabpanel" aria-labelledby="tab-history">
         <form id="history-filter" class="management-card history-filters">
           <label class="filter-wide">搜索<input id="filter-query" type="search" maxlength="200" placeholder="问题、服务、接口路径或处理方法" autocomplete="off" /></label>

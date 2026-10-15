@@ -21,6 +21,7 @@
   function render(snapshot,scroll=false){
     $("#workflow-result").hidden=false;$("#workflow-result-title").textContent="PR #"+snapshot.plan.pull.number+" · "+snapshot.plan.pull.title;
     $("#workflow-result-meta").textContent=snapshot.repository+" · "+date(snapshot.createdAt)+" · Head "+snapshot.plan.pull.headSha;
+    const materialLink=node("a","材料 / 发送预览");materialLink.href="/workspace.html?type=WORKFLOW&repository="+encodeURIComponent(snapshot.repositoryId)+"&report="+encodeURIComponent(snapshot.id)+"#materials";$("#workflow-result-meta").append(node("span"," · "),materialLink);
     $("#workflow-state").textContent=labels[snapshot.state]||snapshot.state;$("#workflow-result-message").textContent=snapshot.message;
     const ended=snapshot.tasks.filter(task=>!["PENDING","RUNNING"].includes(task.state)).length;
     $("#workflow-progress").textContent="已结束 "+ended+" / "+snapshot.tasks.length+" 个任务";
