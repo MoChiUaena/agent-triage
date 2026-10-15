@@ -3,6 +3,7 @@ package io.github.mochiuaena.triage.material;
 import com.fasterxml.jackson.databind.*;
 import io.github.mochiuaena.triage.development.*;
 import io.github.mochiuaena.triage.source.SourceProjectRepository;
+import io.github.mochiuaena.triage.knowledge.KnowledgeService;
 import io.github.mochiuaena.triage.store.*;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -25,11 +26,12 @@ public class MaterialService {
     private final GithubRepositoryStore repositories;
     private final SourceProjectRepository projects;
     private final ObjectMapper json;
+    private final KnowledgeService knowledge;
     public MaterialService(RunRepository runs, HistoryRepository history, PrReportStore prs, IssueReportStore issues,
                            CiReportStore cis, WorkflowStore workflows, GithubRepositoryStore repositories,
-                           SourceProjectRepository projects, ObjectMapper json) {
+                           SourceProjectRepository projects, ObjectMapper json, KnowledgeService knowledge) {
         this.runs=runs; this.history=history; this.prs=prs; this.issues=issues; this.cis=cis; this.workflows=workflows;
-        this.repositories=repositories; this.projects=projects; this.json=json;
+        this.repositories=repositories; this.projects=projects; this.json=json; this.knowledge=knowledge;
     }
     public List<ScopeOption> scopes() {
         var result = new ArrayList<ScopeOption>();
@@ -41,10 +43,12 @@ public class MaterialService {
     public Material resolve(Selection input) {
         if (input == null || input.type() == null || input.reportId() == null) throw new ResponseStatusException(BAD_REQUEST,"请选择已保存报告。");
         if (input.projectId() != null && input.repositoryId() != null) throw new ResponseStatusException(BAD_REQUEST,"项目和仓库范围不能混用。");
+        if (input.type() == Type.KNOWLEDGE) return knowledge(input);
         Object saved = switch (input.type()) {
             case SERVICE -> runs.find(input.reportId()).orElseThrow(() -> new ResponseStatusException(NOT_FOUND,"服务报告不存在。"));
             case PR -> prs.require(input.reportId()); case ISSUE -> issues.require(input.reportId());
             case CI -> cis.require(input.reportId()); case WORKFLOW -> workflows.require(input.reportId());
+            case KNOWLEDGE -> throw new IllegalStateException("Knowledge uses its immutable adapter");
         };
         JsonNode snapshot = json.valueToTree(saved);
         Scope scope; String version;
@@ -75,6 +79,7 @@ public class MaterialService {
             case ISSUE -> List.of("issue","branch","headSha","contextReadAt","createdAt","source","proposal","model","evidence","owners","gaps");
             case CI -> List.of("runId","attempt","headSha","workflowName","job","source","createdAt","notice","analysis");
             case WORKFLOW -> List.of("plan","state","message","createdAt","updatedAt","tasks","data.repository","data.checks","data.summary");
+            case KNOWLEDGE -> throw new IllegalStateException("Knowledge uses its immutable adapter");
         };
         for (String path : paths) {
             JsonNode value=snapshot; for (String segment:path.split("\\.")) value=value.path(segment);
@@ -86,6 +91,25 @@ public class MaterialService {
         String link=input.type()==Type.SERVICE ? "/?run="+input.reportId() : "/development.html?repository="+scope.repositoryId()+"&reportType="+input.type()+"&report="+input.reportId();
         var reference=new Reference(input.type(),input.reportId(),scope,version+":"+hash,hash,Instant.now(),"UNCONFIRMED",link);
         return new Material(reference,builder.text.toString(),builder.fields,builder.omissions);
+    }
+    private Material knowledge(Selection input) {
+        if (input.projectId()==null && input.repositoryId()==null) throw new ResponseStatusException(BAD_REQUEST,"知识引用必须携带保存版本的项目或仓库范围。");
+        var selected=knowledge.scope(input.projectId()!=null?"PROJECT":"REPOSITORY",input.projectId()!=null?input.projectId():input.repositoryId());
+        var version=knowledge.materialVersion(input.reportId(),selected);
+        String service=selected.kind().equals("PROJECT")?projects.require(selected.id()).service():null;
+        if(input.service()!=null && !input.service().equals(service)) throw new ResponseStatusException(CONFLICT,"知识引用不属于所选服务。");
+        Scope scope=new Scope(input.projectId(),input.repositoryId(),service);
+        var builder=new TextBuilder();
+        builder.add("document.title",json.valueToTree(version.title()),Type.KNOWLEDGE);
+        builder.add("document.path",json.valueToTree(version.path()),Type.KNOWLEDGE);
+        builder.add("document.origin",json.valueToTree(version.origin()),Type.KNOWLEDGE);
+        builder.add("document.commitSha",json.valueToTree(Objects.toString(version.commitSha(),"LOCAL")),Type.KNOWLEDGE);
+        builder.add("document.sha256",json.valueToTree(version.sha256()),Type.KNOWLEDGE);
+        var chunks=knowledge.chunks(version.id(),selected).stream().map(c -> Map.of("ordinal",c.ordinal(),"startLine",c.startLine(),"endLine",c.endLine(),"text",c.text())).toList();
+        builder.add("document.chunks",json.valueToTree(chunks),Type.KNOWLEDGE);
+        builder.omissions.add("项目资料仅本机预览；导入或普通报告确认均不授权资料外发。消费预览必须另行显式确认 documentsConfirmed=true。");
+        String link="/sources.html?scopeKind="+selected.kind()+"&scopeId="+selected.id()+"&version="+version.id()+"#knowledge";
+        return new Material(new Reference(Type.KNOWLEDGE,version.id(),scope,"knowledge:"+version.id()+":"+version.sha256(),version.sha256(),Instant.now(),"UNCONFIRMED",link),builder.text.toString(),builder.fields,builder.omissions);
     }
     private UUID uuid(JsonNode value) { return value.isTextual() ? UUID.fromString(value.asText()) : null; }
     private String jsonText(JsonNode value) { try { return json.writeValueAsString(value); } catch(Exception e) { throw new IllegalStateException("Cannot hash material",e); } }

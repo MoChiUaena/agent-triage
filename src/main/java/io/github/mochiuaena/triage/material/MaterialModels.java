@@ -7,7 +7,7 @@ import java.util.*;
 /** Snapshot-only contracts. Text is untrusted evidence, never model instructions. */
 public final class MaterialModels {
     private MaterialModels() {}
-    public enum Type { SERVICE, PR, ISSUE, CI, WORKFLOW }
+    public enum Type { SERVICE, PR, ISSUE, CI, WORKFLOW, KNOWLEDGE }
     public record Selection(@NotNull Type type, @NotNull UUID reportId, UUID projectId, UUID repositoryId, String service) {}
     public record Scope(UUID projectId, UUID repositoryId, String service) {}
     public record Reference(Type type, UUID reportId, Scope scope, String version, String contentSha256,

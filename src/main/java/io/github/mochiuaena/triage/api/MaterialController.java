@@ -13,7 +13,7 @@ import static io.github.mochiuaena.triage.material.MaterialModels.*;
 @RequestMapping("/api/materials")
 public class MaterialController {
     public record PreviewInput(@NotEmpty @Size(max=4) List<@NotNull @Valid Selection> references) {}
-    public record Confirmation(boolean confirmed) {}
+    public record Confirmation(boolean confirmed, boolean documentsConfirmed) {}
     private final MaterialService materials;
     private final SendPreviewService previews;
     public MaterialController(MaterialService materials,SendPreviewService previews) { this.materials=materials;this.previews=previews; }
@@ -24,5 +24,5 @@ public class MaterialController {
         return ResponseEntity.created(URI.create("/api/materials/previews/"+preview.id())).body(preview);
     }
     @GetMapping("/previews/{id}") public Preview get(@PathVariable UUID id) { return previews.get(id); }
-    @PostMapping("/previews/{id}/consume") public Consumed consume(@PathVariable UUID id,@RequestBody Confirmation input) { return previews.consume(id,input.confirmed()); }
+    @PostMapping("/previews/{id}/consume") public Consumed consume(@PathVariable UUID id,@RequestBody Confirmation input) { return previews.consume(id,input.confirmed(),input.documentsConfirmed()); }
 }

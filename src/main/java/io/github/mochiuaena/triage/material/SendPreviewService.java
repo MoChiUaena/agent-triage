@@ -49,8 +49,14 @@ public class SendPreviewService {
     public synchronized Preview get(UUID id) { return require(id).preview(); }
     /** Revalidates then removes a preview once. Callers must send only the returned immutable text. */
     public synchronized Consumed consume(UUID id,boolean confirmed) {
+        return consume(id,confirmed,false);
+    }
+    /** Document sharing is per preview, independent of importing or generic report confirmation. */
+    public synchronized Consumed consume(UUID id,boolean confirmed,boolean documentsConfirmed) {
         Prepared prepared=require(id); Preview preview=prepared.preview();
         if(!confirmed) throw new ResponseStatusException(BAD_REQUEST,"请先核对接收方和正文，再确认预览。");
+        if(!documentsConfirmed && preview.materials().stream().anyMatch(m -> m.reference().type()==Type.KNOWLEDGE))
+            throw new ResponseStatusException(BAD_REQUEST,"项目资料外发默认关闭；请单独核对预览并确认 documentsConfirmed。");
         Recipient current=recipient();
         if(!preview.recipient().equals(current)) { previews.remove(id); throw new ResponseStatusException(CONFLICT,"模型选择或配置已变化，请重新预览。"); }
         if(!current.available()) throw new ResponseStatusException(SERVICE_UNAVAILABLE,"模型不可用；仍可查看保存的材料。");

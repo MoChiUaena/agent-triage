@@ -67,6 +67,16 @@ class SendPreviewServiceTest {
         assertThatThrownBy(() -> service.create(List.of(selection,other))).isInstanceOf(ResponseStatusException.class);
         assertThatThrownBy(() -> service.create(List.of(selection,selection))).isInstanceOf(ResponseStatusException.class);
     }
+    @Test void knowledgeRequiresSeparatePerPreviewDocumentConsentEvenWithAvailableModel() {
+        Selection knowledge=new Selection(Type.KNOWLEDGE,UUID.randomUUID(),null,repository,null);
+        Material saved=new Material(new Reference(Type.KNOWLEDGE,knowledge.reportId(),new Scope(null,repository,null),"immutable:1","a".repeat(64),now,"UNCONFIRMED","/sources.html"),"document text",List.of("document.text"),List.of());
+        when(materials.resolve(knowledge)).thenReturn(saved);
+        Preview preview=service.create(List.of(knowledge));
+        assertThatThrownBy(() -> service.consume(preview.id(),true)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("documentsConfirmed");
+        assertThat(service.consume(preview.id(),true,true).text()).isEqualTo(preview.text());
+        Preview another=service.create(List.of(knowledge));
+        assertThatThrownBy(() -> service.consume(another.id(),true)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("documentsConfirmed");
+    }
     static class MutableClock extends Clock {
         Instant value; MutableClock(Instant value) { this.value=value; }
         public ZoneId getZone() { return ZoneOffset.UTC; } public Clock withZone(ZoneId zone) { return this; } public Instant instant() { return value; }

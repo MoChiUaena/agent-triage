@@ -15,7 +15,7 @@ import java.util.Set;
 public class SettingsAccessFilter extends OncePerRequestFilter {
     @Override protected boolean shouldNotFilter(HttpServletRequest request) {
         return !(request.getServletPath().startsWith("/api/settings")
-            || development(request) || material(request)
+            || development(request) || material(request) || knowledge(request)
             || request.getServletPath().startsWith("/api/evaluation") || history(request)
             || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/") || source(request)
             || request.getServletPath().startsWith("/api/runs"));
@@ -36,7 +36,7 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
                     allowed = false;
             } catch (RuntimeException e) { allowed = false; }
         }
-        String marker = material(request) ? "X-Triage-Material" : development(request) ? "X-Triage-Development" : cancellation(request) ? "X-Triage-Run" : source(request) ? "X-Triage-Source" : history(request) ? "X-Triage-History" : "X-Triage-Settings";
+        String marker = knowledge(request) ? "X-Triage-Knowledge" : material(request) ? "X-Triage-Material" : development(request) ? "X-Triage-Development" : cancellation(request) ? "X-Triage-Run" : source(request) ? "X-Triage-Source" : history(request) ? "X-Triage-History" : "X-Triage-Settings";
         boolean ordinaryRunCreate = request.getServletPath().equals("/api/runs") && "POST".equals(request.getMethod());
         if (!"GET".equals(request.getMethod()) && !ordinaryRunCreate && !"1".equals(request.getHeader(marker))) allowed = false;
         if (!allowed) {
@@ -46,7 +46,7 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
             response.getWriter().write(development(request) ? "{\"status\":403,\"detail\":\"研发协作仅允许从本机同源页面访问。\"}"
                 : cancellation(request) ? "{\"status\":403,\"detail\":\"取消操作仅允许从本机同源页面发起。\"}"
                 : source(request) ? "{\"status\":403,\"detail\":\"源码管理仅允许从本机同源页面访问。\"}"
-                : material(request) || history(request) || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/")
+                : material(request) || knowledge(request) || history(request) || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/")
                 ? "{\"status\":403,\"detail\":\"历史记录与工作区仅允许从本机同源页面访问。\"}"
                 : "{\"status\":403,\"detail\":\"模型设置与评测仅允许从本机同源页面访问。\"}");
             return;
@@ -59,4 +59,5 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
     private boolean source(HttpServletRequest request) { return request.getServletPath().startsWith("/api/source-projects"); }
     private boolean development(HttpServletRequest request) { return request.getServletPath().startsWith("/api/development"); }
     private boolean material(HttpServletRequest request) { return request.getServletPath().startsWith("/api/materials"); }
+    private boolean knowledge(HttpServletRequest request) { return request.getServletPath().startsWith("/api/knowledge"); }
 }
