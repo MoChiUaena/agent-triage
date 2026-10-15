@@ -4,7 +4,7 @@
   const node=(tag,text)=>{const value=document.createElement(tag);if(text!=null)value.textContent=text;return value;};
   const parameters=new URLSearchParams(window.location.search);
   const types=["SERVICE","PR","ISSUE","CI","WORKFLOW"];
-  let scopes=[],active=false,generation=0;
+  let scopes=[],active=false,generation=0,scopeGeneration=0;
   $("#material-type").value=types.includes(parameters.get("type"))?parameters.get("type"):"SERVICE";
   $("#material-report-id").value=parameters.get("report")||"";
   async function request(url,options={}) {
@@ -30,10 +30,9 @@
     field.value=available.some(s=>s.kind+":"+s.id===previous)?previous:available.some(s=>s.kind+":"+s.id===requested)?requested:"";
   }
   async function setActive(value){
-    active=value;reset();if(!active)return;
-    const current=generation;
-    try {const result=await request("/api/materials/scopes");if(current!==generation||!active)return;scopes=result;changeType();}
-    catch(error){if(current===generation&&active)message(error.message);}
+    active=value;const current=++scopeGeneration;reset();if(!active)return;
+    try {const result=await request("/api/materials/scopes");if(current!==scopeGeneration||!active)return;scopes=result;changeType();}
+    catch(error){if(current===scopeGeneration&&active)message(error.message);}
   }
   function render(preview){
     $("#material-result").hidden=false;
