@@ -1,191 +1,175 @@
+<div align="center">
+
 # Agent Triage
 
+**面向 Java 与 Spring Boot 的故障排查助手**
+
+结合指标、日志、排障文档和源码，给出带证据的判断与下一步检查建议。
+
 [![Verify](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/MoChiUaena/agent-triage/actions/workflows/ci.yml)
+[![Java](https://img.shields.io/badge/Java-21%2B-2563eb)](https://www.oracle.com/java/technologies/downloads/#java21)
+[![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.5-6db33f)](https://spring.io/projects/spring-boot)
+[![Spring AI](https://img.shields.io/badge/Spring_AI-1.1-6db33f)](https://spring.io/projects/spring-ai)
+[![Preview](https://img.shields.io/github/v/release/MoChiUaena/agent-triage?include_prereleases&label=preview&color=2563eb)](https://github.com/MoChiUaena/agent-triage/releases)
+[![License](https://img.shields.io/github/license/MoChiUaena/agent-triage?color=2563eb)](LICENSE)
 
-Agent Triage 是一个面向 Java 服务的只读排障助手。它结合窗口指标、错误日志和排障文档，核对请求执行阶段异常、下游 HTTP 超时、数据库连接池耗尽和 SQL 执行阶段失败，并给出验证建议。支持接入其他本地 Spring Boot 服务，也可以登记项目源码，把观测关联到候选文件、方法和接口位置。
+[快速开始](#快速开始) · [功能](#功能) · [接入服务](#接入自己的服务) · [文档](#文档) · [参与贡献](#参与贡献)
 
-仓库提供两条真实请求链路：订单服务通过 HTTP 调用独立库存服务，数据库样例通过 HikariCP 查询 H2。实验操作可以实际触发下游超时、获取连接超时与 SQL 锁等待，Agent 读取对应窗口的指标和错误事件后给出判断。从源码单独启动 Agent 时默认使用合成订单数据，演示包则读取真实本机样例的 LIVE 窗口；模型模式由模型选择工具、判断和证据，应用核对观测后生成关键结论。
+</div>
 
-首次了解项目可阅读[项目导览](docs/PROJECT_GUIDE.md)，其中说明页面结果、运行模式、进程职责和当前边界。
+## 项目介绍
 
-接入现有项目前，可按[应用接入与运行限制](docs/APPLICATION_ADOPTION.md)选择需要的改动，区分必要配置、可选观测和验收辅助代码。
+Agent Triage 帮助 Java 开发者排查慢请求、HTTP 下游超时和数据库访问异常。选择服务与时间窗口后，它读取实际观测，关联错误位置与本机源码，整理出可核查的证据和检查建议。排查过程、工具调用和结果都可从网页查看。
 
-![本地订单请求发生库存调用超时后的排查页面](docs/assets/live-triage.png)
+无需模型密钥也能运行规则模式。启用模型后，由模型选择工具、判断类型和证据引用，再由应用核对观测并生成结论。项目提供独立的 Spring Boot 样例，以及用于接入现有应用的 Starter。
 
-图中是 4 次实际处理的样例请求，其中 1 次库存调用超时，窗口超时率为 25%；数值随机器和运行次数变化。
+![实际订单请求发生库存调用超时后的排查结果](docs/assets/live-triage.png)
 
-[50 秒演示录像](docs/assets/agent-triage-demo.mp4)：前半录制实际 HTTP 请求排查，后半回放百炼历史结果。无声字幕，完整标识符已脱敏；录制说明见[演示说明](docs/DEMO.md)。
-
-![实际 HTTP 超时关联到业务源码行](docs/assets/source-triage.png)
-
-[v0.3 源码排查演示](docs/assets/agent-triage-source-demo.mp4)：48 秒分步截图，展示工单接口对照、错误位置、构建摘要差异和接入检查。画面来自解压包的实际请求，不调用模型。
-
-[v4 首次留出对照](docs/validation/2026-09-28-v4-holdout.md)的 6 个案例中，4 条符合证据契约，2 条由应用门槛返回证据不足，没有失败。应用提供服务参考规则，并从模型有效候选中排序、显示两项检查建议，保留原始选择。关键结论与排序由应用策略生成，这组小样本不代表模型自由归因能力或生产准确率。
+*真实请求演示：窗口中 4 次请求、1 次库存调用超时。[50 秒录像](docs/assets/agent-triage-demo.mp4)展示操作过程，其中模型部分为已保存的百炼结果回放。*
 
 ## 功能
 
-- 查询服务指标、近期错误日志，检索 Markdown 排障文档。
-- 通过服务白名单登记多个本地应用，在页面选择服务；接入接口与示例见[接入说明](docs/SERVICE_INTEGRATION.md)。
-- 在[项目源码页](docs/SOURCE_INTEGRATION.md)登记、修改或解绑本机 Java 项目，按类、方法或接口检索；排查结果展示带行号的代码引用和静态调用关系，按观测类型提示核查位置，模型读取需要单独授权。
-- 开启 [MVC 接口观测](docs/STARTER.md)后可按接口分别排查，依据实际匹配的处理方法关联源码入口；正常接口与超时接口的窗口统计分别计算。
-- HTTP V3 可选显示响应状态分类，针对 404/5xx 只给出已有分布和证据边界；未采集时保持未采集。
-- 支持[入站请求模式](docs/INBOUND_HTTP.md)，没有 HTTP 下游时无需填写占位地址；下游指标明确显示未采集，旧记录中的零超时仍保留原值。
-- 可选[请求失败分类](docs/REQUEST_EXECUTION.md)，区分执行异常、单纯 5xx、异步超时／错误和已处理异常；固定规则与模型共用证据门槛，只确认异常阶段。
-- 在工作任务中显式包装观测上下文，或可选开启 MVC Callable / WebAsyncTask 传播；并发调用可累计，响应完成后不再接受迟到结果。
-- 本机服务可使用普通上下文路径，Starter 观测接口可选配置令牌并重叠轮换。
-- 提供 [Spring Boot Starter](docs/STARTER.md) 复用只读观测接口，独立[商品应用](catalog-service/README.md)验证 HTTP 与 JDBC 接入。
-- 用 HikariCP 与 H2 实际触发[数据库连接池耗尽](docs/DATABASE_POOL.md)，区分获取连接超时与 SQL 查询失败，并验证释放后的恢复。
-- SQL 执行失败单独判断阶段与证据，不据此猜测锁等待、语法或数据库内部原因。
-- 在页面生成正常请求或库存超时请求，排查真实的本地请求记录。
-- 通过 SSE 展示工具执行进度，点击结论中的引用可以查看证据原文。
-- 保存执行记录，支持历史查询和事件重放。
-- 开启本机源码检索后，可将 HTTP V3 的错误位置关联到方法和源码行，区分候选、行号不符及索引外位置。
-- 通过构建源码摘要核对代码版本；普通业务异常中属于已选 MVC 处理类的帧可核对该类摘要，可选 Java Agent 还能核对唯一加载的其他业务类。摘要不同时保留运行诊断，停止采用不一致版本的源码。
-- 在项目源码页检查服务接入，核对观测、请求窗口、源码绑定、入口与构建摘要，并查看下一步操作。
-- 提供[官方 Spring Petclinic 接入示例](docs/PETCLINIC.md)，验证 MVC、JPA 阶段、错误位置与构建摘要；[Petclinic REST 验收](docs/validation/2026-10-01-cross-thread-observations.md)另核对上下文路径、响应分类和异步辅助入口。
-- 概览、证据、执行记录分开查看，支持搜索历史记录。
-- 在[完整历史页面](docs/WORKSPACE.md)分页查找更早的记录，按服务、接口、状态、模式和日期筛选，查看执行统计，确认后删除已结束记录。
-- 在工作区查看执行结果分布、耗时、模型调用与已知 Token 用量，以及各服务的观测接口状态。
-- 限制工具调用次数和执行时间，分别处理执行失败与证据不足。
-- 支持[主动取消排查](docs/RUN_CONTROLS.md)，保留已有证据；展示输入、输出 Token 和用量完整程度，并提供失败后的检查提示。
-- 模型模式校验工具参数和结果引用，记录调用轮数及服务端返回的 token 用量。
-- 在[模型设置页](http://127.0.0.1:18080/settings.html)添加、测试和选择模型服务；更改配置无需重启。
+| 能力 | 可以做什么 |
+| --- | --- |
+| 服务排查 | 查询窗口指标与错误事件，核对 HTTP 下游超时、请求执行异常、连接池耗尽和 SQL 执行阶段失败 |
+| 源码定位 | 按类、方法和接口检索 Java 项目，将观测关联到接口入口、业务错误行和静态调用关系，核对构建源码摘要 |
+| Spring Boot 接入 | 通过 Starter 提供只读观测接口，支持 MVC、HTTP、JDBC，以及显式接入的 JPA 与异步上下文观测 |
+| 模型配置 | 在页面添加、测试和切换模型，提供 DeepSeek、百炼、GLM、Kimi、LM Studio 与兼容接口预设 |
+| 排查记录 | SSE 实时进度、证据引用、主动取消、历史筛选、事件重放和模型用量统计 |
+| 本机存储 | H2 开箱即用，也可切换 PostgreSQL；模型密钥加密保存，源码发送单独授权 |
 
-## 快速启动
+<details>
+<summary>查看源码排查截图</summary>
 
-免构建演示包的版本为 [v0.11.0](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.11.0)，包含订单、库存、数据库、Starter、可选 Java Agent 和工单源码示例。需要 JDK 21，完整解压后运行：
+![HTTP 超时观测关联到业务源码行](docs/assets/source-triage.png)
 
-包内登记五个服务，统一启动八个进程。端口、源码演示与升级方法见 [v0.11.0 说明](docs/releases/v0.11.0.md)；包内 `SOURCE_DEMO.md` 可以逐步操作。v0.10.0、v0.6.0 及更早版本的附件保持原样。
+[源码演示录像](docs/assets/agent-triage-source-demo.mp4)展示接口对照、错误位置、构建摘要差异和接入检查。
 
-v0.11.0 增加入站 V4、可选请求失败分类，并纳入容量和资源释放修复。新增开关默认关闭，接入说明在包内 `OBSERVATIONS.md`。独立 Java Agent 仍为可选；[JPA 数据库观测](docs/STARTER.md#jpa-数据库观测)需业务应用显式接入，[官方 Petclinic 验收](docs/PETCLINIC.md)覆盖实际请求。
+</details>
+
+### 开发中的研发协作
+
+[开发分支](https://github.com/MoChiUaena/agent-triage/tree/feature/development-workflows)已提供 GitHub 仓库概览、CI 日志排障、固定版本 PR 审查、Issue 分诊和 PR 协同工作流，入口与范围见[研发协作说明](https://github.com/MoChiUaena/agent-triage/blob/feature/development-workflows/docs/DEVELOPMENT_COLLABORATION.md)。这些功能仍在独立 PR 中，尚未包含在 `main` 或 v0.11.0 演示包中。
+
+## 快速开始
+
+### 下载演示包
+
+需要 **JDK 21+**。从 [v0.11.0 预览版](https://github.com/MoChiUaena/agent-triage/releases/tag/v0.11.0)下载 `agent-triage-0.11.0-demo.zip`，完整解压后运行：
+
+**Windows**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start-demo.ps1
 ```
 
-macOS/Linux 使用 `bash start-demo.sh`，另需 curl。首次默认用固定规则读取实际本地请求；按 Ctrl+C 一起停止。数据库与日志保存在解压目录。下面是从 v0.11.0 源码启动的方式。
+**macOS / Linux**（需要 Bash 和 curl）
 
-需要 JDK 21+。仓库自带 Maven Wrapper，首次构建会下载 Maven 和依赖。
+```bash
+bash start-demo.sh
+```
+
+打开 <http://127.0.0.1:18080>，选择订单服务，生成正常请求或触发库存超时，再开始排查。演示包统一启动 Agent 和样例服务，默认读取真实本机请求，无需 API Key。按 `Ctrl+C` 一起停止。
+
+数据库、日志和模型设置保存在解压目录。端口、源码演示和升级方法见[版本说明](docs/releases/v0.11.0.md)。
+
+### 从源码运行
+
+需要 **JDK 21+** 和 Git。仓库自带 Maven Wrapper，首次运行会下载构建依赖。
+
+**Windows**
 
 ```powershell
 git clone https://github.com/MoChiUaena/agent-triage.git
 cd agent-triage
-# 按本机 JDK 安装位置修改；已配置 JDK 21 时可跳过
-$env:JAVA_HOME = 'C:\path\to\jdk-21'
-.\mvnw.cmd verify
 .\mvnw.cmd spring-boot:run
 ```
 
-macOS / Linux：设置好 JDK 21 后运行 `./mvnw verify`，再运行 `./mvnw spring-boot:run`。
+**macOS / Linux**
 
-打开 <http://127.0.0.1:18080>。默认使用 H2 文件数据库，记录保存在 `data/` 目录。按 `Ctrl+C` 停止服务。
-
-也可以打包运行：`./mvnw package`，然后执行 `java -jar target/agent-triage-0.11.0.jar`。Windows 下重新打包前需先停止正在运行的 JAR。
-
-## 跑通本地真实请求
-
-先在两个终端分别启动[库存服务](inventory-service/README.md)和[订单服务](sample-service/README.md)：
-
-```powershell
-.\mvnw.cmd -f inventory-service/pom.xml verify
-java -jar inventory-service/target/triage-inventory-service-0.11.0.jar
+```bash
+git clone https://github.com/MoChiUaena/agent-triage.git
+cd agent-triage
+./mvnw spring-boot:run
 ```
 
-```powershell
-.\mvnw.cmd -f sample-service/pom.xml verify
-java -jar sample-service/target/triage-sample-service-0.11.0.jar
+打开 <http://127.0.0.1:18080>，输入“订单查询接口为什么变慢了？”，尝试“下游超时”和“正常对照”两个场景。源码启动默认使用规则模式和明确标记的合成数据。
+
+打包运行、真实请求样例、PostgreSQL 和常用配置见[运行指南](docs/RUNNING.md)。
+
+## 接入自己的服务
+
+1. **接入观测。** 使用 [Spring Boot Starter](docs/STARTER.md)，或实现[服务观测协议](docs/SERVICE_INTEGRATION.md)。在 Agent 配置中登记服务后，可在页面选择它。
+2. **绑定源码。** 在“项目源码”登记本机 Java 项目并绑定服务，运行“检查接入”，核对观测、源码入口和构建版本。方法见[源码接入](docs/SOURCE_INTEGRATION.md)。
+3. **生成实际请求。** 查询有请求的时间窗口，在结果中核对指标、错误事件和代码引用。已有 [Spring Petclinic 接入示例](docs/PETCLINIC.md)可参考。
+
+接入前可阅读[应用接入与运行限制](docs/APPLICATION_ADOPTION.md)，按需要选择 HTTP、数据库或入站请求观测。Agent 读取的是约定的观测接口，服务需要提供对应数据。
+
+### 启用模型
+
+打开本机“模型设置”页面，添加服务地址、模型名称和 API Key，测试连接后选择当前模型。支持的协议、供应商预设、调用限制与费用说明见[模型配置](docs/MODELS.md)。
+
+启用模型会向所选服务发送排查上下文；源码发送还需单独授权。模型调用受轮次、工具次数和时限限制，应用会校验判断与证据引用，证据不足时不会给出完整判断。
+
+## 工作方式
+
+一次排查经过：**提交问题 → 读取观测与文档 → 校验判断和引用 → 展示证据与检查建议 → 保存记录**。
+
+规则模式执行固定的只读工具；模型模式通过 Spring AI 选择工具和有效证据。源码检索补充本机代码位置，构建摘要用于检查运行代码与索引是否对应。执行记录保存在 H2 或 PostgreSQL，页面通过 SSE 接收进度。
+
+当前面向本机单实例使用，尚无多用户鉴权、集群任务协调或自动修复。工具不执行任意 Shell 或 SQL。结果描述所选窗口中已采集的现象与异常阶段，仍需开发者核对业务根因。
+
+## 项目结构
+
+```text
+src/                       Agent 服务、网页、工具与执行记录
+triage-spring-boot-starter/ Spring Boot 观测接入组件
+sample-service/            订单请求样例
+inventory-service/         HTTP 下游样例
+database-service/          HikariCP / H2 数据库样例
+catalog-service/           Starter 接入样例
+verification/              独立工单服务与接入验证项目
+docs/                      接入、架构、版本与验证说明
 ```
-
-在第三个终端启动排障助手：
-
-```powershell
-$env:TRIAGE_OBSERVATION_SOURCE = 'LIVE'
-.\mvnw.cmd spring-boot:run
-```
-
-打开 <http://127.0.0.1:18080>，点击“生成正常请求”或“触发库存超时”，再点“开始排查”。页面会显示实际请求数、耗时、超时率和带 traceId 的错误事件。订单和库存服务分别监听本机 `18082`、`18084` 端口；错误事件写入本地 JSON Lines 文件，指标可通过两个服务的 Actuator 端点核对。浏览器中的生成流量按钮与只读的 Agent 工具分开。
-
-也可以运行 `python scripts/live_smoke.py --agent-url http://127.0.0.1:18080`，复查空窗口、正常与超时三条链路。默认合成模式不需要启动样例服务。
-
-## 试一下
-
-默认合成模式下，输入“订单查询接口为什么变慢了？”，分别运行以下两个场景：
-
-| 场景 | 订单查询 p95 | 库存调用 p95 | 库存调用超时率 |
-|---|---|---|---|
-| 下游超时 | 2350ms | 2100ms | 18% |
-| 正常对照 | 120ms | 45ms | 0% |
-
-这些是演示适配器的固定数据。超时场景会提示检查库存下游调用；正常场景会提示未发现下游超时证据。点击引用可跳转到“证据”标签页查看原文，指标和日志也可以单独展开。
-
-切换场景只影响新执行。刷新页面后，可以从“历史与统计”重新打开结果。输入“写一首诗”等无关问题，会返回“证据不足”。
-
-侧栏只保留服务排查、历史与统计、项目源码和模型设置四个入口。到“历史与统计”可搜索、筛选并打开完整记录；首页的“新建排查”会清空当前结果，保留已有记录。输入问题后也可按 `Ctrl+Enter` 提交（macOS 为 `⌘+Enter`）。窄屏下通过左上角菜单打开同一套导航。
-
-## PostgreSQL
-
-如需使用 PostgreSQL，先通过 Docker Compose 启动数据库：
-
-```powershell
-docker compose up -d --wait postgres
-$env:SPRING_PROFILES_ACTIVE = 'postgres'
-.\mvnw.cmd spring-boot:run
-```
-
-默认连接本机 `15432` 端口，数据库名和用户均为 `triage`，本地演示密码为 `triage-local-demo`。可通过 `TRIAGE_DB_URL`、`TRIAGE_DB_USER`、`TRIAGE_DB_PASSWORD` 覆盖。
-
-自定义密码需在首次初始化数据库前设置；修改环境变量不会更新已有数据卷的密码。使用 `docker compose stop` 停止数据库，清除 `SPRING_PROFILES_ACTIVE` 后可切回 H2。两种存储的历史记录相互独立。
-
-## 模型模式
-
-打开[模型设置页](http://127.0.0.1:18080/settings.html)，选择 DeepSeek、阿里云百炼、智谱 GLM、Kimi、LM Studio 或自定义兼容接口，再填写 API Key。保存后可测试连接并设为当前模型。配置方法、调用限制和费用说明见[模型配置](docs/MODELS.md)。
-
-模型链路已通过本地模拟接口与真实百炼检查。新版模型只选择判断、工具、引用和候选检查项；应用校验当前观测并生成关键结论，原始与展示检查项分开保存。其他供应商预设尚未用真实凭据验证。
-
-配置模型并启用 LIVE 数据源后，可用 `python scripts/live_model_eval.py --allow-model-calls` 检查空窗口、正常与库存超时三条链路。脚本保存工具顺序、证据引用、模型轮次和用量；服务端可能计费。运行方法和模拟接口结果见[小规模评测](docs/EVALUATION.md#live-数据源与模型模式)。
-
-要比较“仅检索文档”和 Agent 的实际回答，可运行 `python scripts/compare_live_methods.py --allow-model-calls`。默认先跑四个调试案例，结果写入 `target/live-comparison/`；评审方法和留出集约束见[小规模评测](docs/EVALUATION.md#后续比较)。
-
-当前结果见 [v4 首次留出对照](docs/validation/2026-09-28-v4-holdout.md)。[旧版自由文本报告](docs/validation/2026-09-27-holdout-comparison.md)保留误写证据与过强归因等失败，新版不会改写旧历史。输出格式和反馈限额见[模型判断契约](docs/MODEL_OUTPUT.md)。
-
-## 测试
-
-```powershell
-.\mvnw.cmd -B -ntp verify
-# 保持服务运行，在另一个终端执行；需要 Python 3.10+
-python scripts/smoke.py
-```
-
-JUnit 覆盖工具参数、超时与取消、引用校验、重启恢复、HTTP 接口和 SSE 重放。冒烟脚本运行 4 个案例，将结果写入 `target/smoke/`。依赖缓存后可以使用 `./mvnw -o verify` 离线测试。
-
-CI 在 Windows、Linux 和 PostgreSQL 环境运行，不需要模型凭据。具体覆盖范围和运行结果见[测试说明](docs/VALIDATION.md)。
-
-## 配置
-
-| 设置 | 默认值 | 含义 |
-|---|---|---|
-| `PORT` | `18080` | HTTP 端口 |
-| `TRIAGE_MAX_TOOL_CALLS` | `3` | 每次执行调用上限，可配置 1–10 |
-| `TRIAGE_TOOL_TIMEOUT` | `2s` | 单次工具超时，范围 1ms–10s |
-| `TRIAGE_RUN_TIMEOUT` | `60s` | 整体执行超时，范围 1ms–120s |
-| `SPRING_PROFILES_ACTIVE` | 未设置 | 设置 `postgres` 切换数据库 |
-
-默认查询 `order-service`，也可以通过[服务配置与观测接口](docs/SERVICE_INTEGRATION.md)接入其他本地 Spring Boot 服务。时间窗口为 1–60 分钟，可按服务收紧，问题最多 200 字符。超时从提交时开始计时；数据库 I/O 和不响应中断的工具仍可能超过该时限，详见[执行与超时](docs/ARCHITECTURE.md#执行与超时)。
-
-应用默认仅监听本机地址，尚未实现鉴权、多实例协调和自动记录清理。历史页可先预览再手动清理旧终态记录；提交的问题仍会保存在数据库中，请勿输入敏感信息。
 
 ## 文档
 
-- [项目导览](docs/PROJECT_GUIDE.md)
-- [API](docs/API.md)
-- [模型配置](docs/MODELS.md)
-- [架构](docs/ARCHITECTURE.md)
-- [本地真实请求链路](docs/LIVE_LAB.md)
-- [接入其他服务](docs/SERVICE_INTEGRATION.md)
-- [数据库连接池排查](docs/DATABASE_POOL.md)
-- [取消、失败提示与用量](docs/RUN_CONTROLS.md)
-- [小规模评测](docs/EVALUATION.md)
-- [开发计划](docs/ROADMAP.md)
-- [贡献指南](CONTRIBUTING.md)
+| 我想了解 | 文档 |
+| --- | --- |
+| 项目用途、运行模式与页面结果 | [项目导览](docs/PROJECT_GUIDE.md) |
+| 安装、数据库与常用配置 | [运行指南](docs/RUNNING.md) |
+| 接入现有 Spring Boot 应用 | [接入选择](docs/APPLICATION_ADOPTION.md) · [Starter](docs/STARTER.md) · [观测协议](docs/SERVICE_INTEGRATION.md) |
+| 将请求与源码位置关联 | [源码接入](docs/SOURCE_INTEGRATION.md) · [Petclinic 示例](docs/PETCLINIC.md) |
+| 配置模型与控制调用 | [模型配置](docs/MODELS.md) · [判断契约](docs/MODEL_OUTPUT.md) |
+| 排查具体场景 | [HTTP 请求链路](docs/LIVE_LAB.md) · [数据库连接池](docs/DATABASE_POOL.md) · [入站请求](docs/INBOUND_HTTP.md) |
+| 阅读设计和接口 | [架构](docs/ARCHITECTURE.md) · [API](docs/API.md) |
+| 查看测试和评测 | [测试说明](docs/VALIDATION.md) · [小规模评测](docs/EVALUATION.md) |
+| 查看版本与后续开发 | [更新记录](CHANGELOG.md) · [开发计划](docs/ROADMAP.md) · [Releases](https://github.com/MoChiUaena/agent-triage/releases) |
 
-项目采用 [MIT License](LICENSE)。Maven Wrapper 使用 Apache-2.0 许可证，保留原有许可证头。
+## 开发与测试
+
+```powershell
+# Windows
+.\mvnw.cmd verify
+```
+
+```bash
+# macOS / Linux
+./mvnw verify
+```
+
+默认测试无需模型密钥。CI 覆盖 Windows、Linux 与 PostgreSQL，检查工具参数、证据引用、执行限额、取消和恢复；实际模型评测单独运行，详见[测试说明](docs/VALIDATION.md)。
+
+## 参与贡献
+
+欢迎提交问题、改进文档、补充观测接入和排查场景。
+
+- 反馈问题或提出建议：[GitHub Issues](https://github.com/MoChiUaena/agent-triage/issues)。请附版本、运行方式、复现步骤和已脱敏的错误信息。
+- 提交修改：阅读[贡献指南](CONTRIBUTING.md)，在 PR 中说明改动和验证方式。
+- 分享接入经验：说明使用的 Spring Boot 版本、观测类型和复现项目，便于其他开发者复用。
+
+请勿提交真实业务日志、API Key、本地数据库或包含凭据的配置文件。
+
+## 许可证
+
+项目采用 [MIT License](LICENSE)。
