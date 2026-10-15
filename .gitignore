@@ -11,3 +11,4 @@ application-local.*
 *.iml
 .vscode/
 .DS_Store
+/plan.md

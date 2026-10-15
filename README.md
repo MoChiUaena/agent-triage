@@ -148,7 +148,7 @@ docs/                      接入、架构、版本与验证说明
 | 排查具体场景 | [HTTP 请求链路](docs/LIVE_LAB.md) · [数据库连接池](docs/DATABASE_POOL.md) · [入站请求](docs/INBOUND_HTTP.md) |
 | 阅读设计和接口 | [架构](docs/ARCHITECTURE.md) · [API](docs/API.md) |
 | 查看测试和评测 | [测试说明](docs/VALIDATION.md) · [小规模评测](docs/EVALUATION.md) |
-| 查看版本与后续开发 | [更新记录](CHANGELOG.md) · [开发计划](plan.md) · [阶段记录](docs/ROADMAP.md) · [Releases](https://github.com/MoChiUaena/agent-triage/releases) |
+| 查看版本与后续开发 | [更新记录](CHANGELOG.md) · [开发计划](docs/ROADMAP.md) · [Releases](https://github.com/MoChiUaena/agent-triage/releases) |
 
 ## 开发与测试
 
