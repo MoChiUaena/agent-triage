@@ -1,5 +1,7 @@
 # 研发协作功能计划
 
+后续执行顺序以根目录 [plan.md](../plan.md) 为准；本文记录研发协作的现有范围和分阶段方向。
+
 参考 [DevFlow 的公开功能说明](https://xiaolincoding.com/project/devflow.html)，Agent Triage 在 Java 服务排查之外提供 GitHub 研发协作。仓库概览、CI 排障、PR 审查、Issue 分诊与协同工作流已合入主分支；知识、记忆、报告与操作草稿继续按下方计划推进。
 
 ## 当前差距
