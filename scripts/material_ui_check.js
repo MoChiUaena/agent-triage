@@ -12,7 +12,7 @@ class Element {
 }
 const nodes=new Map(),document={querySelector(selector){if(!nodes.has(selector))nodes.set(selector,new Element());return nodes.get(selector);},createElement:()=>new Element()};
 let resolvePreview,requests=[],deferScopes=false;
-const scopeRequests=[],scopeFixture=[{kind:"REPOSITORY",id:"repo",name:"acme/<repo>"},{kind:"SERVICE",id:"order",name:"订单",service:"order"}];
+const scopeRequests=[],scopeFixture=[{kind:"REPOSITORY",id:"repo",name:"acme/<repo>"},{kind:"SERVICE",id:"order",name:"订单",service:"order"},{kind:"PROJECT",id:"project",name:"项目",service:"order"}];
 const window={location:{search:"",hash:"#materials"}};
 const fixture={id:"preview",expiresAt:"2026-10-15T01:00:00Z",contentSha256:"a".repeat(64),text:"<script>untrusted</script>",
   recipient:{available:false,displayName:"未启用 <img>",model:null,baseUrl:null,version:0,message:"可继续阅读"},
@@ -67,5 +67,14 @@ vm.runInContext(fs.readFileSync(path.join(__dirname,"../src/main/resources/stati
   assert.equal(document.querySelector("#material-result").hidden,true);
   assert.equal(document.querySelector("#material-text").textContent,"");
   assert.equal(document.querySelector("#material-recipient").textContent,"");
+  document.querySelector("#material-type").value="KNOWLEDGE";window.materialPanel.changeType();
+  assert.equal(document.querySelector("#material-scope").children.length,3);
+  assert.equal(document.querySelector("#material-scope").children.some(n=>n.value==="SERVICE:order"),false);
+  document.querySelector("#material-scope").value="PROJECT:project";document.querySelector("#material-report-id").value="version";
+  const knowledge=window.materialPanel.preview();
+  const selection=JSON.parse(requests.at(-1).options.body).references[0];assert.equal(selection.type,"KNOWLEDGE");assert.equal(selection.projectId,"project");
+  const originalLink="/sources.html?scopeKind=PROJECT&scopeId=project&version=version#knowledge";
+  resolvePreview({ok:true,json:async()=>({...fixture,materials:[{...fixture.materials[0],reference:{...fixture.materials[0].reference,type:"KNOWLEDGE",originalLink}}]})});await knowledge;
+  assert.equal(document.querySelector("#material-references").children[0].children.at(-1).href,originalLink);
   console.log("Material UI passed: deferred scope loading during edits, tab scope races, explicit scopes, no-key reading, safe text, original links and stale cleanup");
 })().catch(error=>{console.error(error);process.exitCode=1;});

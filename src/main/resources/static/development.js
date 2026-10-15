@@ -90,6 +90,7 @@ function renderHealth(snapshot) {
 }
 async function loadHealth() {
   const id = $("#repository-select").value, version = ++selectionVersion;
+  loadRepositoryKnowledge(id, version);
   window.workflowPanel?.selectRepository(id);
   window.issuePanel?.selectRepository(id);
   window.prPanel?.selectRepository(id);
@@ -98,6 +99,17 @@ async function loadHealth() {
   try { const snapshot = await request("/api/development/repositories/" + id + "/health"); if (version === selectionVersion) renderHealth(snapshot); }
   catch (error) { if (version === selectionVersion) { $("#repository-health").hidden = true; notice(error.message, true); } }
   finally { if (version === selectionVersion) setBusy(false); }
+}
+async function loadRepositoryKnowledge(id, version) {
+  const target = $("#repository-knowledge"), manage = $("#repository-knowledge-manage");
+  target.replaceChildren(); manage.href = id ? "/sources.html?scopeKind=REPOSITORY&scopeId=" + encodeURIComponent(id) + "#knowledge" : "/sources.html#knowledge";
+  if (!id) { target.append(element("p", "选择仓库后查看已导入资料。")); return; }
+  try {
+    const values = await request("/api/knowledge/sources?scopeKind=REPOSITORY&scopeId=" + encodeURIComponent(id));
+    if (version !== selectionVersion || id !== $("#repository-select").value) return;
+    if (!values.length) target.append(element("p", "此仓库尚无导入知识，可在项目源码页选择固定 SHA 后预览导入。"));
+    for (const source of values) target.append(element("p", source.state + " · v" + source.revision + " · " + (source.commitSha || "无提交") + " · " + source.documents + " 个当前文档 · " + time(source.importedAt)));
+  } catch (error) { if (version === selectionVersion) target.append(element("p", error.message)); }
 }
 async function loadRepositories(selected = $("#repository-select").value) {
   const version = ++listVersion;

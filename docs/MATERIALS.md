@@ -51,13 +51,15 @@ $preview.text
 
 公开契约位于 `material/MaterialModels.java`：
 
-- `Selection(Type type, UUID reportId, UUID projectId, UUID repositoryId, String service)`：调用方只选择保存的 ID，内容和范围由服务器核对。类型为 `SERVICE/PR/ISSUE/CI/WORKFLOW`。
+- `Selection(Type type, UUID reportId, UUID projectId, UUID repositoryId, String service)`：调用方只选择保存的 ID，内容和范围由服务器核对。类型为 `SERVICE/PR/ISSUE/CI/WORKFLOW/KNOWLEDGE`。知识使用不可变原文版本 UUID，并必须明确提供已登记项目或仓库范围；详见 [项目知识](PROJECT_KNOWLEDGE.md)。
 - `MaterialService.scopes(): List<ScopeOption>`；`MaterialService.resolve(Selection): Material`。
 - `SendPreviewService.create(List<Selection>): Preview`；`get(UUID): Preview`；`consume(UUID, boolean): Consumed`。
 - `Reference` 保存来源类型、报告 ID、服务器推导的 `Scope`、版本、保存快照内容 SHA256、读取时间、确认状态和本机原报告链接。`Material` 保存实际正文、准确字段路径和省略说明。
 - `Preview` 保存当前接收方身份 / 配置版本 / Base URL、材料引用、完整正文及正文 SHA256、裁剪说明、创建和过期时间。`Consumed` 返回同一正文和哈希、接收方及 `CONFIRMED` 引用。
 
 后续 C1/A1/A2 调用方必须在真正发送前消费预览，并仅使用返回的正文；不能重新拼接最新报告或直接使用读取预览 API 代替消费验证。接收方检查不会发送探测请求，也不会返回模型客户端或密钥。B0 不接受任意聊天正文或用户提供的材料内容，未来的问题 / 历史拼接需在创建预览时单独扩展并完整预览。
+
+K1 知识适配：`consume(UUID,boolean,boolean documentsConfirmed)` / REST `documentsConfirmed` 另行确认资料外发，默认 false。普通 `confirmed`、本机导入或本机预览均不授予文档发送权限。存在 KNOWLEDGE 时，旧双参数消费方法拒绝；当前知识来源必须仍有效且范围仍登记。历史原文读取不要求登记仍存在。
 
 ## 范围与失效规则
 
@@ -72,7 +74,7 @@ $preview.text
 - 工作流只包含计划、任务状态、仓库概览、检查项和摘要。内嵌 PR / Issue / CI 子报告正文不重复加入，需要分别引用已保存子报告。
 - 不读取当前磁盘源码、不验证远程仓库最新提交、不刷新运行观测。源码文件改变而尚未重新索引时，不会发现磁盘变化；这里不发送任何源码片段。更改或删除旧材料不会改变已保存原报告。
 - 材料明确标为不可信证据，不能作为系统指令或执行命令。脱敏属于尽力过滤，不能把任意文本当作安全脚本；后续模型调用方仍须使用独立系统约束。
-- 页面目前一次选择一份报告；Java / REST 支持同范围最多四份。未包含知识导入、持续追问、模型调用、外部写入或新插件平台。
+- 页面目前一次选择一份材料；Java / REST 支持同范围最多四份。K1 已扩展知识不可变版本适配；持续追问、模型调用和外部写入不在此接口内实现。
 
 ## 离线验证
 

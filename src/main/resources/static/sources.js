@@ -31,7 +31,7 @@ function notice(text, failure = false) {
 }
 function lock(value) {
   busy = value;
-  document.querySelectorAll("main button").forEach(button => button.disabled = value || button.dataset.unbound === "true");
+  document.querySelectorAll("main button").forEach(button => { if (!button.closest("#knowledge")) button.disabled = value || button.dataset.unbound === "true"; });
   $("#register-source").disabled = value || !$("#source-service").value;
   $("#search-source").disabled = value || !projects.length;
   $("#check-source-ready").disabled = value || !services.length;
@@ -145,6 +145,7 @@ async function reload() {
   if (services.some(service => service.id === selected)) $("#check-source-service").value = selected;
   clearReadiness(); checkWindows();
   render();
+  window.knowledgePanel?.refreshScopes();
 }
 function clearReadiness() {
   readinessVersion++; $("#source-check-result").replaceChildren();

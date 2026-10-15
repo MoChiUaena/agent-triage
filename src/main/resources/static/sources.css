@@ -86,3 +86,11 @@
 .call-other > summary { padding: 12px 0; cursor: pointer; font-size: 13px; color: var(--muted); }
 .call-limit { padding: 12px 15px; background: #fff8e9; border-radius: 6px; }
 @media (max-width: 900px) { .source-registration .form-grid { grid-template-columns: 1fr; gap: 0; } }
+#knowledge { margin-top: 24px; }
+#knowledge .form-field { margin-bottom: 14px; }
+#knowledge pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f4f8fe; padding: 12px; border-radius: 8px; max-height: 480px; overflow: auto; }
+#knowledge p, #knowledge li { overflow-wrap: anywhere; }
+#knowledge article { margin-top: 12px; }
+#knowledge article > button { margin: 5px 8px 5px 0; }
+#knowledge .knowledge-consent { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0; }
+#knowledge .knowledge-consent input { width: auto; flex-shrink: 0; }

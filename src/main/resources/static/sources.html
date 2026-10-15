@@ -13,6 +13,7 @@
   <script src="/navigation.js" defer></script>
   <script src="/source-view.js" defer></script>
   <script src="/sources.js" defer></script>
+  <script src="/knowledge.js" defer></script>
 </head>
 <body class="settings-page">
   <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
@@ -64,6 +65,24 @@
         <div id="source-chain-view"></div>
       </section>
       <p class="settings-footnote">索引只保存路径、符号、行号和文件摘要。源码变动后需要重新索引；重新索引会关闭已有模型授权。</p>
+      <section id="knowledge" class="source-search-box" aria-labelledby="knowledge-heading">
+        <div class="settings-heading"><h2 id="knowledge-heading">项目知识</h2><button id="knowledge-refresh" class="secondary" type="button">刷新知识 / 任务</button></div>
+        <p class="source-result-note">导入本机 Markdown / TXT 或登记 GitHub 仓库固定提交中的根 README 与 docs/。全部在本机整理，不执行文档指令、不调用模型；资料外发默认关闭。</p>
+        <p class="source-result-note">每次最多 100 个文档、单文件 256 KiB、总计 2 MiB、1000 段、每段 2000 字符；最多遍历 5000 条目 / 20 层。排除日志、构建目录、凭据、二进制和链接。预览最多缓存 10 份、十分钟有效；2 个并发预览读取，1 个导入执行、4 个排队。</p>
+        <form id="knowledge-form">
+          <div class="form-field"><label for="knowledge-scope">已登记的项目 / 仓库</label><select id="knowledge-scope"><option value="">正在读取范围…</option></select></div>
+          <div id="knowledge-local" class="form-field" hidden><label for="knowledge-directory">本机文档绝对目录</label><input id="knowledge-directory" maxlength="2048" placeholder="留空默认登记项目根目录，也可另选文档文件夹" /><p class="source-field-note">预览后会显示规范化的准确目录和文件清单；不接受网络路径、磁盘根目录和链接。</p></div>
+          <div id="knowledge-github" class="form-field" hidden><label for="knowledge-commit">固定提交 SHA</label><input id="knowledge-commit" maxlength="40" pattern="[a-fA-F0-9]{40}" placeholder="完整 40 位提交 SHA，不接受分支名" /></div>
+          <button id="knowledge-preview-button" class="secondary" type="submit" disabled>预览读取范围</button>
+        </form>
+        <p id="knowledge-notice" class="source-result-note" role="status"></p>
+        <div id="knowledge-preview" hidden></div>
+        <label class="knowledge-consent"><input id="knowledge-confirm" type="checkbox" />我已核对上方目录 / SHA、文件与排除项，同意在本机导入此范围。</label>
+        <button id="knowledge-import" class="primary" type="button" disabled>导入已预览范围</button>
+        <div id="knowledge-jobs" aria-live="polite"></div>
+        <h3>来源管理（最多显示 100 个）</h3><p class="source-result-note">更新会保留历史文档；解绑与软删除立即停止新检索与材料发送，历史引用保留。重新绑定或重新导入须新预览。取消、失败和重启中断均不会切换当前有效版本。</p>
+        <div id="knowledge-sources"></div><div id="knowledge-versions"></div><div id="knowledge-original"></div>
+      </section>
     </main>
   </div>
   <dialog id="source-sharing-dialog" aria-labelledby="sharing-title">

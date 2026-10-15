@@ -3,7 +3,7 @@
   const $=selector=>document.querySelector(selector);
   const node=(tag,text)=>{const value=document.createElement(tag);if(text!=null)value.textContent=text;return value;};
   const parameters=new URLSearchParams(window.location.search);
-  const types=["SERVICE","PR","ISSUE","CI","WORKFLOW"];
+  const types=["SERVICE","PR","ISSUE","CI","WORKFLOW","KNOWLEDGE"];
   let scopes=[],active=false,generation=0,scopeGeneration=0;
   $("#material-type").value=types.includes(parameters.get("type"))?parameters.get("type"):"SERVICE";
   $("#material-report-id").value=parameters.get("report")||"";
@@ -20,7 +20,8 @@
   }
   function changeType(){
     reset(); const service=$("#material-type").value==="SERVICE", field=$("#material-scope");
-    const previous=field.value, available=scopes.filter(scope=>service?scope.kind!=="REPOSITORY":scope.kind==="REPOSITORY");
+    const knowledge=$("#material-type").value==="KNOWLEDGE";
+    const previous=field.value, available=scopes.filter(scope=>knowledge?scope.kind!=="SERVICE":service?scope.kind!=="REPOSITORY":scope.kind==="REPOSITORY");
     const empty=node("option","请选择明确范围");empty.value="";
     field.replaceChildren(empty,...available.map(scope=>{
       const option=node("option",({PROJECT:"项目",REPOSITORY:"仓库",SERVICE:"服务"}[scope.kind])+" · "+scope.name+(scope.service?" · "+scope.service:""));
@@ -48,7 +49,7 @@
       card.append(node("strong",ref.type+" / "+ref.reportId),node("p","项目 "+(scope.projectId||"—")+" · 仓库 "+(scope.repositoryId||"—")+" · 服务 "+(scope.service||"—")),
         node("p","版本 "+ref.version+"\n快照 SHA256 "+ref.contentSha256+"\n读取于 "+new Date(ref.readAt).toLocaleString("zh-CN",{hour12:false})),node("p","纳入字段："+material.fields.join("、")));
       const link=node("a","打开原报告");
-      if(/^\/(?:\?run=|development\.html\?)/.test(ref.originalLink))link.href=ref.originalLink;
+      if(/^\/(?:\?run=|development\.html\?|sources\.html\?)/.test(ref.originalLink))link.href=ref.originalLink;
       card.append(link);return card;
     }));
   }
