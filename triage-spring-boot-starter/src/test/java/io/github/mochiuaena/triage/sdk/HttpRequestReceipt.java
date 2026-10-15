@@ -9,11 +9,11 @@ final class HttpRequestReceipt {
     record Missing(int index, long startedUptimeMs, long startedWallMs) { }
     record Stage(boolean arrived, boolean bodyRead, boolean delayEntered, long startedUptimeMs, long startedWallMs) { }
     record StageGap(int index, boolean bodyRead, boolean delayEntered, long startedUptimeMs, long startedWallMs) { }
-    record Snapshot(int missingCount, List<Missing> firstMissing, int bodyReadCount, int delayEnteredCount,
+    record Snapshot(int missingCount, List<Missing> firstMissing, int bodyReadCount, int delayEnteredCount, int earlyIoAbortCount,
                     List<StageGap> firstStageGaps) { }
 
     private final long[] startedUptimeMs, startedWallMs;
-    private final BitSet received, bodyRead, delayEntered;
+    private final BitSet received, bodyRead, delayEntered, earlyIoAbort;
 
     HttpRequestReceipt(int requests) {
         if (requests < 1 || requests > 7200 * HttpResourceLifecycleTest.RPS)
@@ -23,6 +23,7 @@ final class HttpRequestReceipt {
         received = new BitSet(requests);
         bodyRead = new BitSet(requests);
         delayEntered = new BitSet(requests);
+        earlyIoAbort = new BitSet(requests);
     }
 
     synchronized void started(int index, long uptimeMs, long wallMs) {
@@ -45,8 +46,14 @@ final class HttpRequestReceipt {
     }
 
     synchronized boolean delayEntered(int index) {
-        if (index < 0 || index >= startedWallMs.length || !bodyRead.get(index) || delayEntered.get(index)) return false;
+        if (index < 0 || index >= startedWallMs.length || !bodyRead.get(index) || delayEntered.get(index) || earlyIoAbort.get(index)) return false;
         delayEntered.set(index);
+        return true;
+    }
+
+    synchronized boolean ioAbortedBeforeDelay(int index) {
+        if (index < 0 || index >= startedWallMs.length || !bodyRead.get(index) || delayEntered.get(index) || earlyIoAbort.get(index)) return false;
+        earlyIoAbort.set(index);
         return true;
     }
 
@@ -73,12 +80,12 @@ final class HttpRequestReceipt {
             if (!received.get(index)) {
                 missingCount++;
                 if (first.size() < 8) first.add(new Missing(index, startedUptimeMs[index], startedWallMs[index]));
-            } else if ((!bodyRead.get(index) || !delayEntered.get(index)) && stageGaps.size() < 8) {
+            } else if ((!bodyRead.get(index) || (!delayEntered.get(index) && !earlyIoAbort.get(index))) && stageGaps.size() < 8) {
                 stageGaps.add(new StageGap(index, bodyRead.get(index), delayEntered.get(index),
                     startedUptimeMs[index], startedWallMs[index]));
             }
         }
         return new Snapshot(missingCount, List.copyOf(first), bodyRead.get(0, issued).cardinality(),
-            delayEntered.get(0, issued).cardinality(), List.copyOf(stageGaps));
+            delayEntered.get(0, issued).cardinality(), earlyIoAbort.get(0, issued).cardinality(), List.copyOf(stageGaps));
     }
 }
