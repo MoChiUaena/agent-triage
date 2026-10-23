@@ -123,7 +123,7 @@ public class MaterialService {
         void add(String path,JsonNode value,Type type) {
             String leaf=path.substring(path.lastIndexOf('.')+1);
             if (Set.of("data","excerpt","content","patch","body","graph","excerpts","sourceAnalysis").contains(leaf)
-                || (leaf.equals("text") && type==Type.ISSUE)) { omissions.add(path+"：原始数据或源码片段未包含"); return; }
+                || (leaf.equals("text") && type==Type.ISSUE && path.startsWith("evidence["))) { omissions.add(path+"：原始数据或源码片段未包含"); return; }
             if(value.isMissingNode()||value.isNull()) { omissions.add(path+"：保存快照缺失"); return; }
             if(text.length()>=MAX_TEXT) { omissions.add(path+"：达到正文上限，裁剪"); return; }
             if(value.isObject()) { value.fields().forEachRemaining(e -> add(path+"."+e.getKey(),e.getValue(),type)); return; }

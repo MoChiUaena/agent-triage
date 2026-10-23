@@ -12,7 +12,7 @@ import static org.springframework.http.HttpStatus.*;
 /** Bounded, expiring admission for future callers. This service never invokes a model. */
 @Service
 public class SendPreviewService {
-    private record Prepared(Preview preview,List<Selection> selections) {}
+    private record Prepared(Preview preview,List<Selection> selections,String binding,boolean documentsRequired) {}
     private final MaterialService materials;
     private final ProviderRegistry providers;
     private final Clock clock;
@@ -44,7 +44,7 @@ public class SendPreviewService {
         }
         Instant now=clock.instant();
         Preview preview=new Preview(UUID.randomUUID(),now,now.plus(lifetime),recipient(),resolved,text.toString(),MaterialService.sha(text.toString()),omissions);
-        previews.put(preview.id(),new Prepared(preview,List.copyOf(selections)));return preview;
+        previews.put(preview.id(),new Prepared(preview,List.copyOf(selections),null,false));return preview;
     }
     public synchronized Preview get(UUID id) { return require(id).preview(); }
     /** Revalidates then removes a preview once. Callers must send only the returned immutable text. */
@@ -54,6 +54,7 @@ public class SendPreviewService {
     /** Document sharing is per preview, independent of importing or generic report confirmation. */
     public synchronized Consumed consume(UUID id,boolean confirmed,boolean documentsConfirmed) {
         Prepared prepared=require(id); Preview preview=prepared.preview();
+        if(prepared.binding()!=null) throw new ResponseStatusException(CONFLICT,"对话预览只能由对应对话消费。");
         if(!confirmed) throw new ResponseStatusException(BAD_REQUEST,"请先核对接收方和正文，再确认预览。");
         if(!documentsConfirmed && preview.materials().stream().anyMatch(m -> m.reference().type()==Type.KNOWLEDGE))
             throw new ResponseStatusException(BAD_REQUEST,"项目资料外发默认关闭；请单独核对预览并确认 documentsConfirmed。");
@@ -72,7 +73,26 @@ public class SendPreviewService {
         var references=preview.materials().stream().map(Material::reference).map(r -> new Reference(r.type(),r.reportId(),r.scope(),r.version(),r.contentSha256(),r.readAt(),"CONFIRMED",r.originalLink())).toList();
         return new Consumed(id,current,references,preview.text(),preview.contentSha256());
     }
-    private Recipient recipient() {
+    /** Exact contextual payload admission. Never calls the network while holding the preview lock. */
+    public synchronized Preview createBound(String binding,List<Material> resolved,String text,List<String> omissions,boolean documentsRequired) {
+        prune();
+        if(previews.size()>=capacity) throw new ResponseStatusException(TOO_MANY_REQUESTS,"发送预览已达上限，请等待旧预览过期。");
+        if(binding==null || text==null || text.length()>64000) throw new ResponseStatusException(BAD_REQUEST,"对话正文超过 64000 字符上限。");
+        Instant now=clock.instant();
+        Preview preview=new Preview(UUID.randomUUID(),now,now.plus(lifetime),recipient(),resolved,text,MaterialService.sha(text),omissions);
+        previews.put(preview.id(),new Prepared(preview,List.of(),binding,documentsRequired));return preview;
+    }
+    public synchronized Consumed consumeBound(UUID id,String binding,String exactText,boolean confirmed,boolean documentsConfirmed) {
+        Prepared prepared=require(id);Preview preview=prepared.preview();
+        if(prepared.binding()==null || !prepared.binding().equals(binding) || !preview.text().equals(exactText))
+            throw new ResponseStatusException(CONFLICT,"对话、问题、历史或引用已变化，请重新预览。");
+        if(!confirmed)throw new ResponseStatusException(BAD_REQUEST,"请核对准确正文并确认外发。");
+        if(prepared.documentsRequired()&&!documentsConfirmed)throw new ResponseStatusException(BAD_REQUEST,"本次资料或历史回答含项目资料，须单独确认 documentsConfirmed。");
+        if(!preview.recipient().equals(recipient())){previews.remove(id);throw new ResponseStatusException(CONFLICT,"模型选择或配置已变化，请重新预览。");}
+        if(!preview.recipient().available())throw new ResponseStatusException(SERVICE_UNAVAILABLE,"模型不可用；可继续阅读原报告，未调用模型。");
+        previews.remove(id);return new Consumed(id,preview.recipient(),preview.materials().stream().map(Material::reference).toList(),preview.text(),preview.contentSha256());
+    }
+    public Recipient recipient() {
         var selection=providers.selection();
         String identity=selection.mode()+":"+selection.source()+":"+selection.providerId();
         try {

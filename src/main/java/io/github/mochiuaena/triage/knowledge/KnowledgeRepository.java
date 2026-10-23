@@ -125,6 +125,10 @@ public class KnowledgeRepository {
                 id(sid));
     }
 
+    public boolean activeVersion(UUID vid) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM knowledge_active_documents WHERE version_id=?",Integer.class,id(vid))==1;
+    }
+
     public Version version(UUID vid) {
         return jdbc
                 .query(
