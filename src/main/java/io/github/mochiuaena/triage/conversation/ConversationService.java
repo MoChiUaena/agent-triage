@@ -118,12 +118,14 @@ public class ConversationService {
         return detail(id);
     }
 
-    public Prepared preview(
+    public synchronized Prepared preview(
             UUID id, long revision, String question, List<ChunkSelection> selected) {
         var c = store.require(id);
         check(c, revision);
         Context context = context(c, question, selected);
         prepared.values().removeIf(p -> Instant.now().isAfter(p.preview().expiresAt()));
+        if (prepared.size() >= 100)
+            throw new ResponseStatusException(TOO_MANY_REQUESTS, "追问预览已达上限，请等待旧预览过期。");
         var preview =
                 previews.createBound(
                         context.fingerprint(),
@@ -148,8 +150,14 @@ public class ConversationService {
                 || !fresh.text().equals(p.preview().text())) throw ConversationStore.conflict();
         if (workers.getActiveCount() >= 2 && workers.getQueue().remainingCapacity() == 0)
             throw new ResponseStatusException(TOO_MANY_REQUESTS, "追问队列已满，请稍后重新预览。");
-        previews.consumeBound(
-                previewId, fresh.fingerprint(), fresh.text(), confirmed, documentsConfirmed);
+        try {
+            previews.consumeBound(
+                    previewId, fresh.fingerprint(), fresh.text(), confirmed, documentsConfirmed);
+        } catch (ResponseStatusException error) {
+            if (error.getStatusCode().value() == 409 || error.getStatusCode().value() == 410)
+                prepared.remove(previewId);
+            throw error;
+        }
         prepared.remove(previewId);
         UUID attemptId = UUID.randomUUID();
         Instant now = Instant.now();
