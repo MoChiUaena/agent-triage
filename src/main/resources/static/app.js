@@ -884,6 +884,9 @@ function renderEvidence(run) {
 }
 
 function renderRun(run) {
+  if (!run) return;
+  const followup = $("#continue-conversation");
+  if (followup) { followup.href = "/workspace.html?" + new URLSearchParams({ type: "SERVICE", report: run.id }) + "#conversations"; followup.hidden = !run.id; }
   if (activeRun?.id === run.id && (terminal(activeRun) && !terminal(run) || run.events.length < activeRun.events.length)) return;
   activeRun = run;
   $("#result-question").textContent = run.question;

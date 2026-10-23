@@ -42,7 +42,7 @@ public class ConversationStore {
         var now = OffsetDateTime.now(ZoneOffset.UTC);
         jdbc.update(
                 "INSERT INTO conversations(id,revision,created_at,updated_at,origin_payload)"
-                    + " VALUES(?,0,?,?,?)",
+                        + " VALUES(?,0,?,?,?)",
                 id.toString(),
                 now,
                 now,
@@ -74,7 +74,7 @@ public class ConversationStore {
 
     public List<Summary> list() {
         return jdbc.query(
-                "SELECT * FROM conversations ORDER BY updated_at DESC,id DESC LIMIT 100",
+                "SELECT * FROM conversations ORDER BY updated_at DESC,id DESC LIMIT 1000",
                 (r, n) -> {
                     Material m = decode(r.getString("origin_payload"), Material.class);
                     String title = m.text();
@@ -93,7 +93,7 @@ public class ConversationStore {
     private List<Message> messages(UUID id) {
         return jdbc.query(
                 "SELECT payload FROM conversation_messages WHERE conversation_id=? ORDER BY"
-                    + " ordinal",
+                        + " ordinal",
                 (r, n) -> decode(r.getString(1), Message.class),
                 id.toString());
     }
@@ -101,7 +101,7 @@ public class ConversationStore {
     private List<Attempt> attempts(UUID id) {
         return jdbc.query(
                 "SELECT payload FROM conversation_attempts WHERE conversation_id=? ORDER BY"
-                    + " created_at,id",
+                        + " created_at,id",
                 (r, n) -> decode(r.getString(1), Attempt.class),
                 id.toString());
     }
@@ -111,10 +111,10 @@ public class ConversationStore {
                 status -> {
                     if (jdbc.queryForObject(
                                     "SELECT COUNT(*) FROM conversation_messages WHERE"
-                                        + " conversation_id=?",
+                                            + " conversation_id=?",
                                     Long.class,
                                     id.toString())
-                            >= 79)
+                            >= (active ? 79 : 80))
                         throw new ResponseStatusException(
                                 TOO_MANY_REQUESTS, "本对话已达到 80 条消息上限，请从报告新建对话；未自动裁剪保存记录。");
                     int changed =
@@ -154,7 +154,7 @@ public class ConversationStore {
                                     != 1) return false;
                             jdbc.update(
                                     "UPDATE conversation_attempts SET state=?,payload=? WHERE id=?"
-                                        + " AND conversation_id=?",
+                                            + " AND conversation_id=?",
                                     attempt.state(),
                                     encode(attempt),
                                     attempt.id().toString(),
@@ -181,7 +181,7 @@ public class ConversationStore {
                         owner.toString());
         jdbc.update(
                 "INSERT INTO conversation_messages(id,conversation_id,ordinal,attempt_id,payload)"
-                    + " VALUES(?,?,?,?,?)",
+                        + " VALUES(?,?,?,?,?)",
                 message.id().toString(),
                 owner.toString(),
                 ordinal,
@@ -194,7 +194,7 @@ public class ConversationStore {
         var pending =
                 jdbc.query(
                         "SELECT conversation_id,payload FROM conversation_attempts WHERE"
-                            + " state='RUNNING'",
+                                + " state='RUNNING'",
                         (r, n) ->
                                 Map.entry(
                                         UUID.fromString(r.getString(1)),

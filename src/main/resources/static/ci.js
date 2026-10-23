@@ -22,6 +22,7 @@
     ready();
   }
   function render(report) {
+    if (!report) return;
     const analysis = report.analysis;
     $("#ci-report-result").hidden = false; $("#ci-report-title").textContent = analysis.title;
     $("#ci-report-state").textContent = analysis.status === "OBSERVED" ? "已识别失败阶段" : "证据不足";
@@ -42,8 +43,10 @@
     if (!analysis.evidence.length) $("#ci-report-evidence").append(node("p", "没有可引用的错误片段。", "management-caption"));
     $("#ci-location-heading").hidden = !analysis.locations.length;
     $("#ci-report-locations").replaceChildren(...analysis.locations.map(location => node("li", location.file + ":" + location.line)));
+    const followup = node("a", "继续追问"); followup.href = "/workspace.html?type=CI&report=" + encodeURIComponent(report.id) + "#conversations";
     const materialLink = node("a", "材料 / 发送预览"); materialLink.href = "/workspace.html?type=CI&repository=" + encodeURIComponent(report.repositoryId) + "&report=" + encodeURIComponent(report.id) + "#materials";
     $("#ci-report-meta").append(node("span", " · "), materialLink);
+    $("#ci-report-meta").append(node("span", " · "), followup);
     $("#ci-report-result").scrollIntoView({ behavior: "smooth", block: "start" });
   }
   async function loadReports() {

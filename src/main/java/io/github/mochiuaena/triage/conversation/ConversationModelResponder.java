@@ -44,6 +44,27 @@ CONVERSATION_FOLLOWUP: 解释已保存报告的依据、缺口和下一步，只
                         .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     }
 
+    public int outputTokenLimit() {
+        try {
+            return Math.min(2048, providers.activeModelOutputTokens());
+        } catch (ResponseStatusException e) {
+            return 2048;
+        }
+    }
+
+    public static final class InvalidOutput extends IllegalArgumentException {
+        private final Response observation;
+
+        InvalidOutput(Response observation) {
+            super("模型输出不完整或引用无效。");
+            this.observation = observation;
+        }
+
+        public Response observation() {
+            return observation;
+        }
+    }
+
     public Response respond(Prepared prepared, Runnable validate) {
         var access = providers.activeModel();
         Recipient pinned = prepared.preview().recipient();
@@ -65,32 +86,48 @@ CONVERSATION_FOLLOWUP: 解释已保存报告的依据、缺口和下一步，只
                         OpenAiChatOptions.builder()
                                 .toolChoice("none")
                                 .internalToolExecutionEnabled(false)
-                                .maxTokens(2048)
+                                .maxTokens(wire.path("maxOutputTokens").asInt())
                                 .build());
         validate.run();
         if (!pinned.equals(previews.recipient()))
             throw new ResponseStatusException(CONFLICT, "模型已变化。");
         var response = access.client().prompt(prompt).call().chatResponse();
-        if (response == null
-                || response.getResults().size() != 1
-                || response.getResult().getOutput() == null
-                || response.getResult().getOutput().hasToolCalls()
-                || !"stop".equalsIgnoreCase(response.getResult().getMetadata().getFinishReason()))
-            throw new IllegalArgumentException("Incomplete output");
         TokenUsage usage = null;
-        if (response.getMetadata().getUsage() != null
-                && response.getMetadata().getUsage().getNativeUsage() instanceof OpenAiApi.Usage raw
-                && raw.promptTokens() != null
-                && raw.completionTokens() != null
-                && raw.totalTokens() != null
-                && raw.promptTokens() >= 0
-                && raw.completionTokens() >= 0
-                && raw.totalTokens() >= 0)
-            usage = new TokenUsage(raw.promptTokens(), raw.completionTokens(), raw.totalTokens());
-        Response parsed =
-                parse(response.getResult().getOutput().getText(), prepared.context().citations());
-        return new Response(
-                parsed.answer(), parsed.evidenceIds(), response.getMetadata().getModel(), usage);
+        String actualModel = null;
+        if (response != null) {
+            actualModel =
+                    io.github.mochiuaena.triage.development.PrEvidenceRedactor.clean(
+                            Objects.toString(response.getMetadata().getModel(), ""));
+            if (actualModel.length() > 200) actualModel = actualModel.substring(0, 200);
+            if (response.getMetadata().getUsage() != null
+                    && response.getMetadata().getUsage().getNativeUsage()
+                            instanceof OpenAiApi.Usage raw
+                    && raw.promptTokens() != null
+                    && raw.completionTokens() != null
+                    && raw.totalTokens() != null
+                    && raw.promptTokens() >= 0
+                    && raw.completionTokens() >= 0
+                    && raw.totalTokens() >= 0)
+                usage =
+                        new TokenUsage(
+                                raw.promptTokens(), raw.completionTokens(), raw.totalTokens());
+        }
+        try {
+            if (response == null
+                    || response.getResults().size() != 1
+                    || response.getResult().getOutput() == null
+                    || response.getResult().getOutput().hasToolCalls()
+                    || !"stop"
+                            .equalsIgnoreCase(response.getResult().getMetadata().getFinishReason()))
+                throw new IllegalArgumentException("Incomplete output");
+            Response parsed =
+                    parse(
+                            response.getResult().getOutput().getText(),
+                            prepared.context().citations());
+            return new Response(parsed.answer(), parsed.evidenceIds(), actualModel, usage);
+        } catch (IllegalArgumentException e) {
+            throw new InvalidOutput(new Response(null, List.of(), actualModel, usage));
+        }
     }
 
     private boolean matches(ProviderRegistry.ModelAccess access, Recipient pinned) {

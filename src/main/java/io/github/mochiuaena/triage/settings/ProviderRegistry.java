@@ -110,6 +110,12 @@ public class ProviderRegistry {
         try { return new ModelAccess(ModelConfiguration.createClient(environment), environment.name(), null, environment.timeout(), environment.baseUrl()); }
         catch (IllegalArgumentException error) { throw error(SERVICE_UNAVAILABLE, "启动配置中的模型不可用，请在模型设置中添加并启用服务。"); }
     }
+    /** Output admission respects both the fixed conversation cap and a lower provider limit. */
+    public synchronized int activeModelOutputTokens() {
+        Selection selected=selection();
+        if (!"MODEL".equals(selected.mode())) throw error(SERVICE_UNAVAILABLE,"未启用模型。");
+        return selected.providerId()==null ? environment.maxTokens() : find(selected.providerId()).maxTokens();
+    }
     public record ModelAccess(ChatClient client, String modelName, ModelSource source, java.time.Duration timeout, String baseUrl) {
         @Override public String toString() { return "ActiveModelAccess[credentials=redacted]"; }
     }

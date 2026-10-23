@@ -239,6 +239,15 @@ public class ConversationService {
                             p.context().documentsRequired()));
         } catch (CancellationException e) {
             store.finish(id, terminal(a, "CANCELLED", "调用已取消；用量未知。", null), null);
+        } catch (ConversationModelResponder.InvalidOutput e) {
+            store.finish(
+                    id,
+                    terminal(
+                            a,
+                            "INVALID_OUTPUT",
+                            "模型输出不完整或引用无效，已丢弃回答；原报告保留。用量仅按明确返回值记录。",
+                            e.observation()),
+                    null);
         } catch (IllegalArgumentException e) {
             store.finish(
                     id,
@@ -426,7 +435,7 @@ public class ConversationService {
                                                     "content",
                                                     json.writeValueAsString(payload))),
                                     "maxOutputTokens",
-                                    2048,
+                                    responder.outputTokenLimit(),
                                     "toolChoice",
                                     "none"));
             if (text.length() > 64000)

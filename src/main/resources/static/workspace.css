@@ -90,3 +90,13 @@
 }
 @media (max-width: 960px) { .history-filters { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 720px) { .management-workspace { padding: 24px 18px; } .management-card { padding: 16px; } .history-filters { grid-template-columns: minmax(0,1fr); gap: 12px; } .management-heading { gap: 8px; } }
+
+/* Task conversations reuse the existing light-blue management surface. */
+#conversations-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow: auto; padding: 1rem; background: #f4f8ff; border-radius: .6rem; }
+#conversations-panel textarea { display: block; width: 100%; box-sizing: border-box; font: inherit; margin: .5rem 0; padding: .7rem; border: 1px solid #cbd9ea; border-radius: .5rem; }
+.conversation-check { display: flex; align-items: flex-start; gap: .5rem; margin: .8rem 0; }
+.conversation-check input { flex: 0 0 auto; margin-top: .25rem; }
+.conversation-message { border-top: 1px solid #dce7f5; margin-top: 1rem; padding-top: .5rem; }
+.conversation-history { display: block; margin: .5rem 0; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+#conversation-attempts small { display: block; }
+#conversation-preview { margin-top: 1rem; border-top: 1px solid #dce7f5; }

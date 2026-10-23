@@ -39,13 +39,16 @@
     return value;
   }
   function render(report) {
+    if (!report) return;
     const proposal = report.proposal; $("#issue-report-result").hidden = false;
     $("#issue-report-title").textContent = "#" + report.issue.number + " " + report.issue.title;
     $("#issue-report-mode").textContent = report.source === "MODEL" ? "模型建议 · 待确认" : "基础分诊";
     $("#issue-report-meta").textContent = report.repository + " · 上下文 " + date(report.contextReadAt) + " · 报告 " + date(report.createdAt);
     $("#issue-report-version").textContent = (report.issue.state === "closed" ? "已关闭" : "开放") + " · Issue 更新 " + date(report.issue.updatedAt) + " · " + report.branch + " / " + (report.headSha || "版本未读取");
+    const followup = node("a", "继续追问"); followup.href = "/workspace.html?type=ISSUE&report=" + encodeURIComponent(report.id) + "#conversations";
     const materialLink = node("a", "材料 / 发送预览"); materialLink.href = "/workspace.html?type=ISSUE&repository=" + encodeURIComponent(report.repositoryId) + "&report=" + encodeURIComponent(report.id) + "#materials";
     $("#issue-report-link").replaceChildren(link("在 GitHub 查看 Issue ↗", report.issue.url), node("span", " · "), materialLink);
+    $("#issue-report-link").append(node("span", " · "), followup);
     $("#issue-report-classification").textContent = (category[proposal.category] || "待分类") + " · 优先级建议：" + (proposal.priority === "UNSPECIFIED" ? "待定" : proposal.priority);
     $("#issue-report-summary").textContent = proposal.summary;
     const blocks = evidenceBlocks(report.evidence, $("#issue-report-evidence"));

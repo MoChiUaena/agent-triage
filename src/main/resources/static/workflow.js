@@ -19,8 +19,10 @@
     catch(error){if(current===version&&generation===watch)message(error.message,true);}
   }
   function render(snapshot,scroll=false){
+    if(!snapshot)return;
     $("#workflow-result").hidden=false;$("#workflow-result-title").textContent="PR #"+snapshot.plan.pull.number+" · "+snapshot.plan.pull.title;
     $("#workflow-result-meta").textContent=snapshot.repository+" · "+date(snapshot.createdAt)+" · Head "+snapshot.plan.pull.headSha;
+    const followup=node("a","继续追问");followup.href="/workspace.html?type=WORKFLOW&report="+encodeURIComponent(snapshot.id)+"#conversations";$("#workflow-result-meta").append(node("span"," · "),followup);
     const materialLink=node("a","材料 / 发送预览");materialLink.href="/workspace.html?type=WORKFLOW&repository="+encodeURIComponent(snapshot.repositoryId)+"&report="+encodeURIComponent(snapshot.id)+"#materials";$("#workflow-result-meta").append(node("span"," · "),materialLink);
     $("#workflow-state").textContent=labels[snapshot.state]||snapshot.state;$("#workflow-result-message").textContent=snapshot.message;
     const ended=snapshot.tasks.filter(task=>!["PENDING","RUNNING"].includes(task.state)).length;

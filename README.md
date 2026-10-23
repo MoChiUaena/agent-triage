@@ -177,3 +177,5 @@ docs/                      接入、架构、版本与验证说明
 ## 许可证
 
 项目采用 [MIT License](LICENSE)。
+
+任务追问：从五类保存报告连续询问依据、查看固定引用并恢复历史；无模型仍可保存问题和阅读原依据。完整链路和授权边界见 [docs/CONVERSATIONS.md](docs/CONVERSATIONS.md)。

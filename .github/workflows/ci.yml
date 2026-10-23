@@ -28,7 +28,12 @@ jobs:
         run: ./mvnw -B -ntp verify
       - name: Verify on Windows
         if: runner.os == 'Windows'
-        run: .\mvnw.cmd -B -ntp verify
+        run: |
+          # The runner's TEMP can use an 8.3 alias, rejected by passive document path checks.
+          $ciTemp = Join-Path $env:GITHUB_WORKSPACE 'target/ci-temp'
+          New-Item -ItemType Directory -Force -Path $ciTemp | Out-Null
+          $env:JAVA_TOOL_OPTIONS = "$env:JAVA_TOOL_OPTIONS -Djava.io.tmpdir=`"$ciTemp`""
+          .\mvnw.cmd -B -ntp verify
       - name: Check browser script syntax
         run: |
           node --check src/main/resources/static/app.js
@@ -36,6 +41,8 @@ jobs:
           node --check src/main/resources/static/workspace.js
           node --check src/main/resources/static/material.js
           node scripts/material_ui_check.js
+          node --check src/main/resources/static/conversation.js
+          node scripts/conversation_ui_check.js
           node --check src/main/resources/static/sources.js
           node --check src/main/resources/static/knowledge.js
           node scripts/knowledge_ui_check.js
@@ -84,11 +91,14 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest,HistoryApiTest,StatisticsApiTest,SourceProjectApiTest,KnowledgeApiTest,KnowledgeSearchApiTest test
+      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest,HistoryApiTest,StatisticsApiTest,SourceProjectApiTest,KnowledgeApiTest,KnowledgeSearchApiTest,ConversationApiTest test
         env:
           TRIAGE_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage
           TRIAGE_TEST_DB_USER: triage
           TRIAGE_TEST_DB_PASSWORD: triage-ci
+          TRIAGE_CONVERSATION_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage
+          TRIAGE_CONVERSATION_TEST_DB_USER: triage
+          TRIAGE_CONVERSATION_TEST_DB_PASSWORD: triage-ci
           TRIAGE_KNOWLEDGE_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage
           TRIAGE_KNOWLEDGE_TEST_DB_USER: triage
           TRIAGE_KNOWLEDGE_TEST_DB_PASSWORD: triage-ci

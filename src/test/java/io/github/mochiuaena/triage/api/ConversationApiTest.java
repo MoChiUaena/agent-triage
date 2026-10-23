@@ -420,6 +420,16 @@ class ConversationApiTest {
             assertThat(first.path("messages")).hasSize(2);
             assertThat(first.path("attempts").get(0).path("usage").path("totalTokens").asInt())
                     .isEqualTo(120);
+            assertThat(
+                            json.readTree(p.path("preview").path("text").asText())
+                                    .path("maxOutputTokens")
+                                    .asInt())
+                    .isEqualTo(256);
+            assertThat(json.readTree(stub.body).path("max_tokens").asInt()).isEqualTo(256);
+            assertThat(json.readTree(stub.body).path("messages"))
+                    .isEqualTo(
+                            json.readTree(p.path("preview").path("text").asText())
+                                    .path("messages"));
             assertThat(stub.body)
                     .contains("first exact question", "tool_choice", "none")
                     .doesNotContain("internalToolExecutionEnabled");
@@ -462,6 +472,9 @@ class ConversationApiTest {
                 send(id, preview(id, 0, "why", List.of()), false, 202);
                 var c = ended(id);
                 assertThat(c.path("messages")).hasSize(1);
+                if (!mode.equals("FAIL"))
+                    assertThat(c.path("attempts").get(0).path("usage").path("totalTokens").asInt())
+                            .isEqualTo(120);
                 assertThat(c.path("attempts").get(0).path("state").asText())
                         .isEqualTo(mode.equals("FAIL") ? "FAILED" : "INVALID_OUTPUT");
             }

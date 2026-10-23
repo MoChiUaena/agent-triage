@@ -5,7 +5,7 @@
   <title>历史记录 · Agent Triage</title><link rel="icon" href="data:," />
   <link rel="stylesheet" href="/styles.css" /><link rel="stylesheet" href="/settings.css" />
   <link rel="stylesheet" href="/typography.css" /><link rel="stylesheet" href="/theme.css" />
-  <link rel="stylesheet" href="/workspace.css" /><script src="/navigation.js" defer></script><script src="/material.js" defer></script><script src="/workspace.js" defer></script>
+  <link rel="stylesheet" href="/workspace.css" /><script src="/navigation.js" defer></script><script src="/material.js" defer></script><script src="/conversation.js" defer></script><script src="/workspace.js" defer></script>
 </head>
 <body class="settings-page">
   <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
@@ -25,7 +25,39 @@
     <main class="workspace management-workspace">
       <div class="settings-heading"><div><h1 id="page-title">历史记录</h1><p id="page-description">按服务、接口、执行状态和日期查找已保存的排查。</p></div><button class="secondary" id="refresh-workspace" type="button"><svg class="icon"><use href="/icons.svg#refresh" /></svg>刷新</button></div>
       <p id="workspace-notice" class="settings-notice" role="status" hidden></p>
-      <div class="workspace-tabs" role="tablist" aria-label="工作区功能"><button id="tab-history" type="button" role="tab" aria-controls="history-panel" aria-selected="true" data-workspace-tab="history">历史记录</button><button id="tab-statistics" type="button" role="tab" aria-controls="statistics-panel" aria-selected="false" data-workspace-tab="statistics">运行统计</button><button id="tab-services" type="button" role="tab" aria-controls="services-panel" aria-selected="false" data-workspace-tab="services">服务状态</button><button id="tab-materials" type="button" role="tab" aria-controls="materials-panel" aria-selected="false" data-workspace-tab="materials">材料 / 发送预览</button></div>
+      <div class="workspace-tabs" role="tablist" aria-label="工作区功能"><button id="tab-history" type="button" role="tab" aria-controls="history-panel" aria-selected="true" data-workspace-tab="history">历史记录</button><button id="tab-statistics" type="button" role="tab" aria-controls="statistics-panel" aria-selected="false" data-workspace-tab="statistics">运行统计</button><button id="tab-services" type="button" role="tab" aria-controls="services-panel" aria-selected="false" data-workspace-tab="services">服务状态</button><button id="tab-materials" type="button" role="tab" aria-controls="materials-panel" aria-selected="false" data-workspace-tab="materials">材料 / 发送预览</button><button id="tab-conversations" type="button" role="tab" aria-controls="conversations-panel" aria-selected="false" data-workspace-tab="conversations">任务追问</button></div>
+      <section id="conversations-panel" role="tabpanel" aria-labelledby="tab-conversations" hidden>
+        <form id="conversation-create" class="management-card history-filters">
+          <label>原报告类型<select id="conversation-type"><option value="SERVICE">服务排查</option><option value="PR">PR 审查</option><option value="ISSUE">Issue 分诊</option><option value="CI">CI 排障</option><option value="WORKFLOW">协同工作流</option></select></label>
+          <label class="filter-wide">已保存报告 UUID<input id="conversation-report" required maxlength="36" autocomplete="off" /></label>
+          <div class="filter-actions"><button id="conversation-start" class="primary" type="submit">从报告开始追问</button></div>
+          <p class="management-caption filter-wide">范围由保存报告确定。同一项目的不同对话独立保存；原报告不会被修改。</p>
+        </form>
+        <section class="management-card"><h2>已保存的任务追问</h2><div id="conversation-list"></div></section>
+        <p id="conversation-notice" class="management-caption" role="status" aria-live="polite"></p>
+        <section id="conversation-detail" class="management-card" aria-label="当前任务追问" hidden>
+          <h2 id="conversation-title">任务追问</h2><p id="conversation-scope"></p><p id="conversation-model"></p>
+          <p id="conversation-boundary" class="management-caption"></p>
+          <details><summary>创建时的原报告快照、问题与规则依据</summary><p id="conversation-origin-meta"></p><a id="conversation-origin-link">打开原报告</a><pre id="conversation-origin" tabindex="0"></pre><ul id="conversation-origin-omissions"></ul></details>
+          <div id="conversation-messages" aria-label="对话消息"></div><div id="conversation-attempts" aria-label="调用记录"></div>
+          <button id="conversation-cancel" type="button" class="secondary" hidden>取消生成</button>
+          <section id="conversation-citation" aria-label="保存时的引用原文" hidden><h3>不可变引用原文</h3><p id="conversation-citation-meta"></p><a id="conversation-citation-link">打开历史来源</a><pre id="conversation-citation-text" tabindex="0"></pre></section>
+          <form id="conversation-search" class="history-filters">
+            <label class="filter-wide">项目资料关键词<input id="conversation-keyword" type="search" maxlength="200" placeholder="只在原报告保存的项目或仓库范围检索" /></label><button id="conversation-search-button" class="secondary" type="submit">本机检索资料</button>
+          </form><p id="conversation-search-notice" class="management-caption" role="status"></p><div id="conversation-hits"></div><p id="conversation-selected" class="management-caption"></p>
+          <form id="conversation-form">
+            <label>继续询问依据、证据缺口或下一步<textarea id="conversation-question" required maxlength="4000" rows="4"></textarea></label>
+            <label class="conversation-check"><input id="conversation-use-model" type="checkbox" />本次使用上述已启用模型（需先预览）</label><a href="/settings.html">选择或修改模型服务</a>
+            <div class="dialog-actions"><button id="conversation-reference" class="secondary" type="button">保存问题并查看原依据（未调用模型）</button><button id="conversation-preview-button" class="primary" type="submit">预览本次模型发送内容</button></div>
+          </form>
+          <section id="conversation-preview" aria-label="本次完整发送预览" hidden>
+            <h3>本次完整发送预览</h3><p id="conversation-recipient"></p><p id="conversation-preview-hash" class="management-caption"></p><ul id="conversation-preview-omissions"></ul><pre id="conversation-preview-text" tabindex="0"></pre>
+            <label class="conversation-check"><input id="conversation-confirm" type="checkbox" />已核对接收方、问题、历史与原报告，同意发送本次预览</label>
+            <label id="conversation-documents-label" class="conversation-check"><input id="conversation-documents-confirm" type="checkbox" />单独同意本次项目资料及由资料派生的历史问题/回答外发</label>
+            <button id="conversation-send" type="button" class="primary" disabled>确认并发送本次预览</button>
+          </section>
+        </section>
+      </section>
       <section id="materials-panel" role="tabpanel" aria-labelledby="tab-materials" hidden>
         <form id="material-form" class="management-card history-filters">
           <label>来源类型<select id="material-type"><option value="SERVICE">服务排查</option><option value="PR">PR 审查</option><option value="ISSUE">Issue 分诊</option><option value="CI">CI 排障</option><option value="WORKFLOW">协同工作流</option><option value="KNOWLEDGE">项目知识版本</option></select></label>

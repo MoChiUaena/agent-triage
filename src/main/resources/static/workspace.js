@@ -125,11 +125,12 @@ function renderHistory() {
     const state = node("td"); state.append(node("span", statuses[entry.status], "status " + statusClass(entry.status)));
     const actions = node("td"); const group = node("div", null, "history-row-actions");
     const open = node("a", "查看"); open.href = link.href;
+    const followup = node("a", "继续追问"); followup.href = "/workspace.html?" + new URLSearchParams({ type: "SERVICE", report: entry.id }) + "#conversations";
     const material = node("a", "材料预览"); material.href = "/workspace.html?" + new URLSearchParams({ type: "SERVICE", report: entry.id, service: entry.service }) + "#materials";
     const remove = node("button", "删除", "history-delete"); remove.type = "button";
     remove.disabled = ["QUEUED", "RUNNING"].includes(entry.status);
     remove.title = remove.disabled ? "执行结束或取消后可删除" : "删除本条记录";
-    remove.addEventListener("click", () => openDelete(entry)); group.append(open, material, remove); actions.append(group);
+    remove.addEventListener("click", () => openDelete(entry)); group.append(open, followup, material, remove); actions.append(group);
     row.append(first, service, state, node("td", entry.mode === "MODEL" ? "模型" : "固定规则"), node("td", duration(entry.durationMillis)), actions);
     target.append(row);
   }
@@ -266,14 +267,16 @@ async function loadStatistics() {
   catch (error) { if (version === statisticsRequest) notice(error.message, true); }
 }
 function selectTab(value) {
-  activeTab = ["history", "statistics", "services", "materials"].includes(value) ? value : "history";
-  const title = { history: "历史记录", statistics: "运行统计", services: "服务状态", materials: "材料 / 发送预览" }[activeTab];
+  activeTab = ["history", "statistics", "services", "materials", "conversations"].includes(value) ? value : "history";
+  const title = { history: "历史记录", statistics: "运行统计", services: "服务状态", conversations: "任务追问", materials: "材料 / 发送预览" }[activeTab];
   $("#workspace-title").textContent = title; $("#page-title").textContent = title; document.title = title + " · Agent Triage";
-  $("#page-description").textContent = { history: "按服务、接口、执行状态和日期查找已保存的排查。", statistics: "按服务和接口查看排查结果、耗时与已知用量。", services: "核对服务连通性、观测协议和当前窗口请求。", materials: "核对已保存材料的范围、版本、缺口与模型接收方。" }[activeTab];
+  $("#page-description").textContent = { history: "按服务、接口、执行状态和日期查找已保存的排查。", statistics: "按服务和接口查看排查结果、耗时与已知用量。", services: "核对服务连通性、观测协议和当前窗口请求。", conversations: "从保存报告连续追问、核对引用并恢复历史。", materials: "核对已保存材料的范围、版本、缺口与模型接收方。" }[activeTab];
   document.querySelectorAll("[data-workspace-tab]").forEach((button) => button.setAttribute("aria-selected", String(button.dataset.workspaceTab === activeTab)));
   $("#history-panel").hidden = activeTab !== "history"; $("#statistics-panel").hidden = activeTab !== "statistics";
   $("#services-panel").hidden = activeTab !== "services";
   $("#materials-panel").hidden = activeTab !== "materials";
+  $("#conversations-panel").hidden = activeTab !== "conversations";
+  window.conversationPanel?.setActive(activeTab === "conversations");
   window.materialPanel?.setActive(activeTab === "materials");
   notice(""); if (activeTab === "statistics") loadStatistics(); if (activeTab === "services") loadServiceChecks();
 }
@@ -302,7 +305,7 @@ document.querySelectorAll("[data-workspace-tab]").forEach((button) => button.add
 window.addEventListener("hashchange", () => selectTab(window.location.hash.slice(1)));
 $("#statistics-filter").addEventListener("submit", (event) => { event.preventDefault(); notice(""); loadStatistics(); });
 $("#refresh-workspace").addEventListener("click", () => {
-  if (activeTab === "materials") window.materialPanel?.setActive(true); else if (activeTab === "statistics") loadStatistics(); else if (activeTab === "services") loadServiceChecks(); else { previousCursors = []; historyCursor = null; loadHistory(null); }
+  if (activeTab === "conversations") window.conversationPanel?.setActive(true); else if (activeTab === "materials") window.materialPanel?.setActive(true); else if (activeTab === "statistics") loadStatistics(); else if (activeTab === "services") loadServiceChecks(); else { previousCursors = []; historyCursor = null; loadHistory(null); }
   loadServices().catch((error) => notice(error.message, true));
 });
 $("#history-filter").reset(); $("#statistics-filter").reset();
