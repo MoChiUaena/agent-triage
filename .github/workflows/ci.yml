@@ -39,6 +39,7 @@ jobs:
           node --check src/main/resources/static/sources.js
           node --check src/main/resources/static/knowledge.js
           node scripts/knowledge_ui_check.js
+          node scripts/knowledge_search_ui_check.js
           node --check src/main/resources/static/source-view.js
           node scripts/inbound_ui_check.js
           node scripts/multi_downstream_ui_check.js
@@ -83,7 +84,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
-      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest,HistoryApiTest,StatisticsApiTest,SourceProjectApiTest,KnowledgeApiTest test
+      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest,HistoryApiTest,StatisticsApiTest,SourceProjectApiTest,KnowledgeApiTest,KnowledgeSearchApiTest test
         env:
           TRIAGE_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage
           TRIAGE_TEST_DB_USER: triage

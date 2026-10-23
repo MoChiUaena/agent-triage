@@ -80,6 +80,14 @@
         <label class="knowledge-consent"><input id="knowledge-confirm" type="checkbox" />我已核对上方目录 / SHA、文件与排除项，同意在本机导入此范围。</label>
         <button id="knowledge-import" class="primary" type="button" disabled>导入已预览范围</button>
         <div id="knowledge-jobs" aria-live="polite"></div>
+        <form id="knowledge-search-form" class="source-search-box">
+          <h3>搜索当前知识</h3><p class="source-result-note">本机关键词检索，无需模型密钥。每次最多扫描 2000 个当前分段，显示前 10 条；中文按连续词句匹配，多个词以空格分隔且都须匹配。此处不执行语义 / 向量检索。</p>
+          <div class="form-field"><label for="knowledge-query">关键词（1–200 字）</label><input id="knowledge-query" maxlength="200" required placeholder="例如：连接池 超时" /></div>
+          <div class="form-field"><label for="knowledge-doc-type">文档类型</label><select id="knowledge-doc-type"><option value="ALL">全部 Markdown / TXT</option><option value="MARKDOWN">Markdown</option><option value="TEXT">TXT</option></select></div>
+          <div class="form-field"><label for="knowledge-service">绑定服务（可选）</label><select id="knowledge-service" disabled><option value="">此范围全部服务资料</option></select></div>
+          <button type="submit" class="secondary">搜索当前资料</button>
+        </form>
+        <div id="knowledge-results" aria-live="polite"></div>
         <h3>来源管理（最多显示 100 个）</h3><p class="source-result-note">更新会保留历史文档；解绑与软删除立即停止新检索与材料发送，历史引用保留。重新绑定或重新导入须新预览。取消、失败和重启中断均不会切换当前有效版本。</p>
         <div id="knowledge-sources"></div><div id="knowledge-versions"></div><div id="knowledge-original"></div>
       </section>

@@ -4,8 +4,8 @@
   const node = (tag, text) => { const n = document.createElement(tag); if (text != null) n.textContent = text; return n; };
   const params = new URLSearchParams(window.location.search);
   let startupIntent = ["PROJECT", "REPOSITORY"].includes(params.get("scopeKind")) && params.get("scopeId")
-    ? { scope: { kind: params.get("scopeKind"), id: params.get("scopeId") }, version: params.get("version") } : null;
-  let scopes = [], knownSources = [], generation = 0, formGeneration = 0, scopeGeneration = 0, detailGeneration = 0, previewValue = null, selectedSource = null, timer = null;
+    ? { scope: { kind: params.get("scopeKind"), id: params.get("scopeId") }, version: params.get("version"), chunk: params.get("chunk") } : null;
+  let scopes = [], knownSources = [], generation = 0, formGeneration = 0, scopeGeneration = 0, detailGeneration = 0, searchGeneration = 0, previewValue = null, selectedSource = null, timer = null;
   const query = scope => "?" + new URLSearchParams({ scopeKind: scope.kind, scopeId: scope.id });
   const selected = () => { const [kind, id] = $("#knowledge-scope").value.split(":"); return id ? { kind, id } : null; };
   const message = text => { $("#knowledge-notice").textContent = text; };
@@ -20,6 +20,50 @@
   }
   const button = (label, action) => { const b = node("button", label); b.type = "button"; b.className = "secondary"; b.addEventListener("click", action); return b; };
   const stamp = value => value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "—";
+  function clearSearch() {
+    searchGeneration++; detailGeneration++;
+    $("#knowledge-results").replaceChildren(); $("#knowledge-original").replaceChildren();
+  }
+  function sourceLink(value) {
+    if (typeof value !== "string" || !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/blob\/[a-f0-9]{40}\//.test(value)) return null;
+    const a = node("a", "查看固定提交来源"); a.href = value; a.target = "_blank"; a.rel = "noopener noreferrer"; return a;
+  }
+  async function openChunk(versionId, chunkId, scope = selected()) {
+    if (!scope) return; const current = generation, detail = ++detailGeneration;
+    try {
+      const c = await request("/api/knowledge/versions/" + encodeURIComponent(versionId) + "/chunks/" + encodeURIComponent(chunkId) + query(scope));
+      if (current !== generation || detail !== detailGeneration) return;
+      const target = $("#knowledge-original");
+      target.replaceChildren(node("h3", c.title), node("p", c.path + " · 原文行 " + c.startLine + "–" + c.endLine + " · " + c.recallMethod),
+        node("p", "保存范围 " + c.scope.kind + " · " + c.scope.id + " · 来源 " + c.sourceId),
+        node("p", "不可变版本 " + c.versionId + " · 分段 " + c.chunkId), node("p", "原文 SHA256 " + c.sha256 + " · 分段 SHA256 " + c.chunkSha256),
+        node("p", "导入 " + stamp(c.importedAt) + (c.commitSha ? " · 提交 " + c.commitSha : "")), node("pre", (c.text || "").slice(0, 2000)),
+        button("查看此版本全文", () => { if (current === generation && detail === detailGeneration) return openVersion(versionId, scope); }));
+      const source = sourceLink(c.sourceUrl); if (source) target.append(source);
+      target.append(node("p", "此处为保存的准确分段，更新或解绑不会改写；知识内容不是当前运行观测，也不授予资料或源码外发权限。"));
+    } catch (e) { if (current === generation && detail === detailGeneration) message(e.message); }
+  }
+  async function search() {
+    clearSearch(); const scope = selected(); if (!scope) { message("请选择已登记项目或仓库。"); return; }
+    const current = generation, searching = searchGeneration;
+    const values = new URLSearchParams({ scopeKind: scope.kind, scopeId: scope.id, query: $("#knowledge-query").value.trim(), docType: $("#knowledge-doc-type").value || "ALL", limit: "10" });
+    const service = $("#knowledge-service").value; if (service) values.set("service", service);
+    message("正在本机检索当前知识，不调用模型…");
+    try {
+      const value = await request("/api/knowledge/search?" + values); if (current !== generation || searching !== searchGeneration) return;
+      const target = $("#knowledge-results"), results = value.results.slice(0, 20);
+      target.replaceChildren(node("p", "KEYWORD · 扫描 " + value.scannedChunks + "/" + value.availableChunks + " 当前分段 · " + (value.truncated ? "扫描达上限，结果可能遗漏。" : "已覆盖本次类型的当前导入分段。")), node("p", value.coverage));
+      if (!results.length) target.append(node("p", "本次扫描范围内没有匹配结果。可调整关键词或先检查导入范围。"));
+      for (const c of results) {
+        const card = node("article"); card.className = "source-project";
+        card.append(node("h3", c.title), node("pre", (c.excerpt || "").slice(0, 360)), node("p", c.path + " · 行 " + c.startLine + "–" + c.endLine + " · " + c.recallMethod + " · 分数 " + c.score),
+          node("p", "版本 " + c.versionId + " · 原文 SHA256 " + c.sha256 + " · 分段 SHA256 " + c.chunkSha256), node("p", "导入 " + stamp(c.importedAt)),
+          button("查看分段原文", () => { if (current === generation && searching === searchGeneration) return openChunk(c.versionId, c.chunkId, scope); }));
+        const source = sourceLink(c.sourceUrl); if (source) card.append(source); target.append(card);
+      }
+      message("本机关键词检索完成；资料经验不替代运行证据。来源更新后请重新搜索。");
+    } catch (e) { if (current === generation && searching === searchGeneration) message(e.message); }
+  }
   function renderPreview(p) {
     const target = $("#knowledge-preview"); target.hidden = false;
     target.append(node("h3", "将导入的准确范围"), node("p", p.origin + " · " + p.root + (p.commitSha ? " · 固定 SHA " + p.commitSha : "")),
@@ -59,17 +103,20 @@
   }
   async function action(source, actionName) {
     const current = generation, scope = selected(); if (!scope || !window.confirm((actionName === "DELETE" ? "删除" : "解绑") + "这份知识来源？之后不再进入新检索与材料发送；历史版本与引用保留。重新导入需要新预览。")) return;
+    clearSearch(); $("#knowledge-versions").replaceChildren();
     try { await write("/api/knowledge/sources/" + source.id, { scopeKind: scope.kind, scopeId: scope.id, revision: source.revision, action: actionName, confirmed: true }); if (current !== generation) return; invalidate(); selectedSource = null; await refresh(current); message("来源已停用，历史版本仍可打开。"); }
     catch (e) { if (current === generation) message(e.message); }
   }
   function renderSources(values, current) {
+    const fingerprint = items => JSON.stringify(items.map(s => [s.id, s.revision, s.state, s.documents]));
+    if (knownSources.length && fingerprint(knownSources) !== fingerprint(values)) { clearSearch(); $("#knowledge-versions").replaceChildren(); }
     knownSources = values;
     const target = $("#knowledge-sources"); target.replaceChildren();
     if (!values.length) target.append(node("p", "此范围尚无导入来源。"));
     for (const source of values) {
       const card = node("article"); card.className = "source-project";
       card.append(node("h3", source.origin + " · " + source.state + " · v" + source.revision), node("p", source.root), node("p", (source.commitSha || source.manifestHash) + " · " + source.documents + " 当前文档 · " + stamp(source.importedAt)),
-        button("更新 / 重新绑定", () => { if (current !== generation) return; selectedSource = source; if (source.origin === "LOCAL") $("#knowledge-directory").value = source.root; else $("#knowledge-commit").value = source.commitSha || ""; invalidate(); message("已选来源 v" + source.revision + "，修改目录将视为新来源；请重新预览。"); }),
+        button("更新 / 重新绑定", () => { if (current !== generation) return; clearSearch(); $("#knowledge-versions").replaceChildren(); selectedSource = source; if (source.origin === "LOCAL") $("#knowledge-directory").value = source.root; else $("#knowledge-commit").value = source.commitSha || ""; invalidate(); message("已选来源 v" + source.revision + "，修改目录将视为新来源；请重新预览。"); }),
         button("版本 / 原文", () => { if (current === generation) return versions(source); }), button("解绑", () => { if (current === generation) return action(source, "UNBIND"); }), button("删除", () => { if (current === generation) return action(source, "DELETE"); }));
       target.append(card);
     }
@@ -89,19 +136,26 @@
   }
   async function select(automatic = false) {
     if (automatic !== true) startupIntent = null;
-    const current = ++generation; clearTimeout(timer); selectedSource = null; knownSources = []; invalidate(); message("");
+    const current = ++generation; clearTimeout(timer); selectedSource = null; knownSources = []; clearSearch(); invalidate(); message("");
     for (const name of ["sources", "jobs", "versions", "original"]) $("#knowledge-" + name).replaceChildren();
     const scope = selected(); $("#knowledge-local").hidden = scope?.kind !== "PROJECT"; $("#knowledge-github").hidden = scope?.kind !== "REPOSITORY";
+    const service = scopes.find(s => s.kind === scope?.kind && s.id === scope?.id)?.service;
+    const all = node("option", "此范围全部服务资料"); all.value = "";
+    $("#knowledge-service").replaceChildren(all); $("#knowledge-service").value = "";
+    if (service && scope.kind === "PROJECT") { const bound = node("option", "绑定服务 · " + service); bound.value = service; $("#knowledge-service").append(bound); }
+    $("#knowledge-service").disabled = !service || scope?.kind !== "PROJECT";
     $("#knowledge-directory").value = ""; $("#knowledge-commit").value = "";
     try { await refresh(current); } catch (e) { if (current === generation) message(e.message); }
   }
   $("#knowledge-form").addEventListener("submit", e => { e.preventDefault(); preview(); });
+  $("#knowledge-search-form").addEventListener("submit", e => { e.preventDefault(); search(); });
+  for (const name of ["query", "doc-type", "service"]) $("#knowledge-" + name).addEventListener(name === "query" ? "input" : "change", clearSearch);
   $("#knowledge-scope").addEventListener("change", () => select());
   for (const name of ["directory", "commit"]) $("#knowledge-" + name).addEventListener("input", () => { if (name === "directory") selectedSource = null; invalidate(); });
   $("#knowledge-confirm").addEventListener("change", () => { $("#knowledge-import").disabled = !previewValue || !$("#knowledge-confirm").checked; });
   $("#knowledge-refresh").addEventListener("click", async () => { const current = generation; try { await loadScopes(); await refresh(current); } catch (e) { if (current === generation) message(e.message); } });
   $("#knowledge-import").addEventListener("click", async () => {
-    if (!previewValue || !$("#knowledge-confirm").checked) return; const p = previewValue, current = generation; selectedSource = null; invalidate();
+    if (!previewValue || !$("#knowledge-confirm").checked) return; const p = previewValue, current = generation; selectedSource = null; clearSearch(); $("#knowledge-versions").replaceChildren(); invalidate();
     try { await write("/api/knowledge/imports", { previewId: p.id }); if (current !== generation) return; message("已提交有界导入任务，可查看进度或取消。没有资料发送给模型。"); await refresh(current); }
     catch (e) { if (current === generation) message(e.message); }
   });
@@ -117,8 +171,9 @@
     else if (previous) { $("#knowledge-scope").value = ""; await select(true); }
     if (current !== scopeGeneration || !startupIntent) return;
     const intent = startupIntent; startupIntent = null;
-    if (intent.version) await openVersion(intent.version, intent.scope);
+    if (intent.version && intent.chunk) await openChunk(intent.version, intent.chunk, intent.scope);
+    else if (intent.version) await openVersion(intent.version, intent.scope);
   }
-  window.knowledgePanel = { select, preview, openVersion, refreshScopes: () => loadScopes().catch(e => message(e.message)) };
+  window.knowledgePanel = { select, preview, search, openChunk, openVersion, refreshScopes: () => loadScopes().catch(e => message(e.message)) };
   loadScopes().catch(e => message(e.message));
 })();

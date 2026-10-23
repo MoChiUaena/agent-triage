@@ -1,4 +1,4 @@
-# 项目知识导入与版本（K1）
+# 项目知识导入、检索与引用（K1 / K2）
 
 在「项目源码 → 项目知识」选择已登记的本机项目或 GitHub 仓库，先预览准确目录 / 固定提交、文件清单、内容 SHA256 和排除项，再确认本机导入。在「研发协作」切换仓库可查看绑定知识，并进入管理页面。没有模型密钥也能完成全部操作。导入不调用模型，不运行文档内容，不跟随其中的 URL。
 
@@ -28,7 +28,19 @@
 
 仅最终短事务一次性替换有效文档映射。失败、取消、过期 revision 或重启不会留下部分有效的新版本。重复导入同一来源 / 路径 / 内容复用原文及分段；修改文件生成新版本，未改文件复用，移除文件只退出当前映射。来源 revision 随成功激活递增。相同内容在不同 GitHub 提交继续复用首次保存的原文版本；当前来源记录新的导入 SHA，引用保留原文首次捕获的提交。
 
-解绑与软删除均清除当前映射并停止新检索 / 材料发送，保留历史原文和分段。两者分别记录 `UNBOUND` / `DELETED`；重新预览并导入可以显式重新激活该来源。删除项目或仓库登记不会级联删除知识快照。历史原文 / 分段接口严格核对版本中保存的范围 UUID，登记移除后仍能打开；当前导入、来源列表、版本列表和材料发送要求范围仍登记。K2 才提供关键词检索，当前没有新增知识搜索入口。
+解绑与软删除均清除当前映射并停止新检索 / 材料发送，保留历史原文和分段。两者分别记录 `UNBOUND` / `DELETED`；重新预览并导入可以显式重新激活该来源。删除项目或仓库登记不会级联删除知识快照。历史原文 / 分段接口严格核对版本中保存的范围 UUID，登记移除后仍能打开；当前导入、来源列表、版本列表、检索和材料发送要求范围仍登记。
+
+## 当前知识关键词检索（K2）
+
+在同一知识分区选择项目 / 仓库，输入关键词，可按 Markdown / TXT 过滤。项目还可选其当前绑定服务；服务只是服务器核对的项目绑定，不会跨项目扩展范围，也不从名称推断项目 UUID。仓库不接受服务筛选。无需密钥，不调用模型、不执行文档内容或链接，也不是语义 / 向量检索。
+
+检索词 1–200 个 UTF-16 字符，去除空白后需含文字或数字。按 Unicode 字母 / 数字 / 下划线分词，大小写不敏感；中文连续词句按子串匹配，例如 `连接池`。多个词都须出现在同一段正文、标题或路径中。每词标题命中 8 分、路径 4 分、正文每次命中 2 分（每词最多计 3 次），按总分降序，再按路径、来源 UUID、版本 UUID、段序、分段 UUID 排序。无分页；相同数据和参数的顺序稳定。
+
+只读 `ACTIVE` 来源和当前文档映射；旧版本、移除文件、解绑 / 删除来源均不参加新检索。每次按来源、路径、版本、段序固定扫描最多 2000 个段（每段最多 2000 字符），再选前 1–20 个结果，默认 10。`scannedChunks` / `availableChunks` 和 `truncated` 标记扫描覆盖；达限后可能遗漏后续高分匹配，不能把无结果视为全范围没有资料。只覆盖成功导入的当前资料，原始目录的排除、读取上限与缺口仍见来源预览。
+
+结果返回不可变 `chunkId`、`versionId`、`sourceId`、保存 `scope`、标题、最多 360 字符的匹配邻近摘要、路径、固定 GitHub 提交来源 URL（本机文件仅返回路径）、原文和分段 SHA256、行号 / 偏移、导入时间、提交、分数及 `recallMethod=KEYWORD`。检索响应不带完整段正文；点「查看分段原文」重新从服务器校验版本、分段与保存范围，显示准确的最多 2000 字符原段及原始行号，再可打开同一版本全文。`/sources.html?scopeKind=PROJECT&scopeId=<UUID>&version=<版本UUID>&chunk=<分段UUID>#knowledge` 可直接打开旧引用，即使登记已删除；不得改用当前文档替代旧内容。
+
+公开 Java 入口为 `KnowledgeSearchService.search(Scope, query, docType, service, limit)` 与 `chunk(Scope, versionId, chunkId)`；下游只能提交服务器保存的身份，不能用任意调用方文本冒充引用。K2 本批只交付检索和引用，任务追问 / 研发分析的消费集成留给 C1 / A1 等真实调用方，尚未完成跨功能消费者验收。内置排障规则与运行证据门槛保持原契约；项目文档经验不能替代当前观测，也不授予源码或资料外发权限。
 
 ## REST 接口
 
@@ -46,13 +58,15 @@
 | `GET /sources/{id}/versions?scopeKind=…&scopeId=…` | 版本元数据，标明是否当前有效 |
 | `GET /versions/{id}?scopeKind=…&scopeId=…` | 历史不可变原文 `Version`，无需仍有登记 |
 | `GET /versions/{id}/chunks?scopeKind=…&scopeId=…` | 同一原文的不可变 `Chunk[]`，含位置 |
+| `GET /search?scopeKind=…&scopeId=…&query=…&docType=ALL&limit=10&service=…` | `docType` 可选 `ALL` / `MARKDOWN` / `TEXT`；`service` 可选且须为当前项目绑定。返回 `SearchResult`，含 results / 扫描覆盖 / 截断标记；有效范围无匹配返回 200 和空数组 |
+| `GET /versions/{versionId}/chunks/{chunkId}?scopeKind=…&scopeId=…` | 仅返回指定版本中指定持久段的引用与准确 `text`，历史可读；错版本段 404、错保存范围 409 |
 | `GET /jobs?scopeKind=…&scopeId=…` | 最近任务 |
 | `GET /jobs/{id}` | 单个任务状态 / 进度，要求其范围仍登记 |
 | `POST /jobs/{id}/cancel` | 请求取消；已结束任务保持原终态 |
 
-错误：400 无效目录 / SHA / 参数或未确认影响；403 非本机同源或缺少写标记；404 范围 / 来源 / 版本不存在；409 范围不符或来源 revision 变化；410 预览过期；429 预览读取 / 缓存 / 队列达限；502 GitHub 固定版本内容不完整或校验失败。后台失败只保存安全摘要，不把异常正文、凭据或网络响应落入任务错误。
+错误：400 无效目录 / SHA / 参数或未确认影响；403 非本机同源或缺少写标记；404 范围 / 来源 / 版本不存在；409 范围不符或来源 revision 变化；410 预览过期；429 预览读取 / 缓存 / 队列达限；502 GitHub 固定版本内容不完整或校验失败；检索 / 精确段查询的 503 表示存储不可用，不能解释为无匹配。后台失败只保存安全摘要，不把异常正文、凭据或网络响应落入任务错误。
 
-## 无密钥复现：导入 → 重复 → 更新 → 删除 → 历史
+## 无密钥复现：导入 → 检索 → 原文 → 更新 → 当前检索 / 历史引用
 
 使用 JDK 21，启动独立本机演示实例：
 
@@ -82,14 +96,27 @@ function Import-Guide {
   if ($job.state -ne 'SUCCEEDED') { throw $job.message }
 }
 Import-Guide
+$search=Invoke-RestMethod "$base/api/knowledge/search?$scope&query=Architecture&docType=MARKDOWN&limit=10"
+$search | Select-Object recallMethod,scannedChunks,availableChunks,truncated
+$hit=$search.results[0]
+$citationUrl="$base/api/knowledge/versions/$($hit.versionId)/chunks/$($hit.chunkId)?$scope"
+$original=Invoke-RestMethod $citationUrl
+$original | Select-Object title,path,startLine,endLine,sha256,chunkSha256,text
+# 浏览器中打开 "$base$($hit.originalUrl)" 可看准确旧段，再打开该版本全文
 $source=@(Invoke-RestMethod "$base/api/knowledge/sources?$scope")[0]
 $versions=@(Invoke-RestMethod "$base/api/knowledge/sources/$($source.id)/versions?$scope")
 $old=$versions[0].id
 Import-Guide # 同一文档仍是一份原文与一组分段
 Set-Content -LiteralPath (Join-Path $root 'README.md') -Value "# Project guide`nArchitecture v2" -Encoding utf8
 Import-Guide
+$current=Invoke-RestMethod "$base/api/knowledge/search?$scope&query=v2"
+$oldTerm=Invoke-RestMethod "$base/api/knowledge/search?$scope&query=v1" # results 为空
+$current.results | Select-Object path,versionId,sha256,excerpt
+Invoke-RestMethod $citationUrl # 准确原段仍为 Architecture v1；versionId / chunkId / 哈希不变
 $source=@(Invoke-RestMethod "$base/api/knowledge/sources?$scope")[0]
 Invoke-RestMethod "$base/api/knowledge/sources/$($source.id)" -Method Post -Headers $headers -ContentType application/json -Body (@{scopeKind='PROJECT';scopeId=$project.id;revision=$source.revision;action='DELETE';confirmed=$true}|ConvertTo-Json)
+Invoke-RestMethod "$base/api/knowledge/search?$scope&query=Architecture" # 删除后 results 为空
+Invoke-RestMethod $citationUrl # 历史段仍可打开
 Invoke-RestMethod "$base/api/knowledge/versions/$old`?$scope" # 仍是 Architecture v1
 Invoke-RestMethod "$base/api/knowledge/versions/$old/chunks?$scope"
 ```
@@ -102,16 +129,19 @@ GitHub 路径：在研发协作页登记公开 Java 仓库，选择一个已核�
 
 `MaterialModels.Type.KNOWLEDGE` 使用 `Selection.reportId=不可变原文版本UUID`，必须明确提供 `projectId` 或 `repositoryId`，服务器核对保存范围和当前来源状态。返回不可变版本、原文 SHA256、来源路径 / 提交、带行号的保存分段以及历史原文页面链接。共享文本复用 B0 的明确字段白名单、凭据脱敏、单字段 2000 字符、数组 20 项和整份材料 16000 字符预算；裁剪会明确列出。已停用来源或已移除登记不能生成新的发送材料，但历史原文 API 仍可读。
 
+现有 K1 `KNOWLEDGE` 材料选择的是整份不可变原文版本，并不表示已选择 K2 命中段。本批没有扩展 B0 表单、缓存或发送预览。未来 C1 发送端必须先扩展准确的分段选择 / 预览，以保存的版本、段 UUID 与范围重新核对，只消费用户选中的段；不得悄悄用整文前 16000 字符替代命中段，也不得把调用方提交的原始文本当可信引用。
+
 只读 `resolve`、创建发送预览和知识导入不授予外发权限。未来 C1/A1/A2 真正发送前，消费接口必须传 `{"confirmed":true,"documentsConfirmed":true}`；旧 Java `consume(id,true)` 对知识材料也会拒绝。确认只针对该预览和其固定接收方，不保存永久分享开关，不代替源码分享授权。K1 仍不调用任何模型。
 
 ## 回归
 
 ```powershell
-.\mvnw.cmd '-Dtest=KnowledgeApiTest,KnowledgeGithubApiTest,GithubKnowledgeReaderTest,KnowledgeFilesTest,KnowledgeLifecycleTest,MaterialApiTest,SendPreviewServiceTest' test
+.\mvnw.cmd '-Dtest=KnowledgeSearchApiTest,KnowledgeSearchServiceTest,KnowledgeApiTest,KnowledgeGithubApiTest,GithubKnowledgeReaderTest,KnowledgeFilesTest,KnowledgeLifecycleTest,MaterialApiTest,SendPreviewServiceTest' test
 node scripts/knowledge_ui_check.js
+node scripts/knowledge_search_ui_check.js
 node scripts/material_ui_check.js
 node scripts/development_ui_check.js
 .\mvnw.cmd verify
 ```
 
-`KnowledgeApiTest` 可用 `TRIAGE_KNOWLEDGE_TEST_DB_URL` / `_USER` / `_PASSWORD` 指向独立测试 PostgreSQL；默认 H2。测试使用真实临时文件、数据库及固定本机 HTTP fixture，不执行收费调用或外部写入。
+`KnowledgeApiTest` / `KnowledgeSearchApiTest` 可用 `TRIAGE_KNOWLEDGE_TEST_DB_URL` / `_USER` / `_PASSWORD` 指向独立测试 PostgreSQL；默认 H2。CI PostgreSQL 作业同时运行二者。测试使用真实临时文件、数据库及固定本机 HTTP fixture，不执行收费调用或外部写入。
