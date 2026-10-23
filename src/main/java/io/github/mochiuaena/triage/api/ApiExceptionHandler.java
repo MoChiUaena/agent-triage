@@ -13,6 +13,8 @@ public class ApiExceptionHandler {
     @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
         MethodArgumentTypeMismatchException.class, IllegalArgumentException.class})
     public ResponseEntity<ProblemDetail> badRequest(Exception e, jakarta.servlet.http.HttpServletRequest request) {
+        if (request.getServletPath().startsWith("/api/knowledge"))
+            return problem(HttpStatus.BAD_REQUEST, "知识参数无效，请核对项目 / 仓库 UUID、版本与分段、1–200 字关键词、文档类型及 1–20 条结果上限。");
         if (request.getServletPath().contains("/workflows"))
             return problem(HttpStatus.BAD_REQUEST, "工作流参数无效，请核对 PR、Issue、已有报告与所选仓库；执行前需要未过期的计划。");
         if (request.getServletPath().contains("/issue/"))

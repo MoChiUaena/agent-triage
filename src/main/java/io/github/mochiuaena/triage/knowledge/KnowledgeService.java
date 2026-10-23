@@ -317,6 +317,14 @@ public class KnowledgeService {
         return store.sources(scope);
     }
 
+    public void validateSearchScope(Scope scope, String service) {
+        scope(scope.kind(), scope.id());
+        validate(scope);
+        if (service != null && (!scope.kind().equals("PROJECT")
+                || !service.equals(projects.require(scope.id()).service())))
+            throw KnowledgeFiles.bad("服务未绑定到所选项目；仓库知识不推断服务范围。");
+    }
+
     public List<VersionInfo> versions(UUID sid, Scope scope) {
         validate(scope);
         assertScope(store.require(sid).scope(), scope);

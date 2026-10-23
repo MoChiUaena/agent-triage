@@ -16,9 +16,24 @@ public class KnowledgeController {
     public record ImportInput(UUID previewId) {}
 
     private final KnowledgeService knowledge;
+    private final KnowledgeSearchService search;
 
-    public KnowledgeController(KnowledgeService knowledge) {
+    public KnowledgeController(KnowledgeService knowledge, KnowledgeSearchService search) {
         this.knowledge = knowledge;
+        this.search = search;
+    }
+
+    @GetMapping("/search")
+    public KnowledgeSearchService.SearchResult search(@RequestParam String scopeKind, @RequestParam UUID scopeId,
+            @RequestParam String query, @RequestParam(required=false) String docType,
+            @RequestParam(required=false) String service, @RequestParam(defaultValue="10") int limit) {
+        return search.search(knowledge.scope(scopeKind, scopeId), query, docType, service, limit);
+    }
+
+    @GetMapping("/versions/{versionId}/chunks/{chunkId}")
+    public KnowledgeSearchService.Citation chunk(@PathVariable UUID versionId, @PathVariable UUID chunkId,
+            @RequestParam String scopeKind, @RequestParam UUID scopeId) {
+        return search.chunk(knowledge.scope(scopeKind, scopeId), versionId, chunkId);
     }
 
     @PostMapping("/previews")

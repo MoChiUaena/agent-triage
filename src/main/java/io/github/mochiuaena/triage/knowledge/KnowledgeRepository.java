@@ -165,6 +165,47 @@ public class KnowledgeRepository {
                 id(vid));
     }
 
+    public record SearchChunk(Version version, Chunk chunk) {}
+
+    private static final String CURRENT_CHUNKS =
+            " FROM knowledge_chunks c JOIN knowledge_versions v ON v.id=c.version_id"
+            + " JOIN knowledge_active_documents a ON a.version_id=v.id AND a.source_id=v.source_id AND a.path=v.path"
+            + " JOIN knowledge_sources s ON s.id=v.source_id AND s.scope_kind=v.scope_kind AND s.scope_id=v.scope_id"
+            + " WHERE s.state='ACTIVE' AND v.scope_kind=? AND v.scope_id=?";
+
+    private static String typeFilter(String type) {
+        return switch (type) {
+            case "MARKDOWN" -> " AND LOWER(v.path) LIKE '%.md'";
+            case "TEXT" -> " AND LOWER(v.path) LIKE '%.txt'";
+            default -> "";
+        };
+    }
+
+    public long searchCount(Scope scope, String type) {
+        return jdbc.queryForObject("SELECT COUNT(*)" + CURRENT_CHUNKS + typeFilter(type),
+                Long.class, scope.kind(), id(scope.id()));
+    }
+
+    public List<SearchChunk> searchChunks(Scope scope, String type, int limit) {
+        return jdbc.query("SELECT v.id AS vid,v.source_id,v.scope_kind,v.scope_id,v.origin,v.root_path,v.commit_sha,v.path,v.content_hash AS version_hash,v.title,v.imported_at,c.*"
+                + CURRENT_CHUNKS + typeFilter(type) + " ORDER BY v.source_id,v.path,v.id,c.ordinal,c.id LIMIT ?",
+            (r, n) -> new SearchChunk(new Version(uuid(r, "vid"), uuid(r, "source_id"), scope(r),
+                r.getString("origin"), r.getString("root_path"), r.getString("commit_sha"), r.getString("path"),
+                r.getString("version_hash"), r.getString("title"), null, instant(r, "imported_at")), readChunk(r)),
+            scope.kind(), id(scope.id()), limit);
+    }
+
+    private static Chunk readChunk(ResultSet r) throws SQLException {
+        return new Chunk(uuid(r, "id"), uuid(r, "version_id"), r.getInt("ordinal"), r.getInt("start_line"),
+            r.getInt("end_line"), r.getInt("start_offset"), r.getInt("end_offset"), r.getString("content_hash"), r.getString("chunk_text"));
+    }
+
+    public Chunk chunk(UUID versionId, UUID chunkId) {
+        return jdbc.query("SELECT * FROM knowledge_chunks WHERE id=? AND version_id=?", (r,n) -> readChunk(r),
+                id(chunkId), id(versionId)).stream().findFirst()
+            .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "此版本中不存在所选知识分段。"));
+    }
+
     public Source action(UUID sid, Scope scope, long revision, String action) {
         return tx.execute(
                 status -> {
