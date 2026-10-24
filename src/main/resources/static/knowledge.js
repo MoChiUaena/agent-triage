@@ -6,6 +6,7 @@
   let startupIntent = ["PROJECT", "REPOSITORY"].includes(params.get("scopeKind")) && params.get("scopeId")
     ? { scope: { kind: params.get("scopeKind"), id: params.get("scopeId") }, version: params.get("version"), chunk: params.get("chunk") } : null;
   let scopes = [], knownSources = [], generation = 0, formGeneration = 0, scopeGeneration = 0, detailGeneration = 0, searchGeneration = 0, previewValue = null, selectedSource = null, timer = null;
+  let searchConfig = null, embedPreviewValue = null, embedTimer = null;
   const query = scope => "?" + new URLSearchParams({ scopeKind: scope.kind, scopeId: scope.id });
   const selected = () => { const [kind, id] = $("#knowledge-scope").value.split(":"); return id ? { kind, id } : null; };
   const message = text => { $("#knowledge-notice").textContent = text; };
@@ -46,6 +47,7 @@
   async function search() {
     clearSearch(); const scope = selected(); if (!scope) { message("请选择已登记项目或仓库。"); return; }
     const current = generation, searching = searchGeneration;
+    if ($("#knowledge-mode").value === "HYBRID") return hybridSearch(scope, current, searching);
     const values = new URLSearchParams({ scopeKind: scope.kind, scopeId: scope.id, query: $("#knowledge-query").value.trim(), docType: $("#knowledge-doc-type").value || "ALL", limit: "10" });
     const service = $("#knowledge-service").value; if (service) values.set("service", service);
     message("正在本机检索当前知识，不调用模型…");
@@ -63,6 +65,101 @@
       }
       message("本机关键词检索完成；资料经验不替代运行证据。来源更新后请重新搜索。");
     } catch (e) { if (current === generation && searching === searchGeneration) message(e.message); }
+  }
+  async function hybridSearch(scope, current, searching) {
+    const embedding = searchConfig?.embedding, rerank = searchConfig?.rerank;
+    if (!embedding) { message("尚未配置 Embedding 服务，混合检索不可用；可使用关键词检索，或在模型设置中添加。"); return; }
+    if (!$("#knowledge-embed-confirm").checked) { message("混合检索会把检索词发送至 Embedding 服务（" + embedding.displayName + " · " + embedding.model + "）；请先勾选发送确认。"); return; }
+    const rerankOn = rerank && $("#knowledge-rerank").checked;
+    if (rerankOn && !$("#knowledge-rerank-confirm").checked) { message("启用重排会把融合候选摘录发送至 Rerank 服务（" + rerank.displayName + " · " + rerank.model + "）；请先勾选对应确认。"); return; }
+    const body = { scopeKind: scope.kind, scopeId: scope.id, query: $("#knowledge-query").value.trim(), docType: $("#knowledge-doc-type").value || "ALL", limit: 10, confirmed: true, rerank: rerankOn, documentsConfirmed: rerankOn };
+    const service = $("#knowledge-service").value; if (service) body.service = service;
+    message("正在混合检索：检索词将发送至 Embedding 服务" + (rerankOn ? "，候选摘录将发送至 Rerank 服务" : "") + "…");
+    try {
+      const value = await write("/api/knowledge/hybrid-search", body);
+      if (current !== generation || searching !== searchGeneration) return;
+      const target = $("#knowledge-results"), results = (value.results || []).slice(0, 20);
+      const vector = value.vector || {}, rerankState = value.rerank || {};
+      target.replaceChildren(node("p", "HYBRID · 关键词扫描 " + value.scannedChunks + "/" + value.availableChunks + " 当前分段" + (value.truncated ? " · 存在扫描上限" : "")),
+        node("p", "向量：" + vector.status + (vector.reason ? " · " + vector.reason : "") + (vector.queryTokens != null ? " · 查询已知 tokens " + vector.queryTokens : "")),
+        node("p", "重排：" + rerankState.status + (rerankState.reason ? " · " + rerankState.reason : "")),
+        node("p", value.coverage));
+      if (!results.length) target.append(node("p", "本次扫描范围内没有匹配结果。可调整关键词，或先检查导入范围与向量索引。"));
+      for (const h of results) {
+        const c = h.citation || {}; const card = node("article"); card.className = "source-project";
+        card.append(node("h3", c.title), node("pre", (c.excerpt || "").slice(0, 360)),
+          node("p", c.path + " · 行 " + c.startLine + "–" + c.endLine + " · " + (h.matchedBy || []).join("+") + " · 融合 " + h.fusedScore + (h.rerankScore != null ? " · 重排 " + h.rerankScore : "")),
+          node("p", "版本 " + c.versionId + " · 原文 SHA256 " + c.sha256 + " · 分段 SHA256 " + c.chunkSha256), node("p", "导入 " + stamp(c.importedAt)),
+          button("查看分段原文", () => { if (current === generation && searching === searchGeneration) return openChunk(c.versionId, c.chunkId, scope); }));
+        const source = sourceLink(c.sourceUrl); if (source) card.append(source); target.append(card);
+      }
+      message("混合检索完成；向量与重排状态见结果区。资料经验不替代运行证据。来源更新或索引重建后请重新搜索。");
+    } catch (e) { if (current === generation && searching === searchGeneration) message(e.message); }
+  }
+  function updateSearchModeUi() {
+    const embedding = searchConfig?.embedding, rerank = searchConfig?.rerank;
+    $("#knowledge-embed-preview-button").disabled = !embedding || !selected();
+    $("#knowledge-hybrid-consent").hidden = $("#knowledge-mode").value !== "HYBRID";
+    let note = embedding
+      ? "混合检索会把检索词发送至 Embedding 服务：" + embedding.displayName + "（模型 " + embedding.model + " · " + embedding.baseUrl + "）。"
+      : "尚未配置 Embedding 服务：混合检索不可用，可先使用关键词检索，或在模型设置中添加 Embedding 服务。";
+    if (rerank) note += " 启用重排时，最多 20 段融合候选摘录（每段最多 1000 字符）会发送至 Rerank 服务：" + rerank.displayName + "（模型 " + rerank.model + "）。";
+    $("#knowledge-send-note").textContent = note;
+    $("#knowledge-rerank-row").hidden = !rerank;
+    if (!rerank) { $("#knowledge-rerank").checked = false; $("#knowledge-rerank-confirm").checked = false; }
+    $("#knowledge-rerank-consent-row").hidden = !rerank || !$("#knowledge-rerank").checked;
+  }
+  async function loadSearchConfig() {
+    const current = generation;
+    try { searchConfig = await request("/api/settings/search-models"); }
+    catch (e) { searchConfig = null; }
+    if (current === generation) updateSearchModeUi();
+  }
+  async function embedPreview() {
+    const scope = selected(); if (!scope) return;
+    const current = generation;
+    $("#knowledge-embed-preview-button").disabled = true; message("正在读取向量索引发送范围…");
+    try {
+      const p = await write("/api/knowledge/embeddings/preview", { scopeKind: scope.kind, scopeId: scope.id });
+      if (current !== generation) return;
+      embedPreviewValue = p;
+      const target = $("#knowledge-embed-preview"); target.hidden = false;
+      target.replaceChildren(node("h3", "将发送到 Embedding 服务的范围"),
+        node("p", "模型 " + p.model + " · " + p.baseUrl),
+        node("p", "当前有效分段 " + p.chunks + " 个 · 来源 " + p.sources + " 个" + (p.truncated ? " · 超出单次上限，仅索引排序在前的 2000 段" : "")),
+        node("p", p.note), node("p", "预览十分钟有效，至 " + stamp(p.expiresAt)));
+      $("#knowledge-embed-consent-row").hidden = false;
+      message("请核对发送范围后确认建立 / 重建索引。");
+    } catch (e) { if (current === generation) message(e.message); }
+    finally { if (current === generation) $("#knowledge-embed-preview-button").disabled = !searchConfig?.embedding; }
+  }
+  async function embedStart() {
+    if (!embedPreviewValue || !$("#knowledge-embed-index-confirm").checked) return;
+    const scope = selected(), current = generation;
+    try {
+      await write("/api/knowledge/embeddings/jobs", { scopeKind: scope.kind, scopeId: scope.id, previewId: embedPreviewValue.id, documentsConfirmed: true });
+      if (current !== generation) return;
+      embedPreviewValue = null;
+      $("#knowledge-embed-preview").replaceChildren(); $("#knowledge-embed-preview").hidden = true;
+      $("#knowledge-embed-index-confirm").checked = false; $("#knowledge-embed-consent-row").hidden = true; $("#knowledge-embed-start").disabled = true;
+      message("已提交向量索引任务；分段正文将发送至 Embedding 服务，可在下方查看进度或取消。");
+      await refresh(current);
+    } catch (e) { if (current === generation) message(e.message); }
+  }
+  async function embeddingJobs(current) {
+    const scope = selected(); if (!scope) return;
+    const values = await request("/api/knowledge/embeddings/jobs" + query(scope)); if (current !== generation) return;
+    const target = $("#knowledge-embedding-jobs"); target.replaceChildren(node("h3", "最近向量索引任务（20 条）"));
+    let pending = false;
+    for (const job of values) {
+      const active = ["QUEUED", "RUNNING"].includes(job.state); pending ||= active;
+      const row = node("div");
+      row.append(node("p", job.state + " · " + job.progress + "/" + job.total + " · " + job.model + " · Embedding 调用 " + job.usageCalls + " 次 · 已知 tokens " + (job.usageTokens > 0 ? job.usageTokens : "未知") + " · " + job.message));
+      if (active) row.append(button("取消索引", async () => { if (current !== generation) return; try { await write("/api/knowledge/embeddings/jobs/" + job.id + "/cancel"); if (current === generation) await refresh(current); } catch (e) { if (current === generation) message(e.message); } }));
+      target.append(row);
+    }
+    clearTimeout(embedTimer);
+    if (pending) embedTimer = setTimeout(async () => { if (current !== generation) return; try { await refresh(current); } catch (e) { if (current === generation) message(e.message); } }, 1000);
   }
   function renderPreview(p) {
     const target = $("#knowledge-preview"); target.hidden = false;
@@ -131,13 +228,16 @@
     clearTimeout(timer); if (pending) timer = setTimeout(async () => { if (current !== generation) return; try { await refresh(current); } catch (e) { if (current === generation) message(e.message); } }, 1000);
   }
   async function refresh(current = generation) {
-    const scope = selected(); if (!scope) return; const [values] = await Promise.all([request("/api/knowledge/sources" + query(scope)), jobs(current)]);
+    const scope = selected(); if (!scope) return;
+    const [values] = await Promise.all([request("/api/knowledge/sources" + query(scope)), jobs(current), embeddingJobs(current).catch(() => {})]);
     if (current !== generation) return; renderSources(values, current);
   }
   async function select(automatic = false) {
     if (automatic !== true) startupIntent = null;
-    const current = ++generation; clearTimeout(timer); selectedSource = null; knownSources = []; clearSearch(); invalidate(); message("");
+    const current = ++generation; clearTimeout(timer); clearTimeout(embedTimer); selectedSource = null; knownSources = []; clearSearch(); invalidate(); message("");
     for (const name of ["sources", "jobs", "versions", "original"]) $("#knowledge-" + name).replaceChildren();
+    embedPreviewValue = null; $("#knowledge-embed-preview").replaceChildren(); $("#knowledge-embed-preview").hidden = true;
+    $("#knowledge-embed-consent-row").hidden = true; $("#knowledge-embed-index-confirm").checked = false; $("#knowledge-embed-start").disabled = true;
     const scope = selected(); $("#knowledge-local").hidden = scope?.kind !== "PROJECT"; $("#knowledge-github").hidden = scope?.kind !== "REPOSITORY";
     const service = scopes.find(s => s.kind === scope?.kind && s.id === scope?.id)?.service;
     const all = node("option", "此范围全部服务资料"); all.value = "";
@@ -145,11 +245,17 @@
     if (service && scope.kind === "PROJECT") { const bound = node("option", "绑定服务 · " + service); bound.value = service; $("#knowledge-service").append(bound); }
     $("#knowledge-service").disabled = !service || scope?.kind !== "PROJECT";
     $("#knowledge-directory").value = ""; $("#knowledge-commit").value = "";
-    try { await refresh(current); } catch (e) { if (current === generation) message(e.message); }
+    updateSearchModeUi();
+    try { await Promise.all([refresh(current), loadSearchConfig()]); } catch (e) { if (current === generation) message(e.message); }
   }
   $("#knowledge-form").addEventListener("submit", e => { e.preventDefault(); preview(); });
   $("#knowledge-search-form").addEventListener("submit", e => { e.preventDefault(); search(); });
   for (const name of ["query", "doc-type", "service"]) $("#knowledge-" + name).addEventListener(name === "query" ? "input" : "change", clearSearch);
+  $("#knowledge-mode").addEventListener("change", () => { clearSearch(); updateSearchModeUi(); });
+  $("#knowledge-rerank").addEventListener("change", () => { $("#knowledge-rerank-consent-row").hidden = !$("#knowledge-rerank").checked; if (!$("#knowledge-rerank").checked) $("#knowledge-rerank-confirm").checked = false; });
+  $("#knowledge-embed-preview-button").addEventListener("click", embedPreview);
+  $("#knowledge-embed-index-confirm").addEventListener("change", () => { $("#knowledge-embed-start").disabled = !embedPreviewValue || !$("#knowledge-embed-index-confirm").checked; });
+  $("#knowledge-embed-start").addEventListener("click", embedStart);
   $("#knowledge-scope").addEventListener("change", () => select());
   for (const name of ["directory", "commit"]) $("#knowledge-" + name).addEventListener("input", () => { if (name === "directory") selectedSource = null; invalidate(); });
   $("#knowledge-confirm").addEventListener("change", () => { $("#knowledge-import").disabled = !previewValue || !$("#knowledge-confirm").checked; });
@@ -174,6 +280,7 @@
     if (intent.version && intent.chunk) await openChunk(intent.version, intent.chunk, intent.scope);
     else if (intent.version) await openVersion(intent.version, intent.scope);
   }
-  window.knowledgePanel = { select, preview, search, openChunk, openVersion, refreshScopes: () => loadScopes().catch(e => message(e.message)) };
+  window.knowledgePanel = { select, preview, search, openChunk, openVersion, hybridSearch, embedPreview, embedStart, embeddingJobs, updateSearchModeUi, refreshScopes: () => loadScopes().catch(e => message(e.message)) };
+  loadSearchConfig().catch(() => {});
   loadScopes().catch(e => message(e.message));
 })();

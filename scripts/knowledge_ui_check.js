@@ -22,6 +22,8 @@ const window = { location: { search: "" }, confirm: () => true };
 const context = vm.createContext({ window, document, URLSearchParams, Date, encodeURIComponent, console, setTimeout: () => 1, clearTimeout() {}, fetch: async (url, options = {}) => {
   requests.push({ url, options });
   if (url === "/api/materials/scopes") return new Promise(resolve => pendingScopes = resolve);
+  if (url === "/api/settings/search-models") return { ok: true, json: async () => ({ embedding: null, rerank: null }) };
+  if (url.startsWith("/api/knowledge/embeddings/jobs?")) return { ok: true, json: async () => [] };
   if (url === "/api/knowledge/previews") return new Promise(resolve => pendingPreview = resolve);
   if (url.startsWith("/api/knowledge/sources?")) return new Promise(resolve => pendingSources = resolve);
   if (url.startsWith("/api/knowledge/jobs?")) return { ok: true, json: async () => jobFixture };

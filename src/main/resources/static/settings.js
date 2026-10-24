@@ -407,3 +407,182 @@ $("#delete-dialog").addEventListener("cancel", (event) => {
   else removing = null;
 });
 reload().catch((error) => notice(error.message, true));
+
+// 检索辅助服务（可选）：与聊天模型相互独立的单条 Embedding / Rerank 配置。
+let searchState = null;
+let editingSearch = null;
+const searchTests = new Map();
+
+function searchModelLabel(kind) {
+  return kind === "rerank" ? "Rerank 重排服务" : "Embedding 服务";
+}
+
+function searchModelScope(kind) {
+  return kind === "rerank"
+    ? "混合检索启用重排时，融合后的候选摘录（每段最多 1000 字符）会发送到此服务；未启用重排时不发送任何内容。"
+    : "建立向量索引时，当前有效知识分段的正文会发送到此服务；混合检索时检索词会发送到此服务。修改模型或地址后需重建各范围的向量索引。";
+}
+
+function renderSearchModels() {
+  const target = $("#search-models");
+  target.replaceChildren();
+  if (!searchState) return;
+  for (const kind of ["embedding", "rerank"]) {
+    const view = searchState[kind];
+    const card = node("article", "provider-card");
+    card.append(node("h3", "", searchModelLabel(kind) + (view ? " · " + view.displayName : "（未配置）")));
+    const details = node("dl", "provider-details");
+    if (view) {
+      field(details, "Base URL", view.baseUrl);
+      field(details, "模型", view.model);
+      field(details, "API Key", view.keyConfigured ? "已保存" : "未设置");
+      field(details, "超时", view.timeoutSeconds + "s");
+    } else {
+      field(details, "状态", "未配置；相关功能保持关闭，不影响关键词检索");
+    }
+    card.append(details, node("p", "settings-empty", searchModelScope(kind)));
+    const actions = node("div", "provider-actions");
+    actions.append(
+      action(view ? "编辑" : "添加", "", busy, () => openSearchForm(kind, view)),
+    );
+    if (view) {
+      actions.append(
+        action("测试", "", busy, () => testSearchModel(kind)),
+        action("删除", "remove", busy, () => deleteSearchModel(kind, view)),
+      );
+    }
+    const result = searchTests.get(kind + ":" + (view?.version ?? 0));
+    if (result)
+      card.append(
+        node(
+          "p",
+          "probe-result" + (result.success ? "" : " failure"),
+          result.message + "（" + result.elapsedMs + " ms）",
+        ),
+      );
+    card.append(actions);
+    target.append(card);
+  }
+}
+
+async function reloadSearchModels() {
+  searchState = await api("/api/settings/search-models");
+  renderSearchModels();
+}
+
+function searchFormError(message) {
+  $("#search-model-error").textContent = message;
+  $("#search-model-error").hidden = !message;
+}
+
+function openSearchForm(kind, view) {
+  editingSearch = { kind, view: view || null };
+  $("#search-model-form").reset();
+  searchFormError("");
+  $("#search-model-kind").value = kind;
+  $("#search-model-title").textContent =
+    (view ? "编辑" : "配置") + searchModelLabel(kind);
+  $("#search-model-key-hint").textContent = view ? "留空保留已保存的 Key" : "必填";
+  $("#search-model-scope").textContent = searchModelScope(kind);
+  $("#search-model-name").value = view?.displayName || "";
+  $("#search-model-url").value = view?.baseUrl || "";
+  $("#search-model-model").value = view?.model || "";
+  $("#search-model-key").value = "";
+  $("#search-model-timeout").value = String(view?.timeoutSeconds ?? 20);
+  $("#search-model-dialog").showModal();
+  $("#search-model-name").focus();
+}
+
+function closeSearchForm() {
+  if (busy) return;
+  $("#search-model-dialog").close();
+  $("#search-model-key").value = "";
+  editingSearch = null;
+}
+
+async function saveSearchModel(event) {
+  event.preventDefault();
+  const kind = editingSearch?.kind;
+  if (!kind || busy) return;
+  const original = editingSearch.view;
+  const payload = {
+    displayName: $("#search-model-name").value.trim(),
+    baseUrl: $("#search-model-url").value.trim(),
+    model: $("#search-model-model").value.trim(),
+    apiKey: $("#search-model-key").value.trim(),
+    timeoutSeconds: Number($("#search-model-timeout").value),
+    version: original?.version || 0,
+  };
+  busy = true;
+  renderSearchModels();
+  try {
+    await api("/api/settings/search-models/" + kind, "PUT", payload);
+    $("#search-model-dialog").close();
+    $("#search-model-key").value = "";
+    editingSearch = null;
+    await reloadSearchModels();
+    notice(
+      kind === "embedding"
+        ? "Embedding 服务已保存。若修改了模型或地址，请在项目源码页重建相关范围的向量索引。"
+        : "Rerank 服务已保存。",
+    );
+  } catch (error) {
+    searchFormError(error.message);
+  } finally {
+    busy = false;
+    renderSearchModels();
+  }
+}
+
+async function testSearchModel(kind) {
+  if (busy) return;
+  busy = true;
+  renderSearchModels();
+  try {
+    const result = await api("/api/settings/search-models/" + kind + "/test", "POST");
+    const view = searchState?.[kind];
+    searchTests.set(kind + ":" + (view?.version ?? 0), result);
+    await reloadSearchModels();
+    if (!result.success) notice(result.message, true);
+    else notice("服务已响应一次测试请求，可能产生少量费用。");
+  } catch (error) {
+    notice(error.message, true);
+  } finally {
+    busy = false;
+    renderSearchModels();
+  }
+}
+
+async function deleteSearchModel(kind, view) {
+  if (busy) return;
+  if (
+    !window.confirm(
+      "删除" +
+        searchModelLabel(kind) +
+        "及其保存的 Key？相关检索功能将回退为不可用，并明确说明原因；已建立的向量索引会保留但不再被使用。",
+    )
+  )
+    return;
+  busy = true;
+  renderSearchModels();
+  try {
+    await api("/api/settings/search-models/" + kind + "?version=" + view.version, "DELETE");
+    searchTests.clear();
+    await reloadSearchModels();
+    notice(searchModelLabel(kind) + "已删除。");
+  } catch (error) {
+    notice(error.message, true);
+  } finally {
+    busy = false;
+    renderSearchModels();
+  }
+}
+
+$("#search-model-form").addEventListener("submit", saveSearchModel);
+$("#cancel-search-model").addEventListener("click", closeSearchForm);
+$("#close-search-model").addEventListener("click", closeSearchForm);
+$("#search-model-dialog").addEventListener("cancel", (event) => {
+  if (busy) event.preventDefault();
+  else closeSearchForm();
+});
+reloadSearchModels().catch(() => renderSearchModels());

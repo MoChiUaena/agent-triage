@@ -14,8 +14,9 @@ const ok = value => ({ ok: true, json: async () => value });
 const hit = { chunkId: "chunk", versionId: "version", sourceId: "source", scope: { kind: "PROJECT", id: "one" }, title: "<img title>", excerpt: "late <script>needle</script>", path: "guide.md", startLine: 4, endLine: 6,
   sha256: "document-hash", chunkSha256: "chunk-hash", text: "Exact old original <script>", importedAt: "2026-10-23T00:00:00Z", recallMethod: "KEYWORD", score: 2, sourceUrl: "javascript:alert(1)" };
 const result = { results: [hit], scannedChunks: 1, availableChunks: 2, truncated: true, coverage: "bounded scan" };
-function harness(search = "", registered = true) {
-  const nodes = new Map(), searches = [], chunks = [], requests = [];
+function harness(search = "", registered = true, config = null) {
+  const nodes = new Map(), searches = [], chunks = [], requests = [], embeds = [];
+  let embedJobs = [];
   const document = { querySelector(s) { if (!nodes.has(s)) nodes.set(s, new Element()); return nodes.get(s); }, createElement(tag) { return new Element(tag); } };
   const window = { location: { search }, confirm: () => true };
   let sources = [{ id: "source", scope: hit.scope, origin: "LOCAL", state: "ACTIVE", revision: 1, root: "docs", documents: 1 }];
@@ -23,15 +24,19 @@ function harness(search = "", registered = true) {
     clearTimeout() {}, setTimeout: () => 1, fetch: async (url, options = {}) => {
       requests.push({ url, options });
       if (url === "/api/materials/scopes") return ok(registered ? [{ kind: "PROJECT", id: "one", name: "One", service: "svc" }, { kind: "PROJECT", id: "two", name: "Two" }] : []);
+      if (url === "/api/settings/search-models") return ok(config);
       if (url.startsWith("/api/knowledge/sources?")) return ok(sources);
+      if (url.startsWith("/api/knowledge/embeddings/jobs?")) return ok(embedJobs);
       if (url.startsWith("/api/knowledge/jobs?")) return ok([]);
       if (url.startsWith("/api/knowledge/search?")) return new Promise(resolve => searches.push({ url, resolve }));
+      if (options.method === "POST" && url.startsWith("/api/knowledge/hybrid-search")) { const body = JSON.parse(options.body); embeds.push({ url, body, options }); return new Promise(resolve => searches.push({ url, resolve, body })); }
+      if (options.method === "POST" && url.startsWith("/api/knowledge/embeddings/")) { embeds.push({ url, body: JSON.parse(options.body), options }); return new Promise(resolve => searches.push({ url, resolve })); }
       if (url.startsWith("/api/knowledge/versions/version/chunks/chunk?")) return new Promise(resolve => chunks.push({ url, resolve }));
       if (url === "/api/knowledge/sources/source") { sources = [{ ...sources[0], state: "UNBOUND", revision: 2 }]; return ok(sources[0]); }
       if (url.startsWith("/api/knowledge/versions/version?")) return ok({ ...hit, id: "version", root: "docs", origin: "LOCAL", text: "Full immutable document" });
       throw new Error("Unexpected " + url);
     } }));
-  return { document, window, searches, chunks, requests, setSources(value) { sources = value; } };
+  return { document, window, searches, chunks, requests, embeds, setSources(value) { sources = value; }, setEmbedJobs(value) { embedJobs = value; } };
 }
 function find(root, text) { return root.children.flatMap(c => [c, ...findAll(c)]).find(c => c.textContent === text); }
 function findAll(root) { return root.children.flatMap(c => [c, ...findAll(c)]); }
@@ -91,5 +96,97 @@ async function render(h, value = result) {
   const obsolete = harness("?scopeKind=PROJECT&scopeId=one&version=version&chunk=chunk"); await tick();
   await select(obsolete, "PROJECT:two"); obsolete.chunks[0].resolve(ok(hit)); await tick();
   assert.equal(obsolete.document.querySelector("#knowledge-original").textContent, "");
-  console.log("Knowledge search UI passed: scoped filters, bounded safe text, persisted chunk/original, deep link and stale search/chunk/update/unbind guards");
+
+  // 混合检索与向量索引（K3）：未配置时保持关闭并说明；配置后需要显式发送确认。
+  const hybridCitation = { ...hit, recallMethod: "FUSED" };
+  const vectorOnly = { ...hit, path: "vector-only.md", recallMethod: "VECTOR" };
+  const hybridResult = { scope: hit.scope, query: "needle", docType: "ALL", service: null, recallMethod: "HYBRID",
+    results: [{ citation: hybridCitation, matchedBy: ["KEYWORD", "VECTOR"], fusedScore: 0.032, rerankScore: null },
+      { citation: vectorOnly, matchedBy: ["VECTOR"], fusedScore: 0.016, rerankScore: 0.87 }],
+    scannedChunks: 2, availableChunks: 3, truncated: false,
+    coverage: "混合检索在本机完成融合（RRF，k=60）…引用仍指向原始知识分段。",
+    vector: { status: "USED", reason: "已使用 3 段当前索引", indexedChunks: 3, activeChunks: 3, scannedEmbeddings: 3, dimension: 4, queryTokens: 12 },
+    rerank: { status: "OFF", reason: "本次未启用重排。", candidates: 0 } };
+  const embedPreviewValue = { id: "embed-preview", scope: hit.scope, chunks: 2, sources: 1, model: "test-embedding",
+    baseUrl: "https://svc.example/v1", fingerprint: "fp", truncated: false, note: "建立向量索引会把 2 个当前有效知识分段的正文发送至 https://svc.example/v1（模型 test-embedding）。",
+    createdAt: "2026-10-24T00:00:00Z", expiresAt: "2026-10-24T00:10:00Z" };
+  const embedJob = { id: "ejob", scope: hit.scope, state: "RUNNING", progress: 1, total: 2, cancelRequested: false,
+    message: "正在发送分段正文到 Embedding 服务", fingerprint: "fp", model: "test-embedding", usageCalls: 1, usageTokens: 42,
+    createdAt: "2026-10-24T00:00:00Z", updatedAt: "2026-10-24T00:00:00Z" };
+  const withoutConfig = harness(); await tick(); await select(withoutConfig);
+  withoutConfig.document.querySelector("#knowledge-mode").value = "HYBRID";
+  withoutConfig.document.querySelector("#knowledge-mode").events.change();
+  assert.match(withoutConfig.document.querySelector("#knowledge-send-note").textContent, /尚未配置 Embedding/);
+  assert.equal(withoutConfig.document.querySelector("#knowledge-embed-preview-button").disabled, true);
+  withoutConfig.document.querySelector("#knowledge-query").value = "needle";
+  await withoutConfig.window.knowledgePanel.search();
+  assert.equal(withoutConfig.embeds.length, 0, "Hybrid search must not send without a configured embedding service");
+  assert.match(withoutConfig.document.querySelector("#knowledge-notice").textContent, /尚未配置 Embedding/);
+
+  const configured = harness("", true, { embedding: { id: "e1", displayName: "向量服务", baseUrl: "https://svc.example/v1", model: "test-embedding", keyConfigured: true, timeoutSeconds: 5, version: 1 },
+    rerank: { id: "r1", displayName: "重排服务", baseUrl: "https://rerank.example", model: "test-rerank", keyConfigured: true, timeoutSeconds: 5, version: 1 } });
+  await tick(); await select(configured);
+  assert.match(configured.document.querySelector("#knowledge-send-note").textContent, /test-embedding.*svc\.example/);
+  assert.match(configured.document.querySelector("#knowledge-send-note").textContent, /test-rerank/);
+  assert.equal(configured.document.querySelector("#knowledge-embed-preview-button").disabled, false);
+  configured.document.querySelector("#knowledge-mode").value = "HYBRID";
+  configured.document.querySelector("#knowledge-mode").events.change();
+  assert.equal(configured.document.querySelector("#knowledge-hybrid-consent").hidden, false);
+  configured.document.querySelector("#knowledge-query").value = "needle";
+  await configured.window.knowledgePanel.search();
+  assert.equal(configured.embeds.length, 0, "Hybrid search must require the explicit embed confirmation");
+  configured.document.querySelector("#knowledge-embed-confirm").checked = true;
+  configured.document.querySelector("#knowledge-rerank").checked = true;
+  configured.document.querySelector("#knowledge-rerank").events.change();
+  await configured.window.knowledgePanel.search();
+  assert.equal(configured.embeds.length, 0, "Rerank needs its own material confirmation before excerpts leave");
+  assert.match(configured.document.querySelector("#knowledge-notice").textContent, /Rerank/);
+  configured.document.querySelector("#knowledge-rerank-confirm").checked = true;
+  const hybridRun = configured.window.knowledgePanel.search();
+  configured.searches.at(-1).resolve(ok(hybridResult)); await hybridRun;
+  const hybridPost = configured.embeds.at(-1);
+  assert.match(hybridPost.url, /hybrid-search/);
+  assert.deepEqual(hybridPost.body, { scopeKind: "PROJECT", scopeId: "one", query: "needle", docType: "ALL", limit: 10, confirmed: true, rerank: true, documentsConfirmed: true });
+  assert.equal(hybridPost.options.headers["X-Triage-Knowledge"], "1");
+  const hybridResults = configured.document.querySelector("#knowledge-results");
+  assert.match(hybridResults.textContent, /<img title>/);
+  assert.match(hybridResults.textContent, /KEYWORD\+VECTOR.*融合 0\.032/);
+  assert.match(hybridResults.textContent, /vector-only\.md.*VECTOR.*融合 0\.016.*重排 0\.87/);
+  assert.match(hybridResults.textContent, /向量：USED.*查询已知 tokens 12/);
+  assert.match(hybridResults.textContent, /RRF/);
+  assert.equal(findAll(hybridResults).some(n => n.href?.startsWith("javascript:")), false);
+  const vectorChunk = find(hybridResults, "查看分段原文"); const hybridView = vectorChunk.events.click();
+  assert.match(configured.chunks.at(-1).url, /versions\/version\/chunks\/chunk\?scopeKind=PROJECT&scopeId=one/);
+  configured.chunks.at(-1).resolve(ok({ ...hit, recallMethod: "HYBRID" })); await hybridView;
+  assert.match(configured.document.querySelector("#knowledge-original").textContent, /HYBRID/);
+
+  // 向量索引：预览 → 明确确认正文外发 → 提交任务 → 任务与已知用量可见，可取消。
+  const withEmbed = harness("", true, { embedding: { id: "e1", displayName: "向量服务", baseUrl: "https://svc.example/v1", model: "test-embedding", keyConfigured: true, timeoutSeconds: 5, version: 1 }, rerank: null });
+  withEmbed.setEmbedJobs([embedJob]);
+  await tick(); await select(withEmbed);
+  const previewRun = withEmbed.window.knowledgePanel.embedPreview();
+  withEmbed.searches.at(-1).resolve(ok(embedPreviewValue)); await previewRun;
+  const previewPost = withEmbed.embeds.at(-1);
+  assert.match(previewPost.url, /embeddings\/preview/);
+  assert.deepEqual(previewPost.body, { scopeKind: "PROJECT", scopeId: "one" });
+  const embedBox = withEmbed.document.querySelector("#knowledge-embed-preview");
+  assert.match(embedBox.textContent, /test-embedding.*svc\.example/);
+  assert.match(embedBox.textContent, /当前有效分段 2 个/);
+  assert.equal(withEmbed.document.querySelector("#knowledge-embed-consent-row").hidden, false);
+  assert.equal(withEmbed.document.querySelector("#knowledge-embed-start").disabled, true);
+  withEmbed.document.querySelector("#knowledge-embed-index-confirm").checked = true;
+  withEmbed.document.querySelector("#knowledge-embed-index-confirm").events.change();
+  assert.equal(withEmbed.document.querySelector("#knowledge-embed-start").disabled, false);
+  const startRun = withEmbed.window.knowledgePanel.embedStart();
+  withEmbed.searches.at(-1).resolve(ok({ ...embedJob, state: "QUEUED", progress: 0 }));
+  await startRun;
+  const jobPost = withEmbed.embeds.at(-1);
+  assert.match(jobPost.url, /embeddings\/jobs/);
+  assert.deepEqual(jobPost.body, { scopeKind: "PROJECT", scopeId: "one", previewId: "embed-preview", documentsConfirmed: true });
+  const jobsBox = withEmbed.document.querySelector("#knowledge-embedding-jobs");
+  assert.match(jobsBox.textContent, /RUNNING · 1\/2.*test-embedding.*调用 1 次.*tokens 42/);
+  const cancelRun = find(jobsBox, "取消索引").events.click();
+  withEmbed.searches.at(-1).resolve(ok({ ...embedJob, state: "CANCELLED" })); await cancelRun;
+  assert.match(withEmbed.embeds.at(-1).url, /embeddings\/jobs\/ejob\/cancel/);
+  console.log("Knowledge search UI passed: scoped filters, bounded safe text, persisted chunk/original, deep link, stale search/chunk/update/unbind guards, hybrid consent gates with fused origins and vector index jobs");
 })().catch(e => { console.error(e); process.exitCode = 1; });

@@ -85,8 +85,69 @@
         <p class="settings-footnote">
           保存和切换配置无需重启，仅影响新任务。测试连接会发起一次短模型请求，可能产生费用。
         </p>
+        <div class="providers-heading">
+          <h2>检索辅助服务（可选）</h2>
+        </div>
+        <p class="settings-footnote" id="search-models-note">
+          Embedding 与 Rerank 只用于项目知识的向量检索，与上方聊天模型相互独立；不配置时不影响关键词检索与任何现有功能。
+        </p>
+        <div id="search-models" class="providers-grid">
+          <p class="settings-empty">正在加载检索辅助服务…</p>
+        </div>
+        <p class="settings-footnote">
+          Embedding：建立向量索引时，当前有效知识分段正文会发送到此服务；混合检索时检索词会发送到此服务。修改模型或地址后需重建各范围的向量索引。
+          Rerank：混合检索启用重排时，融合后的候选摘录（每段最多 1000 字符）会发送到此服务。测试连接会各发起一次短请求，可能产生费用。
+        </p>
       </main>
     </div>
+    <dialog id="search-model-dialog" aria-labelledby="search-model-title">
+      <form id="search-model-form">
+        <div class="dialog-heading">
+          <h2 id="search-model-title">配置 Embedding 服务</h2>
+          <button id="close-search-model" class="icon-button" type="button" aria-label="关闭检索辅助配置">
+            <svg class="icon"><use href="/icons.svg#close" /></svg>
+          </button>
+        </div>
+        <div class="dialog-content">
+          <input type="hidden" id="search-model-kind" />
+          <div class="form-field">
+            <label for="search-model-name">服务名称</label
+            ><input id="search-model-name" required maxlength="80" placeholder="例如：本机 Embedding" />
+          </div>
+          <div class="form-field">
+            <label for="search-model-url">Base URL</label
+            ><input
+              id="search-model-url"
+              type="url"
+              required
+              maxlength="512"
+              spellcheck="false"
+              placeholder="https://api.example.com/v1"
+            />
+            <p>填写服务根地址或带版本的地址，不包含 /embeddings 或 /rerank；须为 HTTPS 或本机 HTTP。</p>
+          </div>
+          <div class="form-field">
+            <label for="search-model-model">模型名称</label
+            ><input id="search-model-model" required maxlength="120" spellcheck="false" placeholder="text-embedding-v4" />
+          </div>
+          <div class="form-field">
+            <label for="search-model-key">API Key <span id="search-model-key-hint">必填</span></label
+            ><input id="search-model-key" type="password" maxlength="4096" autocomplete="new-password" spellcheck="false" />
+            <p>Key 加密保存在本机；本地服务不校验 Key 时，可填写 local。</p>
+          </div>
+          <div class="form-field">
+            <label for="search-model-timeout">单次超时（秒）</label
+            ><input id="search-model-timeout" type="number" min="1" max="60" required value="20" />
+          </div>
+          <p id="search-model-scope" class="settings-empty"></p>
+          <p id="search-model-error" class="error-banner" role="alert" hidden></p>
+        </div>
+        <div class="dialog-footer">
+          <button id="cancel-search-model" class="secondary" type="button">取消</button
+          ><button id="save-search-model" class="primary" type="submit">保存配置</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="provider-dialog" aria-labelledby="provider-dialog-title">
       <form id="provider-form">
         <div class="dialog-heading">
