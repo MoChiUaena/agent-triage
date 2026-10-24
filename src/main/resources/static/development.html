@@ -83,6 +83,17 @@
           <p class="management-caption">日志规则分析 · 在本机处理，不调用模型</p><p id="ci-report-link" class="ci-report-link"></p>
           <h3>下一步核查</h3><ol id="ci-report-checks"></ol><h3>日志证据</h3><p id="ci-report-scope" class="management-caption"></p><div id="ci-report-evidence"></div>
           <h3 id="ci-location-heading" hidden>日志提到的位置</h3><ul id="ci-report-locations"></ul>
+          <div id="ci-model-section" class="management-card">
+            <div class="management-heading"><h3>模型建议（可选 · 用户显式启用）</h3><button id="ci-model-preview-button" class="secondary" type="button" disabled>预览发送范围</button></div>
+            <p class="management-caption">在规则报告之外按需生成模型建议：预览确认前不发送任何内容；规则报告保持不变，模型失败或超时也会保留规则结论。不自动重跑 CI 或修改代码。</p>
+            <p id="ci-model-option" class="management-caption"></p>
+            <div id="ci-model-preview" hidden></div>
+            <label class="management-caption" id="ci-model-consent-row" hidden><input id="ci-model-confirm" type="checkbox" />我已核对发送范围，确认将上述脱敏错误块、作业与提交信息发送至该模型服务。</label>
+            <button id="ci-model-analyze-button" class="primary" type="button" disabled>生成模型建议</button>
+            <p id="ci-model-notice" class="settings-notice" role="status" hidden></p>
+            <div id="ci-model-result"></div>
+            <details id="ci-model-history-box" hidden><summary>本报告的模型建议历史（最近 20 条）</summary><div id="ci-model-history"></div></details>
+          </div>
         </article>
       </section>
     </main>
