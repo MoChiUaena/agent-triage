@@ -40,7 +40,7 @@ public class WorkflowTasks {
             case "ISSUE" -> {
                 if (plan.issueNumber() == null) yield result("SKIPPED", "没有所选或明确引用的同仓库 Issue。", data);
                 if (plan.issueRelation().equals("PR_REFERENCE") && !data.pr().pull().issueNumbers().contains(plan.issueNumber())) yield result("SKIPPED", "执行时的 PR 正文不再引用该 Issue，未将其自动关联。", data);
-                var report = plan.issueReportId() == null ? issues.create(plan.repositoryId(), issues.preview(plan.repositoryId(), plan.issueNumber(), List.of()).id(), false) : issues.get(plan.issueReportId());
+                var report = plan.issueReportId() == null ? issues.create(plan.repositoryId(), issues.preview(plan.repositoryId(), plan.issueNumber(), List.of(), null).id(), false) : issues.get(plan.issueReportId());
                 if (!report.repositoryId().equals(plan.repositoryId())) throw new IllegalArgumentException("Foreign Issue report");
                 yield new Result(report.gaps().isEmpty() ? "SUCCEEDED" : "PARTIAL", plan.issueReportId() == null ? "已保存基础分诊，没有调用模型。" : "复用已保存的分诊材料，没有重新发送模型数据。", data.issue(report), List.of(WorkflowPolicy.issue(report)));
             }

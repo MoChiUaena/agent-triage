@@ -12,12 +12,14 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/development")
 public class GithubIssueController {
-    public record PreviewInput(@Min(1) @Max(Integer.MAX_VALUE) long number, @Size(max=3) List<@NotBlank @Size(max=400) String> codePaths) {}
+    public record PreviewInput(@Min(1) @Max(Integer.MAX_VALUE) long number, @Size(max=3) List<@NotBlank @Size(max=400) String> codePaths,
+                               UUID sourceProjectId, Long sourceRevision) {}
     public record Input(@NotNull UUID previewId, boolean useModel) {}
     private final IssueTriageService triage;
     public GithubIssueController(IssueTriageService triage) { this.triage = triage; }
     @PostMapping("/repositories/{repository}/issue/previews") public ResponseEntity<Preview> preview(@PathVariable UUID repository, @Valid @RequestBody PreviewInput input) {
-        return ResponseEntity.status(201).body(triage.preview(repository, input.number(), input.codePaths()));
+        return ResponseEntity.status(201).body(triage.preview(repository, input.number(), input.codePaths(),
+            new IssueTriageService.SourceSelection(input.sourceProjectId(), input.sourceRevision())));
     }
     @PostMapping("/repositories/{repository}/issue/reports") public ResponseEntity<Report> create(@PathVariable UUID repository, @Valid @RequestBody Input input) {
         Report report = triage.create(repository, input.previewId(), input.useModel());

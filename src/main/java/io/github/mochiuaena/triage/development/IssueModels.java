@@ -9,6 +9,9 @@ public final class IssueModels {
     public record Issue(long number, String title, String url, String state, Instant updatedAt, List<String> labels,
                         List<String> assignees, int comments, boolean bodyTruncated) {}
     record ReadIssue(Issue issue, String body, String fingerprint) {}
+    record Comment(long id, String login, Instant createdAt, String url, String text) {}
+    record ReadComments(List<Comment> items, String hash, int total) {}
+    record CodeownerRule(String pattern, int line, List<String> owners) {}
     public record Evidence(String id, String kind, String title, String url, String file, int startLine, int endLine, String text) {}
     public record Owner(String login, String url, String evidenceId) {}
     public record ModelOption(boolean available, UUID providerId, long version, String displayName, String modelName, String baseUrl, String message) {}
