@@ -5,6 +5,7 @@
   const node = (tag, text) => { const e = document.createElement(tag); if (text != null) e.textContent = text; return e; };
   let scopes = [], current = null, selected = null, generation = 0, draftVersion = 0, detailVersion = 0, listVersion = 0, scopeVersion = 0;
   let dirty = false, referencesDirty = false, historical = false, busy = false;
+  let selectedTarget = null, loadingDetail = false, mutationVersion = 0;
   const notice = text => { $("#memory-notice").textContent = text; };
   const query = () => new URLSearchParams({ scopeKind: selected.kind, scopeId: selected.id }).toString();
   async function request(path, options = {}) {
@@ -16,7 +17,7 @@
   function ready() {
     const registration = selected && scopes.find(s => s.kind === selected.kind && s.id === selected.id);
     const live = Boolean(registration);
-    const writable = live && !historical && current?.status !== "DELETED";
+    const writable = live && !loadingDetail && !historical && current?.status !== "DELETED";
     const bindingMatches = !current || (registration?.service || null) === (current.scope.service || null);
     const editable = writable && bindingMatches;
     $("#memory-save").disabled = busy || !editable;
@@ -30,6 +31,7 @@
   function invalidateDraft() { draftVersion++; dirty = true; $("#memory-reviewed").checked = false; ready(); }
   function clear() {
     current = null; historical = false; dirty = false; referencesDirty = false; busy = false;
+    selectedTarget = null; loadingDetail = false; mutationVersion++;
     draftVersion++; detailVersion++;
     for (const name of ["topic", "content", "note"]) $("#memory-" + name).value = "";
     for (let i = 0; i < 3; i++) for (const field of ["type", "report", "version", "chunk"]) $("#memory-ref-" + i + "-" + field).value = "";
@@ -71,11 +73,16 @@
   }
   async function open(id, revision) {
     if (!selected) return;
-    const gen = generation, draft = ++draftVersion, ticket = ++detailVersion, params = query();
+    const target = id + ":" + (revision || "current");
+    if (target !== selectedTarget) { clear(); selectedTarget = target; }
+    const gen = generation, draft = draftVersion, ticket = ++detailVersion, params = query();
+    current = null; loadingDetail = true;
+    $("#memory-detail-meta").textContent = "正在读取所选记忆 " + id + "；读取完成前不能保存或更改状态。";
     $("#memory-reviewed").checked = false; ready();
     try {
       const value = await request("/" + encodeURIComponent(id) + (revision ? "/versions/" + revision : "") + "?" + params);
       if (gen !== generation || draft !== draftVersion || ticket !== detailVersion) return;
+      loadingDetail = false;
       render(value, Boolean(revision));
       const history = await request("/" + encodeURIComponent(id) + "/history?" + params);
       if (gen !== generation || draft !== draftVersion || ticket !== detailVersion) return;
@@ -103,29 +110,32 @@
   }
   async function save() {
     if ($("#memory-save").disabled || !selected) return;
-    const gen = generation, draft = draftVersion, id = current?.id;
+    const gen = generation, draft = draftVersion, id = current?.id, target = selectedTarget, operation = ++mutationVersion;
     const input = { scopeKind: selected.kind, scopeId: selected.id, revision: current?.revision || 0, topic: $("#memory-topic").value, content: $("#memory-content").value, note: $("#memory-note").value, references: current && !referencesDirty ? null : references() };
     busy = true; $("#memory-reviewed").checked = false; ready();
     try {
       const result = await post(id ? "/" + id + "/edit" : "", input);
-      if (gen !== generation) return;
-      if (draft === draftVersion) render(result);
+      if (gen !== generation || target !== selectedTarget || operation !== mutationVersion) return;
+      if (current?.id === result.id && current.revision > result.revision) return;
+      if (draft === draftVersion) { detailVersion++; loadingDetail = false; selectedTarget = result.id + ":current"; render(result); }
       notice("已保存为未确认候选；请审阅准确版本后确认。" + (draft === draftVersion ? "" : " 当前新草稿已保留，请从列表打开保存版本。")); refresh();
-    } catch (e) { if (gen === generation) notice(e.message); }
-    finally { if (gen === generation) { busy = false; ready(); } }
+    } catch (e) { if (gen === generation && target === selectedTarget && operation === mutationVersion) notice(e.message); }
+    finally { if (gen === generation && operation === mutationVersion) { busy = false; ready(); } }
   }
   async function action(name) {
     if (!current || $("#memory-" + name).disabled) return;
     if (name === "delete" && !window.confirm("软删除此记忆？历史版本保留；删除后不能编辑或重新确认。")) return;
-    const gen = generation, draft = draftVersion, id = current.id, detail = detailVersion;
+    const gen = generation, draft = draftVersion, id = current.id, target = selectedTarget, operation = ++mutationVersion;
     const input = { scopeKind: selected.kind, scopeId: selected.id, revision: current.revision, confirmed: name === "confirm" && $("#memory-reviewed").checked, bodySha256: current.bodySha256 };
     busy = true; $("#memory-reviewed").checked = false; ready();
     try {
       const result = await post("/" + id + "/" + name, input);
-      if (gen !== generation || draft !== draftVersion || detail !== detailVersion) return;
+      if (gen !== generation || draft !== draftVersion || target !== selectedTarget || operation !== mutationVersion) return;
+      if (current?.id === result.id && current.revision > result.revision) return;
+      detailVersion++; loadingDetail = false;
       render(result); notice("已保存状态版本。确认仅代表用户审阅历史经验，未加入模型上下文。" ); refresh();
-    } catch (e) { if (gen === generation && draft === draftVersion && detail === detailVersion) notice(e.message); }
-    finally { if (gen === generation) { busy = false; ready(); } }
+    } catch (e) { if (gen === generation && draft === draftVersion && target === selectedTarget && operation === mutationVersion) notice(e.message); }
+    finally { if (gen === generation && operation === mutationVersion) { busy = false; ready(); } }
   }
   async function refreshScopes(initial = false) {
     const ticket = ++scopeVersion, gen = generation, draft = draftVersion;

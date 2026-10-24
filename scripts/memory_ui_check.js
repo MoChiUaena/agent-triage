@@ -54,5 +54,42 @@ async function scope(h,value="PROJECT:one"){h.document.querySelector("#memory-sc
  assert.equal(candidate.document.querySelector("#memory-status").value,"ALL");
  const oldBinding=harness("?scopeKind=PROJECT&scopeId=one&memory=memory");await tick();oldBinding.pending.at(-1).resolve(ok({...version,scope:{kind:"PROJECT",id:"one",service:"old-service"}}));await tick();
  assert.equal(oldBinding.document.querySelector("#memory-save").disabled,true);assert.equal(oldBinding.document.querySelector("#memory-confirm").disabled,true);assert.equal(oldBinding.document.querySelector("#memory-disable").disabled,false);assert.match(oldBinding.document.querySelector("#memory-scope-note").textContent,/服务绑定已变化/);
- console.log("Memory UI passed: safe text, exact reviewed version/hash, scope/draft/list/confirmation generation guards");
+
+ // A pending record selection cannot leave the old record actionable.
+ const race=harness();await tick();const selecting=scope(race);race.pending.at(-1).resolve(ok([]));await selecting;
+ async function showA(){const p=race.window.memoryPanel.open("memory");race.pending.at(-1).resolve(ok(version));await p;}
+ const other={...version,id:"other",body:{...version.body,topic:"B selected"}};
+ await showA();const openingB=race.window.memoryPanel.open("other"), bRequest=race.pending.at(-1), before=race.posts.length;
+ const blockedSave=race.window.memoryPanel.save(), blockedAction=race.window.memoryPanel.action("disable");
+ assert.equal(race.posts.length,before,"Old A must not submit save/action while B is loading");
+ assert.equal(race.document.querySelector("#memory-save").disabled,true);assert.equal(race.document.querySelector("#memory-disable").disabled,true);
+ bRequest.resolve(ok(other));await openingB;await blockedSave;await blockedAction;
+ assert.equal(race.document.querySelector("#memory-topic").value,"B selected");
+
+ // Mutations already in flight must stay bound to their original selection.
+ await showA();const oldAction=race.window.memoryPanel.action("disable"), actionRequest=race.pending.at(-1);
+ const selectingB=race.window.memoryPanel.open("other"), newerB=race.pending.at(-1);newerB.resolve(ok(other));await selectingB;
+ actionRequest.resolve(ok({...version,revision:2,status:"DISABLED"}));await oldAction;
+ assert.equal(race.document.querySelector("#memory-topic").value,"B selected","Late A action cannot replace B");
+ await showA();race.document.querySelector("#memory-content").value="saved A edit";race.document.querySelector("#memory-content").events.input();
+ const oldSave=race.window.memoryPanel.save(), saveRequest=race.pending.at(-1);
+ const choosingB=race.window.memoryPanel.open("other"), selectedB=race.pending.at(-1);selectedB.resolve(ok(other));await choosingB;
+ saveRequest.resolve(ok({...version,revision:2,body:{...version.body,content:"saved A edit"}}));await oldSave;
+ assert.equal(race.document.querySelector("#memory-topic").value,"B selected","Late A save cannot replace B");
+
+ // A newer mutation invalidates an older same-record read, in either response order.
+ await showA();const mutation=race.window.memoryPanel.action("disable"), mutationRequest=race.pending.at(-1);
+ const sameRead=race.window.memoryPanel.open("memory"), staleRead=race.pending.at(-1);
+ mutationRequest.resolve(ok({...version,revision:2,status:"DISABLED",bodySha256:"new-hash"}));await mutation;
+ staleRead.resolve(ok(version));await sameRead;
+ assert.match(race.document.querySelector("#memory-detail-meta").textContent,/DISABLED.*v2.*new-hash/);
+ await showA();const laterMutation=race.window.memoryPanel.action("disable"), laterMutationRequest=race.pending.at(-1);
+ const earlyRead=race.window.memoryPanel.open("memory"), earlyReadRequest=race.pending.at(-1);earlyReadRequest.resolve(ok(version));await earlyRead;
+ laterMutationRequest.resolve(ok({...version,revision:2,status:"DISABLED",bodySha256:"new-hash"}));await laterMutation;
+ assert.match(race.document.querySelector("#memory-detail-meta").textContent,/DISABLED.*v2.*new-hash/);
+ await showA();race.document.querySelector("#memory-content").value="newer saved body";race.document.querySelector("#memory-content").events.input();
+ const newerSave=race.window.memoryPanel.save(), newerSaveRequest=race.pending.at(-1), oldSameRead=race.window.memoryPanel.open("memory"), oldSameReadRequest=race.pending.at(-1);
+ newerSaveRequest.resolve(ok({...version,revision:2,body:{...version.body,content:"newer saved body"}}));await newerSave;oldSameReadRequest.resolve(ok(version));await oldSameRead;
+ assert.equal(race.document.querySelector("#memory-content").value,"newer saved body","Older same-record GET cannot replace a successful save");
+ console.log("Memory UI passed: safe text, exact version/hash, scope/draft guards, locked pending selection, late A save/action versus B, same-record GET versus newer save/action in both response orders");
 })().catch(e=>{console.error(e);process.exitCode=1;});
