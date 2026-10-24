@@ -14,13 +14,16 @@ import java.util.*;
 @RequestMapping("/api/knowledge")
 public class KnowledgeController {
     public record ImportInput(UUID previewId) {}
+    public record EmbeddingJobInput(String scopeKind, UUID scopeId, UUID previewId, boolean documentsConfirmed) {}
 
     private final KnowledgeService knowledge;
     private final KnowledgeSearchService search;
+    private final EmbeddingIndexService embeddings;
 
-    public KnowledgeController(KnowledgeService knowledge, KnowledgeSearchService search) {
+    public KnowledgeController(KnowledgeService knowledge, KnowledgeSearchService search, EmbeddingIndexService embeddings) {
         this.knowledge = knowledge;
         this.search = search;
+        this.embeddings = embeddings;
     }
 
     @GetMapping("/search")
@@ -97,5 +100,35 @@ public class KnowledgeController {
     @PostMapping("/jobs/{id}/cancel")
     public Job cancel(@PathVariable UUID id) {
         return knowledge.cancel(id);
+    }
+
+    @PostMapping("/embeddings/preview")
+    public ResponseEntity<EmbeddingModels.IndexPreview> embeddingPreview(@RequestBody Input input) {
+        if (input == null) throw KnowledgeFiles.bad("请选择已登记项目或仓库。");
+        var preview = embeddings.preview(knowledge.scope(input.scopeKind(), input.scopeId()));
+        return ResponseEntity.created(URI.create("/api/knowledge/embeddings/previews/" + preview.id())).body(preview);
+    }
+
+    @PostMapping("/embeddings/jobs")
+    public ResponseEntity<EmbeddingModels.IndexJob> startEmbedding(@RequestBody EmbeddingJobInput input) {
+        if (input == null || input.previewId() == null) throw KnowledgeFiles.bad("请选择向量索引预览。");
+        var job = embeddings.submit(knowledge.scope(input.scopeKind(), input.scopeId()), input.previewId(),
+            input.documentsConfirmed());
+        return ResponseEntity.accepted().location(URI.create("/api/knowledge/embeddings/jobs/" + job.id())).body(job);
+    }
+
+    @GetMapping("/embeddings/jobs")
+    public List<EmbeddingModels.IndexJob> embeddingJobs(@RequestParam String scopeKind, @RequestParam UUID scopeId) {
+        return embeddings.jobs(knowledge.scope(scopeKind, scopeId));
+    }
+
+    @GetMapping("/embeddings/jobs/{id}")
+    public EmbeddingModels.IndexJob embeddingJob(@PathVariable UUID id) {
+        return embeddings.job(id);
+    }
+
+    @PostMapping("/embeddings/jobs/{id}/cancel")
+    public EmbeddingModels.IndexJob cancelEmbedding(@PathVariable UUID id) {
+        return embeddings.cancel(id);
     }
 }

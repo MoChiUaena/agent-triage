@@ -22,4 +22,6 @@ public class SearchModelController {
         service.delete(kind, version);
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/{kind}/test") public TestResult test(@PathVariable String kind) { return service.test(kind); }
 }

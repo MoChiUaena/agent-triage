@@ -1,5 +1,8 @@
 package io.github.mochiuaena.triage.settings;
 
+import io.github.mochiuaena.triage.execution.RunFailure;
+import io.github.mochiuaena.triage.model.EmbeddingClient;
+import io.github.mochiuaena.triage.model.RerankClient;
 import io.github.mochiuaena.triage.settings.EmbeddingModels.*;
 import io.github.mochiuaena.triage.settings.SearchModelRepository.Stored;
 
@@ -17,10 +20,15 @@ import java.util.*;
 public class SearchModelSettingsService {
     private final SearchModelRepository repository;
     private final CredentialCipher cipher;
+    private final EmbeddingClient embeddings;
+    private final RerankClient reranks;
 
-    public SearchModelSettingsService(SearchModelRepository repository, CredentialCipher cipher) {
+    public SearchModelSettingsService(SearchModelRepository repository, CredentialCipher cipher,
+                                      EmbeddingClient embeddings, RerankClient reranks) {
         this.repository = repository;
         this.cipher = cipher;
+        this.embeddings = embeddings;
+        this.reranks = reranks;
     }
 
     public ConfigState state() {
@@ -81,6 +89,35 @@ public class SearchModelSettingsService {
         if (stored.version() != version) throw error(HttpStatus.CONFLICT, "配置已被修改，请刷新后再删除。");
         repository.delete(stored.id());
     }
+
+    /** One short paid call against the saved configuration; failures never expose remote response bodies. */
+    public TestResult test(String kind) {
+        String checked = canonical(kind);
+        Credentials credentials = credentials(checked);
+        long start = System.nanoTime();
+        try {
+            if (EmbeddingModels.RERANK.equals(checked)) {
+                reranks.rerank(credentials, "连接池诊断测试", List.of("文档一：数据库连接池配置。", "文档二：前端发布流程。"));
+                return new TestResult(true, "Rerank 服务可用。", null, null, elapsed(start));
+            }
+            var batch = embeddings.session(credentials).embed(List.of("连接池诊断测试"));
+            Integer reported = batch.totalTokens() == null ? batch.promptTokens() : batch.totalTokens();
+            Long tokens = reported == null ? null : reported.longValue();
+            return new TestResult(true, "Embedding 服务可用，向量维度 " + batch.dimensions() + "。", batch.dimensions(),
+                tokens, elapsed(start));
+        } catch (RunFailure e) {
+            return new TestResult(false, message(e), null, null, elapsed(start));
+        } catch (Exception e) {
+            return new TestResult(false, "调用失败，请检查地址、模型名与 Key。", null, null, elapsed(start));
+        }
+    }
+
+    private static String message(Exception e) {
+        String text = e.getMessage();
+        return text == null || text.isBlank() ? "调用失败，请检查地址、模型名与 Key。" : text;
+    }
+
+    private static long elapsed(long start) { return Duration.ofNanos(System.nanoTime() - start).toMillis(); }
 
     private static String canonical(String kind) {
         String value = kind == null ? "" : kind.trim().toUpperCase(Locale.ROOT);
