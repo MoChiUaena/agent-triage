@@ -19,7 +19,18 @@ public final class MemoryModels {
             UUID conversationId,
             List<UUID> messageIds,
             List<Object> messages,
-            String provenance) {}
+            String provenance,
+            Object conversationOriginal) {
+        public Basis(
+                String note,
+                List<Snapshot> references,
+                UUID conversationId,
+                List<UUID> messageIds,
+                List<Object> messages,
+                String provenance) {
+            this(note, references, conversationId, messageIds, messages, provenance, null);
+        }
+    }
 
     public record Body(String topic, String content, Basis basis) {}
 

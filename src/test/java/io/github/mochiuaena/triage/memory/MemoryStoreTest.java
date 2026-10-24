@@ -19,6 +19,7 @@ import java.util.concurrent.*;
         })
 class MemoryStoreTest {
     @Autowired MemoryStore store;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
     final Scope scope = new Scope("PROJECT", UUID.randomUUID(), "service");
 
     Body body(String text) {
@@ -26,6 +27,100 @@ class MemoryStoreTest {
                 "topic",
                 text,
                 new Basis("user statement", List.of(), null, List.of(), List.of(), "用户陈述，未经独立验证。"));
+    }
+
+    @Test
+    void revisionCapStillAllowsBoundedWithdrawalOfConfirmedMemory() {
+        var first = store.create(scope, body("withdrawal"));
+        for (int r = 1; r < 19; r++) store.edit(first.id(), scope, r, body("v" + r));
+        var pending = store.current(first.id(), scope);
+        var confirmed =
+                store.transition(first.id(), scope, 19, "CONFIRMED", true, pending.bodySha256());
+        assertThat(confirmed.revision()).isEqualTo(20);
+        var disabled = store.transition(first.id(), scope, 20, "DISABLED", false, null);
+        assertThat(disabled.revision()).isEqualTo(21);
+        assertThatThrownBy(() -> store.transition(first.id(), scope, 21, "DISABLED", false, null))
+                .hasMessageContaining("上限");
+        assertThatThrownBy(
+                        () ->
+                                store.transition(
+                                        first.id(),
+                                        scope,
+                                        21,
+                                        "CONFIRMED",
+                                        true,
+                                        disabled.bodySha256()))
+                .hasMessageContaining("上限");
+        var deleted = store.transition(first.id(), scope, 21, "DELETED", false, null);
+        assertThat(deleted.revision()).isEqualTo(22);
+        assertThat(store.list(scope, "CONFIRMED", 20)).isEmpty();
+        assertThat(store.history(first.id(), scope)).hasSize(22);
+    }
+
+    @Test
+    void disabledMemoryRequiresExplicitReviewAndEditingCreatesCandidate() {
+        var first = store.create(scope, body("disabled"));
+        var disabled = store.transition(first.id(), scope, 1, "DISABLED", false, null);
+        assertThatThrownBy(
+                        () ->
+                                store.transition(
+                                        first.id(),
+                                        scope,
+                                        2,
+                                        "CONFIRMED",
+                                        false,
+                                        disabled.bodySha256()))
+                .hasMessageContaining("确认");
+        var confirmed =
+                store.transition(first.id(), scope, 2, "CONFIRMED", true, disabled.bodySha256());
+        var stopped =
+                store.transition(first.id(), scope, confirmed.revision(), "DISABLED", false, null);
+        var edited = store.edit(first.id(), scope, stopped.revision(), body("revised disabled"));
+        assertThat(edited.status()).isEqualTo("CANDIDATE");
+        assertThat(edited.confirmedAt()).isNull();
+    }
+
+    @Test
+    void headCapsIncludeDeletedEntriesAndRejectBeforeInsertion() {
+        String tag = UUID.randomUUID().toString();
+        var now = java.time.OffsetDateTime.now();
+        try {
+            for (int n = 0; n < 100; n++)
+                jdbc.update(
+                        "INSERT INTO"
+                            + " memory_heads(id,scope_kind,scope_id,revision,status,topic,body_sha256,updated_at)"
+                            + " VALUES(?,?,?,1,'DELETED',?,?,?)",
+                        UUID.randomUUID().toString(),
+                        scope.kind(),
+                        scope.id().toString(),
+                        tag,
+                        "hash",
+                        now);
+            assertThatThrownBy(() -> store.create(scope, body("overflow scope")))
+                    .hasMessageContaining("100");
+            long count = jdbc.queryForObject("SELECT COUNT(*) FROM memory_heads", Long.class);
+            for (long n = count; n < 1000; n++)
+                jdbc.update(
+                        "INSERT INTO"
+                            + " memory_heads(id,scope_kind,scope_id,revision,status,topic,body_sha256,updated_at)"
+                            + " VALUES(?,?,?,1,'DELETED',?,?,?)",
+                        UUID.randomUUID().toString(),
+                        "REPOSITORY",
+                        UUID.randomUUID().toString(),
+                        tag,
+                        "hash",
+                        now);
+            assertThatThrownBy(
+                            () ->
+                                    store.create(
+                                            new Scope("PROJECT", UUID.randomUUID(), null),
+                                            body("overflow global")))
+                    .hasMessageContaining("1000");
+            assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM memory_heads", Long.class))
+                    .isEqualTo(1000);
+        } finally {
+            jdbc.update("DELETE FROM memory_heads WHERE topic=?", tag);
+        }
     }
 
     @Test

@@ -15,7 +15,7 @@ import java.util.Set;
 public class SettingsAccessFilter extends OncePerRequestFilter {
     @Override protected boolean shouldNotFilter(HttpServletRequest request) {
         return !(request.getServletPath().startsWith("/api/settings")
-            || conversation(request) || development(request) || material(request) || knowledge(request)
+            || memory(request) || conversation(request) || development(request) || material(request) || knowledge(request)
             || request.getServletPath().startsWith("/api/evaluation") || history(request)
             || request.getServletPath().startsWith("/api/statistics") || request.getServletPath().startsWith("/api/services/") || source(request)
             || request.getServletPath().startsWith("/api/runs"));
@@ -36,7 +36,7 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
                     allowed = false;
             } catch (RuntimeException e) { allowed = false; }
         }
-        String marker = conversation(request) ? "X-Triage-Conversation" : knowledge(request) ? "X-Triage-Knowledge" : material(request) ? "X-Triage-Material" : development(request) ? "X-Triage-Development" : cancellation(request) ? "X-Triage-Run" : source(request) ? "X-Triage-Source" : history(request) ? "X-Triage-History" : "X-Triage-Settings";
+        String marker = memory(request) ? "X-Triage-Memory" : conversation(request) ? "X-Triage-Conversation" : knowledge(request) ? "X-Triage-Knowledge" : material(request) ? "X-Triage-Material" : development(request) ? "X-Triage-Development" : cancellation(request) ? "X-Triage-Run" : source(request) ? "X-Triage-Source" : history(request) ? "X-Triage-History" : "X-Triage-Settings";
         boolean ordinaryRunCreate = request.getServletPath().equals("/api/runs") && "POST".equals(request.getMethod());
         if (!"GET".equals(request.getMethod()) && !ordinaryRunCreate && !"1".equals(request.getHeader(marker))) allowed = false;
         if (!allowed) {
@@ -54,6 +54,7 @@ public class SettingsAccessFilter extends OncePerRequestFilter {
         response.setHeader("Cache-Control", "no-store");
         chain.doFilter(request, response);
     }
+    private boolean memory(HttpServletRequest request) { return request.getServletPath().startsWith("/api/memories"); }
     private boolean conversation(HttpServletRequest request) { return request.getServletPath().startsWith("/api/conversations"); }
     private boolean cancellation(HttpServletRequest request) { return request.getServletPath().matches("/api/runs/[^/]+/cancel"); }
     private boolean history(HttpServletRequest request) { return request.getServletPath().startsWith("/api/history"); }

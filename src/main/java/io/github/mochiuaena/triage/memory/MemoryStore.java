@@ -38,7 +38,7 @@ public class MemoryStore {
                     if (jdbc.queryForObject("SELECT COUNT(*) FROM memory_heads", Long.class) >= 1000
                             || jdbc.queryForObject(
                                             "SELECT COUNT(*) FROM memory_heads WHERE scope_kind=?"
-                                                + " AND scope_id=?",
+                                                    + " AND scope_id=?",
                                             Long.class,
                                             scope.kind(),
                                             scope.id().toString())
@@ -84,7 +84,7 @@ public class MemoryStore {
                 jdbc
                         .query(
                                 "SELECT payload FROM memory_versions WHERE memory_id=? AND"
-                                    + " revision=?",
+                                        + " revision=?",
                                 (r, n) -> decode(r.getString(1)),
                                 id.toString(),
                                 revision)
@@ -106,7 +106,7 @@ public class MemoryStore {
             throw bad("状态或条数无效；条数上限 100。");
         return jdbc.query(
                 "SELECT id,revision,status,topic,body_sha256,updated_at FROM memory_heads WHERE"
-                    + " scope_kind=? AND scope_id=?"
+                        + " scope_kind=? AND scope_id=?"
                         + (status.equals("ALL") ? "" : " AND status=?")
                         + " ORDER BY updated_at DESC,id LIMIT ?",
                 (r, n) ->
@@ -169,9 +169,14 @@ public class MemoryStore {
                     if (old.revision() != revision
                             || (state.equals("CONFIRMED")
                                     && !Objects.equals(hash, old.bodySha256()))) throw conflict();
-                    if (revision >= 20)
+                    boolean withdrawal =
+                            (state.equals("DISABLED")
+                                            && revision == 20
+                                            && !old.status().equals("DISABLED"))
+                                    || (state.equals("DELETED") && revision < 22);
+                    if (revision >= 20 && !withdrawal)
                         throw new ResponseStatusException(
-                                TOO_MANY_REQUESTS, "每条记忆最多 20 个版本（含状态操作）。");
+                                TOO_MANY_REQUESTS, "常规版本上限 20；额外仅保留停用/删除撤回版本，总计不超过 22。");
                     Body next = body == null ? old.body() : body;
                     String nextHash = MaterialService.sha(encode(next));
                     var now = Instant.now();
