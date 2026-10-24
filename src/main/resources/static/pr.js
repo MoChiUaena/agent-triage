@@ -7,6 +7,7 @@
   const coverage = { COMPLETE: "补丁完整", METADATA_ONLY: "仅元数据，无增删行", NO_PATCH: "无补丁", INCOMPLETE: "补丁不完整" };
   const fileState = { added: "新增", removed: "删除", modified: "修改", renamed: "重命名", copied: "复制", changed: "变更", unchanged: "未变更" };
   let repository = "", context = null, busy = false, version = 0;
+  let modelPreview = null, modelBusy = false, modelReportId = null;
   async function request(path, options = {}) {
     const response = await fetch(path, { cache: "no-store", ...options });
     if (!response.ok) { const problem = await response.json().catch(() => ({})); throw new Error(problem.detail || "读取 PR 失败 (" + response.status + ")"); }
@@ -27,6 +28,10 @@
     $("#pr-report-result").hidden = false;
     $("#pr-report-title").textContent = "#" + report.pull.number + " " + report.pull.title;
     $("#pr-report-meta").textContent = report.repository + " · " + date(report.createdAt) + " · 保存时的版本与检查状态";
+    $("#pr-report-meta").dataset.reportId = report.id;
+    resetModelSection(report.id);
+    loadModelOption(report.id);
+    loadModelHistory(report.id);
     $("#pr-report-notice").textContent = report.notice;
     $("#pr-report-versions").replaceChildren(...[["Base", report.pull.baseSha], ["Head", report.pull.headSha], ["Merge-base（删除行）", report.mergeBaseSha]].map(([name, sha]) => {
       const row = node("div", null, "pr-version"); row.append(node("span", name), node("code", sha)); return row;
@@ -98,5 +103,116 @@
     } catch (error) { if (current === version) message(error.message, true); }
     finally { if (current === version) { busy = false; ready(); } }
   });
-  window.prPanel = { selectRepository(id) { if (id === repository) return; repository = id; version++; context = null; busy = false; $("#pr-review-dialog").close(); $("#pr-report-result").hidden = true; ready(); loadReports(); }, openPull, render };
+  const CONFIDENCE = { HIGH: "把握较高", MEDIUM: "把握中等", LOW: "把握较低（需重点人工核查）" };
+  function modelNotice(text, error = false) {
+    $("#pr-model-notice").textContent = text; $("#pr-model-notice").hidden = !text;
+    $("#pr-model-notice").classList.toggle("error", error);
+  }
+  function resetModelSection(reportId) {
+    modelReportId = reportId; modelPreview = null;
+    $("#pr-model-option").textContent = ""; $("#pr-model-preview").replaceChildren(); $("#pr-model-preview").hidden = true;
+    $("#pr-model-confirm").checked = false; $("#pr-model-code-confirm").checked = false;
+    $("#pr-model-consent-row").hidden = true; $("#pr-model-code-row").hidden = true; $("#pr-model-analyze-button").disabled = true;
+    $("#pr-model-preview-button").disabled = true; modelNotice("");
+    $("#pr-model-result").replaceChildren(); $("#pr-model-history").replaceChildren(); $("#pr-model-history-box").hidden = true;
+  }
+  function currentReportId() {
+    const meta = $("#pr-report-meta").dataset.reportId;
+    if (!meta) throw new Error("请先打开一份 PR 审查报告。");
+    return meta;
+  }
+  async function loadModelOption(reportId) {
+    const current = version;
+    try {
+      const option = await request("/api/development/pr/model-option");
+      if (current !== version || modelReportId !== reportId) return;
+      $("#pr-model-option").textContent = option.available
+        ? "模型服务：" + (option.displayName || "启动配置") + " · " + option.modelName
+        : "未启用模型：" + (option.message || "请先在模型设置中启用。");
+      $("#pr-model-preview-button").disabled = busy || !option.available;
+    } catch (error) { if (current === version && modelReportId === reportId) modelNotice(error.message, true); }
+  }
+  async function previewModel() {
+    if (modelBusy) return;
+    const current = version, id = currentReportId();
+    modelBusy = true; $("#pr-model-preview-button").disabled = true; modelNotice("正在按报告冻结的 SHA 读取差异并准备发送范围…");
+    try {
+      const value = await request("/api/development/pr/reports/" + encodeURIComponent(id) + "/model/previews",
+        { method: "POST", headers: { "Content-Type": "application/json", "X-Triage-Development": "1" }, body: "{}" });
+      if (current !== version || id !== modelReportId) return;
+      modelPreview = value;
+      const target = $("#pr-model-preview"); target.hidden = false;
+      target.replaceChildren(node("h3", "将发送到模型服务的范围"),
+        node("p", "PR #" + value.number + " " + value.title + " · Base " + value.baseSha + " · Head " + value.headSha),
+        node("p", "发送补丁文件：" + value.files.map(file => file.file + (file.clipped ? "（部分 hunk）" : "")).join("、")),
+        node("p", "随补丁一并发送：" + value.findings.length + " 条规则提醒 · 检查状态 · " + value.issues.length + " 条 Issue 引用"),
+        ...value.omissions.map(text => node("p", text)),
+        node("p", "接收模型：" + (value.model.displayName || "启动配置") + " · " + value.model.modelName + " · 十分钟有效"));
+      $("#pr-model-consent-row").hidden = false; $("#pr-model-code-row").hidden = false;
+      modelNotice("请核对发送范围，并分别确认一般发送与源码补丁外发。");
+    } catch (error) { if (current === version && id === modelReportId) modelNotice(error.message, true); }
+    finally { if (current === version && id === modelReportId) { modelBusy = false; $("#pr-model-preview-button").disabled = false; } }
+  }
+  function renderAdvice(advice) {
+    const target = $("#pr-model-result"); target.replaceChildren();
+    const model = advice.model || {};
+    target.append(node("p", "状态：" + model.state + " · 审查 SHA " + advice.headSha + " · " + (advice.createdAt ? date(advice.createdAt) : "")));
+    if (model.usage) target.append(node("p", "已知 tokens：" + model.usage.totalTokens + "（输入 " + model.usage.inputTokens + " / 输出 " + model.usage.outputTokens + "）· " + (model.elapsedMs || 0) + " ms"));
+    if (model.message) target.append(node("p", model.message));
+    const suggestion = advice.suggestion;
+    if (!suggestion) { target.append(node("p", "本次没有模型建议；规则报告保持不变，不构成合入批准。", "management-caption")); return; }
+    target.append(node("h3", "总体判断"), node("p", suggestion.summary),
+      node("p", "置信边界：" + (CONFIDENCE[suggestion.confidence] || suggestion.confidence) + " · 审查 SHA " + suggestion.reviewedSha),
+      node("h3", "变更意图（从补丁推断，待核对）"), node("p", suggestion.intent));
+    const list = (items, heading) => {
+      target.append(node("h3", heading));
+      if (!items.length) { target.append(node("p", "无。", "management-caption")); return; }
+      for (const item of items) {
+        const row = node("p"); row.append(node("strong", item.text));
+        row.append(node("span", "（引用 " + item.references.map(ref => ref.file + ":" + ref.line + (ref.side === "OLD" ? " 删除行" : " 新增行")).join("、") + "）"));
+        target.append(row);
+      }
+    };
+    list(suggestion.risks, "潜在风险（待核对假设）");
+    list(suggestion.testGaps, "测试缺口（相对本次改动可见范围）");
+    target.append(node("p", "以上均为辅助审阅建议；引用可在规则报告与补丁范围内核对，不构成合入批准，也不会自动修改代码。"));
+  }
+  async function analyzeModel() {
+    if (modelBusy || !modelPreview || !$("#pr-model-confirm").checked || !$("#pr-model-code-confirm").checked) return;
+    const current = version, id = currentReportId();
+    modelBusy = true; $("#pr-model-analyze-button").disabled = true; modelNotice("正在发送已确认的范围并等待模型建议…");
+    try {
+      const advice = await request("/api/development/pr/reports/" + encodeURIComponent(id) + "/model/analyses",
+        { method: "POST", headers: { "Content-Type": "application/json", "X-Triage-Development": "1" },
+          body: JSON.stringify({ previewId: modelPreview.id, confirmed: true, codeConfirmed: true }) });
+      if (current !== version || id !== modelReportId) return;
+      renderAdvice(advice);
+      modelNotice(advice.model && advice.model.state === "SUCCEEDED"
+        ? "模型建议已生成；规则报告保持不变，意图与风险为待核对假设，不构成合入批准。"
+        : "本次未生成模型建议；规则报告保持不变。");
+      await loadModelHistory(id);
+    } catch (error) { if (current === version && id === modelReportId) modelNotice(error.message, true); }
+    finally { if (current === version && id === modelReportId) { modelBusy = false; $("#pr-model-analyze-button").disabled = true; modelPreview = null; $("#pr-model-confirm").checked = false; $("#pr-model-code-confirm").checked = false; } }
+  }
+  async function loadModelHistory(reportId) {
+    const current = version;
+    try {
+      const values = await request("/api/development/pr/reports/" + encodeURIComponent(reportId) + "/model/analyses");
+      if (current !== version || modelReportId !== reportId) return;
+      const target = $("#pr-model-history"); target.replaceChildren();
+      $("#pr-model-history-box").hidden = !values.length;
+      for (const advice of values) {
+        const row = node("button", (advice.createdAt ? date(advice.createdAt) : "") + " · " + (advice.model ? advice.model.state : "UNKNOWN")
+          + (advice.suggestion ? " · " + advice.suggestion.confidence : ""), "ci-history-item");
+        row.type = "button"; row.addEventListener("click", () => renderAdvice(advice));
+        target.append(row);
+      }
+    } catch (error) { if (current === version && modelReportId === reportId) modelNotice(error.message, true); }
+  }
+  $("#pr-model-preview-button").addEventListener("click", previewModel);
+  for (const name of ["confirm", "code-confirm"]) $("#pr-model-" + name).addEventListener("change", () => {
+    $("#pr-model-analyze-button").disabled = !modelPreview || !$("#pr-model-confirm").checked || !$("#pr-model-code-confirm").checked;
+  });
+  $("#pr-model-analyze-button").addEventListener("click", analyzeModel);
+  window.prPanel = { selectRepository(id) { if (id === repository) return; repository = id; version++; context = null; busy = false; $("#pr-review-dialog").close(); $("#pr-report-result").hidden = true; ready(); loadReports(); }, openPull, render, previewModel, analyzeModel };
 })();

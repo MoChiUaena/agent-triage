@@ -75,6 +75,18 @@
           <div class="pr-context-grid"><section><h3>Head 提交检查</h3><p id="pr-report-ci-state" class="repository-label"></p><ul id="pr-report-ci"></ul></section><section><h3>正文引用的 Issue</h3><ul id="pr-report-issues"></ul></section></div>
           <h3>读取缺口</h3><ul id="pr-report-gaps"></ul>
           <details class="pr-file-details"><summary>文件与检查范围</summary><p class="management-caption">最多 100 个文件、200,000 个补丁字符、12 条提醒。只检查部分 Java、SQL 与数据库配置模式；未执行代码、分析完整调用链或核对合入条件。</p><div class="pr-file-scroll"><table class="pr-file-table"><thead><tr><th>文件</th><th>变更</th><th>行数</th><th>补丁范围</th></tr></thead><tbody id="pr-report-files"></tbody></table></div></details>
+          <div id="pr-model-section" class="management-card">
+            <div class="management-heading"><h3>模型建议（可选 · 用户显式启用）</h3><button id="pr-model-preview-button" class="secondary" type="button" disabled>预览发送范围</button></div>
+            <p class="management-caption">在规则提醒之外按需生成模型建议：预览确认前不发送任何内容；补丁属于源码，发送需单独确认；规则报告保持不变，模型失败或超时也会保留规则结论。不构成合入批准，不自动合并或修改代码。</p>
+            <p id="pr-model-option" class="management-caption"></p>
+            <div id="pr-model-preview" hidden></div>
+            <label class="management-caption" id="pr-model-consent-row" hidden><input id="pr-model-confirm" type="checkbox" />我已核对发送范围，确认将上述脱敏补丁与差异信息发送至该模型服务。</label>
+            <label class="management-caption" id="pr-model-code-row" hidden><input id="pr-model-code-confirm" type="checkbox" />我已知晓补丁属于源码，单独确认将其外发至该模型服务（codeConfirmed）。</label>
+            <button id="pr-model-analyze-button" class="primary" type="button" disabled>生成模型建议</button>
+            <p id="pr-model-notice" class="settings-notice" role="status" hidden></p>
+            <div id="pr-model-result"></div>
+            <details id="pr-model-history-box" hidden><summary>本报告的模型建议历史（最近 20 条）</summary><div id="pr-model-history"></div></details>
+          </div>
         </article>
         <section class="management-card workflow-panel" aria-labelledby="ci-history-heading"><div class="management-heading"><h2 id="ci-history-heading">CI 排障报告</h2><button class="secondary" type="button" id="ci-refresh-reports">刷新报告</button></div><p class="management-caption">选择失败工作流的“排查 CI”开始。这里保留最近 20 份报告。</p><div id="ci-report-history"></div></section>
         <article class="management-card workflow-panel" id="ci-report-result" hidden>
