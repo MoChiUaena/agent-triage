@@ -38,6 +38,48 @@ public final class ConversationModels {
             TokenUsage usage,
             String payloadSha256) {}
 
+    public record Budget(int maxInputCharacters, int recentMessages, int summaryCharacters) {
+        public Budget {
+            if (maxInputCharacters < 8000
+                    || maxInputCharacters > 64000
+                    || recentMessages < 2
+                    || recentMessages > 12
+                    || summaryCharacters < 0
+                    || summaryCharacters > 6000
+                    || summaryCharacters >= maxInputCharacters)
+                throw new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST, "上下文预算超出允许范围。");
+        }
+
+        public static Budget defaults() {
+            return new Budget(48000, 8, 3000);
+        }
+    }
+
+    public record Excerpt(
+            UUID messageId,
+            int ordinal,
+            String role,
+            String attribution,
+            int startOffset,
+            int endOffset,
+            int originalCharacters,
+            String text,
+            List<Citation> citations,
+            boolean documentsDerived) {}
+
+    public record HistorySummary(
+            String version,
+            String provenance,
+            List<Excerpt> excerpts,
+            int totalMessages,
+            int recentMessages,
+            int excerptedMessages,
+            int omittedMessages,
+            int clippedCharacters,
+            List<Integer> recentOrdinals,
+            List<Integer> omittedOrdinals) {}
+
     public record Conversation(
             UUID id,
             long revision,
@@ -46,7 +88,29 @@ public final class ConversationModels {
             Instant updatedAt,
             Material original,
             List<Message> messages,
-            List<Attempt> attempts) {}
+            List<Attempt> attempts,
+            Budget budget) {
+        public Conversation(
+                UUID id,
+                long revision,
+                UUID activeAttempt,
+                Instant createdAt,
+                Instant updatedAt,
+                Material original,
+                List<Message> messages,
+                List<Attempt> attempts) {
+            this(
+                    id,
+                    revision,
+                    activeAttempt,
+                    createdAt,
+                    updatedAt,
+                    original,
+                    messages,
+                    attempts,
+                    Budget.defaults());
+        }
+    }
 
     public record Detail(
             UUID id,
@@ -58,7 +122,35 @@ public final class ConversationModels {
             List<Message> messages,
             List<Attempt> attempts,
             Recipient model,
-            String notice) {}
+            String notice,
+            Budget budget,
+            HistorySummary summary) {
+        public Detail(
+                UUID id,
+                long revision,
+                UUID activeAttempt,
+                Instant createdAt,
+                Instant updatedAt,
+                Material original,
+                List<Message> messages,
+                List<Attempt> attempts,
+                Recipient model,
+                String notice) {
+            this(
+                    id,
+                    revision,
+                    activeAttempt,
+                    createdAt,
+                    updatedAt,
+                    original,
+                    messages,
+                    attempts,
+                    model,
+                    notice,
+                    Budget.defaults(),
+                    null);
+        }
+    }
 
     public record Summary(
             UUID id,
@@ -78,7 +170,37 @@ public final class ConversationModels {
             boolean documentsRequired,
             List<String> omissions,
             String text,
-            String fingerprint) {}
+            String fingerprint,
+            Budget budget,
+            HistorySummary summary,
+            int serializedCharacters) {
+        public Context(
+                UUID conversationId,
+                long revision,
+                String question,
+                List<Message> history,
+                List<Citation> citations,
+                List<ChunkSelection> selectedChunks,
+                boolean documentsRequired,
+                List<String> omissions,
+                String text,
+                String fingerprint) {
+            this(
+                    conversationId,
+                    revision,
+                    question,
+                    history,
+                    citations,
+                    selectedChunks,
+                    documentsRequired,
+                    omissions,
+                    text,
+                    fingerprint,
+                    Budget.defaults(),
+                    null,
+                    text.length());
+        }
+    }
 
     public record Prepared(Context context, Preview preview) {}
 

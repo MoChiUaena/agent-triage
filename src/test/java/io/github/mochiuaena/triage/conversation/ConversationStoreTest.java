@@ -47,6 +47,23 @@ class ConversationStoreTest {
     }
 
     @Test
+    void budgetDefaultsPersistAtomicallyAndCannotChangeDuringAnAttempt() {
+        var c = store.create(original());
+        assertThat(c.budget()).isEqualTo(Budget.defaults());
+        var budget = new Budget(16000, 2, 1000);
+        store.budget(c.id(), 0, budget);
+        assertThat(store.require(c.id()).budget()).isEqualTo(budget);
+        assertThat(store.require(c.id()).revision()).isEqualTo(1);
+        assertThatThrownBy(() -> store.budget(c.id(), 0, Budget.defaults()))
+                .hasMessageContaining("对话已变化");
+        var a = attempt(UUID.randomUUID(), "RUNNING");
+        store.admit(c.id(), 1, message(a.id(), "USER"), a, true);
+        assertThatThrownBy(() -> store.budget(c.id(), 2, Budget.defaults()))
+                .hasMessageContaining("对话已变化");
+        assertThat(store.require(c.id()).budget()).isEqualTo(budget);
+    }
+
+    @Test
     void admissionIsAtomicAndLateCancelledRepliesCannotPublish() {
         var c = store.create(original());
         var a = attempt(UUID.randomUUID(), "RUNNING");

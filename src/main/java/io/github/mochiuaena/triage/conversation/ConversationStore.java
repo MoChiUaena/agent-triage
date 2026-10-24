@@ -65,7 +65,12 @@ public class ConversationStore {
                                         r.getObject("updated_at", OffsetDateTime.class).toInstant(),
                                         decode(r.getString("origin_payload"), Material.class),
                                         messages(id),
-                                        attempts(id)),
+                                        attempts(id),
+                                        r.getString("budget_payload") == null
+                                                ? Budget.defaults()
+                                                : decode(
+                                                        r.getString("budget_payload"),
+                                                        Budget.class)),
                         id.toString())
                 .stream()
                 .findFirst()
@@ -104,6 +109,18 @@ public class ConversationStore {
                         + " created_at,id",
                 (r, n) -> decode(r.getString(1), Attempt.class),
                 id.toString());
+    }
+
+    public void budget(UUID id, long revision, Budget budget) {
+        if (budget == null) throw new ResponseStatusException(BAD_REQUEST, "请提供上下文预算。");
+        if (jdbc.update(
+                        "UPDATE conversations SET budget_payload=?,revision=revision+1,updated_at=?"
+                            + " WHERE id=? AND revision=? AND active_attempt IS NULL",
+                        encode(budget),
+                        OffsetDateTime.now(ZoneOffset.UTC),
+                        id.toString(),
+                        revision)
+                != 1) throw conflict();
     }
 
     public void admit(UUID id, long revision, Message user, Attempt attempt, boolean active) {
