@@ -7,7 +7,7 @@ class Element {
  append(...c){this.children.push(...c);}replaceChildren(...c){this.children=c;this.text="";}addEventListener(e,cb){this.events[e]=cb;}setAttribute(){}classList={toggle(){}};
 }
 const nodes=new Map(),$=s=>{if(!nodes.has(s))nodes.set(s,new Element());return nodes.get(s);};
-const document={querySelector:$,createElement:()=>new Element()};let requests=[],resolvePreview,resolveSearch,resolveContext,resolveBudget;
+const document={querySelector:$,createElement:()=>new Element()};let requests=[],resolvePreview,resolveSearch,resolveContext,resolveBudget,resolveDetail;let deferDetail=false;
 const model={available:true,providerId:"provider",version:1,displayName:"<model>",model:"stub",baseUrl:"http://localhost"};
 const material={text:"<script>original</script>",reference:{type:"PR",reportId:"report",scope:{repositoryId:"repository"},contentSha256:"hash",version:"fixed",originalLink:"/development.html?report=report"},fields:["title"],omissions:["no source"]};
 const budget={maxInputCharacters:48000,recentMessages:8,summaryCharacters:3000};
@@ -16,7 +16,7 @@ const detail={budget,summary,id:"one",revision:0,original:material,messages:[{ro
 const prepared={context:{conversationId:"one",revision:0,question:"why",documentsRequired:true,summary,budget,serializedCharacters:123,omissions:["omitted text not read"]},preview:{id:"preview",recipient:model,text:"<script>preview</script>",contentSha256:"payload-hash",expiresAt:"2099-01-01T00:00:00Z",omissions:["history docs"]}};
 let remoteDetail=detail;
 const events={},window={location:{search:"?conversation=one",hash:"#conversations"},history:{replaceState(){}},addEventListener:(e,cb)=>events[e]=cb};
-const fetch=async(url,options={})=>{requests.push({url,options});let value;if(url==="/api/conversations")value=[];else if(url==="/api/conversations/one")value=remoteDetail;else if(url.endsWith("/context"))return new Promise(r=>resolveContext=r);else if(url.endsWith("/budget"))return new Promise(r=>resolveBudget=r);else if(url.endsWith("/previews"))return new Promise(r=>resolvePreview=r);else if(url.startsWith("/api/knowledge/search"))return new Promise(r=>resolveSearch=r);else if(url.endsWith("/attempts"))value={...detail,activeAttempt:"attempt"};else if(url.endsWith("/references"))value={...detail,revision:1,messages:[...detail.messages,{role:"USER",text:"why",citations:[]}],attempts:[{state:"REFERENCE_ONLY",message:"未调用模型"}]};else throw Error(url);return{ok:true,json:async()=>value};};
+const fetch=async(url,options={})=>{requests.push({url,options});let value;if(url==="/api/conversations")value=[];else if(url==="/api/conversations/one"){if(deferDetail)return new Promise(r=>resolveDetail=r);value=remoteDetail;}else if(url.endsWith("/context"))return new Promise(r=>resolveContext=r);else if(url.endsWith("/budget"))return new Promise(r=>resolveBudget=r);else if(url.endsWith("/previews"))return new Promise(r=>resolvePreview=r);else if(url.startsWith("/api/knowledge/search"))return new Promise(r=>resolveSearch=r);else if(url.endsWith("/attempts"))value={...detail,activeAttempt:"attempt"};else if(url.endsWith("/references"))value={...detail,revision:1,messages:[...detail.messages,{role:"USER",text:"why",citations:[]}],attempts:[{state:"REFERENCE_ONLY",message:"未调用模型"}]};else throw Error(url);return{ok:true,json:async()=>value};};
 const context=vm.createContext({window,document,URLSearchParams,Date,JSON,console,fetch,encodeURIComponent,setTimeout:()=>1,clearTimeout(){}});
 vm.runInContext(fs.readFileSync("src/main/resources/static/conversation.js","utf8"),context);
 (async()=>{
@@ -44,6 +44,36 @@ vm.runInContext(fs.readFileSync("src/main/resources/static/conversation.js","utf
  resolveContext({ok:true,json:async()=>({...prepared.context,text:"STALE BEFORE REOPEN"})});await localWork;
  assert.equal($("#conversation-context").hidden,true,"External revision invalidates in-flight local context");
  remoteDetail=detail;await window.conversationPanel.open("one");
+ const raceFailures=[];const raceCheck=(name,check)=>{try{check();}catch(error){raceFailures.push(name+": "+error.message);}};
+ // A delayed budget POST must never replace metadata from a newer focus GET.
+ $("#conversation-budget-recent").value="2";$("#conversation-budget-recent").events.input();
+ let raceSave=window.conversationPanel.saveBudget();
+ remoteDetail={...detail,revision:2,budget:{...budget,recentMessages:7}};await events.focus();
+ $("#conversation-budget-recent").value="3";$("#conversation-budget-recent").events.input();
+ resolveBudget({ok:true,json:async()=>({...detail,revision:1,budget:{...budget,recentMessages:2}})});await raceSave;
+ raceCheck("newer draft survives delayed save",()=>assert.equal($("#conversation-budget-recent").value,"3"));
+ raceSave=window.conversationPanel.saveBudget();
+ const nextBudget=JSON.parse(requests.filter(r=>r.url.endsWith("/budget")).at(-1).options.body);
+ raceCheck("delayed save cannot regress current revision",()=>assert.equal(nextBudget.revision,2));
+ resolveBudget({ok:true,json:async()=>({...detail,revision:3,budget:{...budget,recentMessages:3}})});await raceSave;
+ remoteDetail=detail;await window.conversationPanel.open("one");
+ const fittedSummary={...summary,version:"ACTUAL_FITTED_LOCAL",recentMessages:0,recentOrdinals:[],excerptedMessages:0,excerpts:[],omittedMessages:3,omittedOrdinals:[1,2,3],clippedCharacters:777};
+ deferDetail=true;let delayedFocus=events.focus();deferDetail=false;
+ let raceReview=window.conversationPanel.review();resolveContext({ok:true,json:async()=>({...prepared.context,summary:fittedSummary,text:"FITTED LOCAL EXACT"})});await raceReview;
+ resolveDetail({ok:true,json:async()=>detail});await delayedFocus;
+ raceCheck("same-revision GET preserves actual local coverage",()=>assert.match($("#conversation-summary").textContent,/ACTUAL_FITTED_LOCAL/));
+ raceCheck("local exact review remains visible",()=>assert.equal($("#conversation-context-text").textContent,"FITTED LOCAL EXACT"));
+ $("#conversation-question").value="changed after review";$("#conversation-question").events.input();
+ raceCheck("form edit clears fitted coverage",()=>assert.doesNotMatch($("#conversation-summary").textContent,/ACTUAL_FITTED_LOCAL/));
+ await window.conversationPanel.open("one");$("#conversation-question").value="why";$("#conversation-use-model").checked=true;
+ deferDetail=true;delayedFocus=events.focus();deferDetail=false;
+ let racePreview=window.conversationPanel.preview();resolvePreview({ok:true,json:async()=>({...prepared,context:{...prepared.context,summary:{...fittedSummary,version:"ACTUAL_FITTED_MODEL"}}})});await racePreview;
+ $("#conversation-confirm").checked=true;$("#conversation-confirm").events.change();$("#conversation-documents-confirm").checked=true;$("#conversation-documents-confirm").events.change();
+ resolveDetail({ok:true,json:async()=>detail});await delayedFocus;
+ raceCheck("same-revision GET preserves actual model coverage",()=>assert.match($("#conversation-summary").textContent,/ACTUAL_FITTED_MODEL/));
+ raceCheck("matching exact preview retains confirmation",()=>assert.equal($("#conversation-send").disabled,false));
+ if(raceFailures.length)throw Error("Review race regressions:\n"+raceFailures.join("\n"));
+ await window.conversationPanel.open("one");
  assert.equal($("#conversation-origin").textContent,material.text);assert.match($("#conversation-messages").textContent,/<img onerror=x>/);
  $("#conversation-question").value="why";$("#conversation-use-model").checked=true;
  let work=window.conversationPanel.preview();$("#conversation-question").value="edited";$("#conversation-question").events.input();resolvePreview({ok:true,json:async()=>prepared});await work;

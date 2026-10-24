@@ -6,7 +6,8 @@
   const types = ["SERVICE", "PR", "ISSUE", "CI", "WORKFLOW"];
   const states = { RUNNING: "生成中", SUCCEEDED: "回答已保存", CANCELLED: "已取消", TIMED_OUT: "等待超时", FAILED: "调用失败", INVALID_OUTPUT: "输出校验未通过", INTERRUPTED: "重启中断", BUSY: "队列已满", REFERENCE_ONLY: "未调用模型" };
   let active = false, generation = 0, formVersion = 0, listVersion = 0, searchVersion = 0, busy = false, polling = null;
-  let current = null, prepared = null, budgetDirty = false;
+  let current = null, prepared = null, budgetDirty = false, actualReview = null;
+  const baselineSummaryNotice = "保存历史的本机摘录；填写问题后点击本机查看，可核对本次实际纳入范围及完整正文大小。";
   const selected = new Map();
   $("#conversation-type").value = types.includes(parameters.get("type")) ? parameters.get("type") : "SERVICE";
   $("#conversation-report").value = parameters.get("report") || "";
@@ -19,7 +20,9 @@
   const message = text => { $("#conversation-notice").textContent = text; };
   function stopPolling() { if (polling != null) clearTimeout(polling); polling = null; }
   function invalidate() {
-    formVersion++; prepared = null;
+    formVersion++; prepared = null; actualReview = null;
+    if (current) renderSummary(current.summary, baselineSummaryNotice);
+    else { $("#conversation-summary").replaceChildren(); $("#conversation-summary-status").textContent = ""; }
     $("#conversation-context").hidden = true; $("#conversation-context-text").textContent = "";
     $("#conversation-preview").hidden = true; $("#conversation-preview-text").textContent = "";
     $("#conversation-confirm").checked = false; $("#conversation-documents-confirm").checked = false;
@@ -81,6 +84,10 @@
     }
     $("#conversation-summary").replaceChildren(...parts);
   }
+  function renderActualSummary(summary, status) {
+    actualReview = { conversationId: current.id, revision: current.revision, formVersion, summary, status };
+    renderSummary(summary, status);
+  }
   function render(detail) {
     if (current?.id === detail.id && current.revision > detail.revision) return;
     if (current?.id === detail.id && current.revision !== detail.revision) invalidate();
@@ -92,7 +99,9 @@
       $("#conversation-budget-recent").value = b.recentMessages;
       $("#conversation-budget-summary").value = b.summaryCharacters;
     }
-    renderSummary(detail.summary, "保存历史的本机摘录；填写问题后点击本机查看，可核对本次实际纳入范围及完整正文大小。");
+    if (actualReview && actualReview.conversationId === detail.id && actualReview.revision === detail.revision && actualReview.formVersion === formVersion)
+      renderSummary(actualReview.summary, actualReview.status);
+    else renderSummary(detail.summary, baselineSummaryNotice);
     const original = detail.original, ref = original.reference, s = ref.scope;
     $("#conversation-title").textContent = "任务追问 · " + ref.type + " · " + detail.id;
     $("#conversation-scope").textContent = "项目 " + (s.projectId || "—") + " · 仓库 " + (s.repositoryId || "—") + " · 服务 " + (s.service || "—");
@@ -173,7 +182,7 @@
       $("#conversation-context-text").textContent = result.text;
       $("#conversation-context-size").textContent = "实际完整序列化正文 " + result.serializedCharacters + " / " + result.budget.maxInputCharacters + " 字符 · SHA256 " + result.fingerprint + " · 未创建发送预览、未调用模型。";
       $("#conversation-context-omissions").replaceChildren(...result.omissions.map(o => node("li", o)));
-      renderSummary(result.summary, "以下是本次问题的实际纳入范围。模型发送仍需另行准确预览与外发确认。");
+      renderActualSummary(result.summary, "以下是本次问题的实际纳入范围。模型发送仍需另行准确预览与外发确认。");
       message("本机上下文已展开，未调用模型。问题、预算或资料变化后须重新查看。");
     } catch (error) { if (active && ticket === generation && version === formVersion) message(error.message); }
     finally { if (ticket === generation) { busy = false; ready(); } }
@@ -184,7 +193,7 @@
     invalidate(); const ticket = generation, version = formVersion, id = current.id, revision = current.revision; busy = true; ready();
     try {
       const result = await post("/" + id + "/budget", { revision, budget });
-      if (!active || ticket !== generation || current?.id !== id) return;
+      if (!active || ticket !== generation || current?.id !== id || result.revision < current.revision) return;
       if (version === formVersion) { budgetDirty = false; render(result); message("预算已保存，旧模型预览已失效；历史原文保持保存。"); }
       else { current = { ...current, revision: result.revision, budget: result.budget }; message("上一版预算已保存；你刚修改的输入尚未保存。"); }
       list();
@@ -197,7 +206,7 @@
     try {
       const result = await post("/" + id + "/previews", { revision: current.revision, question: $("#conversation-question").value, selectedChunks: [...selected.values()].map(c => ({ versionId: c.versionId, chunkId: c.chunkId })) });
       if (!active || ticket !== generation || version !== formVersion) return;
-      renderSummary(result.context.summary, "本次准确模型预览的实际纳入范围；模型尚未调用。");
+      renderActualSummary(result.context.summary, "本次准确模型预览的实际纳入范围；模型尚未调用。");
       prepared = result; const p = result.preview, r = p.recipient; $("#conversation-preview").hidden = false;
       $("#conversation-recipient").textContent = r.displayName + " / " + r.model + " · " + r.baseUrl + " · Provider " + (r.providerId || "启动配置") + " / 版本 " + r.version;
       $("#conversation-preview-hash").textContent = "实际序列化正文 " + result.context.serializedCharacters + " 字符 · 准确系统指令、问题、历史、报告与资料正文 SHA256 " + p.contentSha256 + " · 有效至 " + new Date(p.expiresAt).toLocaleString("zh-CN");
