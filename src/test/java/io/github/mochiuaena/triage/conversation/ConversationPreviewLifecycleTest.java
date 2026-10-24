@@ -87,6 +87,10 @@ class ConversationPreviewLifecycleTest {
                         responder,
                         new ObjectMapper().findAndRegisterModules());
         try {
+            for (int i = 0; i < 101; i++)
+                service.review(conversationId, 0, "no-key local review", List.of());
+            assertThat(retained(service)).isEmpty();
+            verify(responder, never()).respond(any(), any());
             for (int batch = 0; batch < 2; batch++) {
                 var created = new ArrayList<Prepared>();
                 for (int i = 0; i < 100; i++)
@@ -107,9 +111,8 @@ class ConversationPreviewLifecycleTest {
                                 ResponseStatusException.class,
                                 error -> assertThat(error.getStatusCode().value()).isEqualTo(400));
                 assertThat(retained(service)).containsKey(first);
-                version
-                        .incrementAndGet(); // Same effective token cap, new recipient configuration
-                                            // version.
+                version.incrementAndGet(); // Same effective token cap, new recipient configuration
+                // version.
                 for (int i = 0; i < created.size(); i++) {
                     UUID id = created.get(i).preview().id();
                     assertThatThrownBy(() -> service.send(conversationId, id, true, true))

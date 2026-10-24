@@ -1,4 +1,4 @@
-# 已保存报告的连续追问（C1）
+# 已保存报告的连续追问与本机上下文预算（C1 / C2）
 
 任务追问支持 SERVICE、PR、ISSUE、CI、WORKFLOW 五类已保存报告。每个对话都有独立 UUID，创建时保存原问题、报告材料、范围和版本的不可变快照。追问消息、调用状态及引用分别保存，不修改原报告，不获取新观测，不刷新 GitHub。需要当前运行事实或新 PR 版本时，请明确发起新任务。
 
@@ -24,8 +24,10 @@
 | --- | --- |
 | `POST /api/conversations` | `{ "origin": { "type": "PR", "reportId": "UUID" } }`，201 返回对话详情 |
 | `GET /api/conversations` | 返回已保存对话列表（最多 1000 个，按更新时间排序） |
-| `GET /api/conversations/{id}` | 不可变 `original`、`revision`、`activeAttempt`、`messages`、`attempts`、当前 `model` 与边界说明 |
+| `GET /api/conversations/{id}` | 不可变 `original`、`revision`、`activeAttempt`、`messages`、`attempts`、当前 `model`、保存的 `budget`、本机历史 `summary` 与边界说明 |
 | `POST /api/conversations/{id}/references` | `{ "revision": 0, "question": "依据是什么？" }`，200 保存用户问题和 `REFERENCE_ONLY` 尝试，不产生助手消息 |
+| `POST /api/conversations/{id}/budget` | `{ "revision": 0, "budget": { "maxInputCharacters": 48000, "recentMessages": 8, "summaryCharacters": 3000 } }`，200 原子保存预算并递增 revision，活动调用中拒绝修改 |
+| `POST /api/conversations/{id}/context` | 与 previews 相同的 revision/question/selectedChunks 请求，200 直接返回 Context；无需模型，不创建/消费 B0 预览、不产生调用记录 |
 | `POST /api/conversations/{id}/previews` | `{ "revision": 0, "question": "下一步？", "selectedChunks": [{ "versionId": "UUID", "chunkId": "UUID" }] }`，201 返回 `{context, preview}` |
 | `POST /api/conversations/{id}/attempts` | `{ "previewId": "UUID", "confirmed": true, "documentsConfirmed": true }`，202 返回已受理状态；发送仅使用该预览的问题和正文，不接收替换问题 |
 | `POST /api/conversations/{id}/attempts/{attemptId}/cancel` | `{}`，200 返回取消后的详情；取消不代表外部服务未计费 |
@@ -38,15 +40,30 @@
 
 - 最多保存 1000 个对话，每对话最多 80 条消息。模型准入预留一条助手消息空间。同一对话只允许一个活动尝试，乐观 revision 防止双击和并发消息交叉。
 - 问题 1—4000 字符；模型回答最多 8000 字符，输出 tokens 上限为 2048 与当前模型配置上限中的较小值；最多 3 个本次选段。精确上下文最多 64000 字符。
-- 历史只纳入最近最多 12 条、合计最多 24000 字符的消息。达到范围时在预览明确列出省略条数，全部原消息仍保存在本机；不生成摘要，不静默改写旧回答。达到正文上限时拒绝发送，并要求减少材料或新建对话。
+- 每个对话保存独立预算，默认 `maxInputCharacters=48000`、`recentMessages=8`、`summaryCharacters=3000`。允许范围分别为 8000—64000、2—12、0—6000；摘要上限必须小于总上限，0 明确禁用较旧摘录。V13 旧对话通过 V14 可空预算列读取相同默认值。保存预算递增 revision，旧准确预览拒绝发送；原消息和原报告不重写。
+- 规划器优先最近完整消息，对较旧消息作确定性的本机逐字摘录。额度按 UTF-16 字符计，摘录不会截断代理对。摘要标明“历史用户说法 / 既往助手回答，未经验证”，不会把“用户确认”语义提升为已验证事实，不产生新的模型调用或记忆。全部原始消息仍可阅读。
+- 总预算计算最终序列化系统/用户 JSON 正文，包含指令、嵌套 JSON 转义、引用快照、摘要和省略说明。先减少可选摘录，再减少较早的完整历史。原报告、当前问题和本次新选分段始终完整；必要输入仍超预算时明确拒绝，要求提高预算或减少新选分段。64000 是绝对字符上限，不保证任一供应商的 token 上下文窗口。页面显示字符量，实际 token 用量只采用供应商明确返回值。
 - B0 预览有效 10 分钟，全局最多 100 个。模型异步执行最多 2 个，等待队列最多 8 个；尝试自受理起 30 秒超时，取消/超时后禁止迟到发布。网络请求使用现有模型客户端的响应体上限、单次尝试和无重定向设置，不增加传输重试。
 - `REFERENCE_ONLY` 为未调用模型；其他状态有 `RUNNING`、`SUCCEEDED`、`FAILED`、`INVALID_OUTPUT`、`CANCELLED`、`TIMED_OUT`、`INTERRUPTED`、`BUSY`。仅保存服务明确返回的有效 token 用量；失败或取消时未知用量不按零计费。
 - HTTP 400：输入/授权不完整；404：报告、对话或准确分段不存在；409：范围、版本、模型或 revision 已变化/已有活动尝试；410：预览已消费/过期/重启失效；429：对话、消息、预览或队列达到上限；503：模型不可用。页面保留原材料，按提示刷新或重新预览。
 
-本批不包含 C2 摘要/自适应预算、跨任务记忆、向量召回、工具执行或新分析器。
+`summary` 包含稳定 SHA256 `version`、来源标签 `provenance`、`excerpts`、总条数/近期完整条数/摘录条数/完全省略条数、`clippedCharacters`、`recentOrdinals` 和 `omittedOrdinals`。消息序号从 1 开始，摘录保留 `messageId`、role、attribution、`[startOffset,endOffset)`、原始字符数、逐字 text、不可变引用快照和 documentsDerived。版本由实际消息 ID、摘录/范围及预算确定，不用当前时间或随机数。未纳入字符包含完全省略消息及摘录未覆盖部分；这些文字未提供给模型。
+
+详情 GET 的 summary 是按保存预算生成的本机历史视图；填写问题并调用 `/context` 或 `/previews` 后，summary 才反映本次完整正文实际容纳的范围。Context 另有 `budget`、`serializedCharacters`、`text`、`fingerprint`；serializedCharacters 等于最终 text 的 UTF-16 长度。准确正文的 summary 用 evidenceIds 指向去重的顶层 citation 快照；Detail/Context 响应保留完整历史引用供本机查看。保存的引用在来源被删除后仍可打开；本机审阅旧快照不要求模型/原来源仍有效，新的模型发送仍校验所有实际纳入来源的有效范围/版本。摘要中任何资料派生内容也要求独立 `documentsConfirmed`，本次无新增选段时仍然如此。被省略消息的资料不会暗中加入正文。
+
+本批不包含跨任务记忆、向量召回、工具执行或新分析器。
+
+## 无 API Key 的本地查看步骤
+
+1. 使用 JDK 21，在仓库执行 `./mvnw package`（Windows 为 `./mvnw.cmd package`），然后运行 `java -jar target/agent-triage-0.12.0.jar --triage.mode=DEMO`。默认打开 `http://127.0.0.1:18080/`，无需配置模型密钥或 SQL 数据。
+2. 在“模型设置”确认当前为“规则演示”模式（已保存的 MODEL 选择可能优先于启动参数），再在“服务排查”填写一个问题，例如“哪些证据支持当前结论？”并执行排查，等待演示报告完成。在报告上点击“继续追问”，再点“从报告开始追问”。也可从“历史与统计 → 历史记录”的报告进入。
+3. 在“任务追问”将“优先保留最近完整消息”改为 2、“较旧逐字摘录字符”保留 3000，点“保存预算”。依次填写并点击“保存问题并查看原依据”至少 4 次，例如“用户说已确认连接数，但仍需检查超时”“还缺哪些证据”“接下来检查什么”“如何核对版本”。界面会显示每次“未调用模型”，不生成助手消息。
+4. 再填一个尚未保存的问题，点“本机查看本次上下文（无需模型）”。展开“本机历史摘录、版本、覆盖范围与引用”，核对近期完整消息、带引号性质的旧用户说法、稳定版本、完全省略序号、未纳入字符，以及下方实际完整序列化大小和正文。
+5. 在摘录中点“查看消息原文 #…”核对逐字摘录与保存的完整消息；若历史已有模型资料引用，还可点“查看摘要引用”查看当时的路径、版本、行/偏移和哈希。原报告在“创建时的原报告快照”中独立可读。
+6. 将摘要字符改为 0 并保存，再次本机查看，旧摘录消失且省略数增加。刷新页面或点击同一已保存追问，预算、完整消息、原报告及历史摘录恢复。修改问题/资料/预算会清除先前准确预览和确认；若日后启用模型，仍需重新生成模型发送预览并独立确认资料外发。
 
 ## 验证
 
-JDK 21：`./mvnw verify`。针对性回归：`./mvnw -Dtest=ConversationApiTest,ConversationStoreTest,ConversationModelResponderTest,MaterialApiTest,SendPreviewServiceTest test`。页面：`node scripts/conversation_ui_check.js` 及现有四个研发报告、知识检索、材料页面检查。
+JDK 21：`./mvnw verify`。针对性回归：`./mvnw -Dtest=ConversationApiTest,ConversationStoreTest,ConversationModelResponderTest,MaterialApiTest,SendPreviewServiceTest test`。页面：`node scripts/conversation_ui_check.js`（含无密钥上下文、预算保存、陈旧响应与文本安全） 及现有四个研发报告、知识检索、材料页面检查。
 
-模型测试使用本机 HTTP OpenAI 桩，不调用实际供应商。`ConversationApiTest` 可通过 `TRIAGE_CONVERSATION_TEST_DB_URL`、`TRIAGE_CONVERSATION_TEST_DB_USER`、`TRIAGE_CONVERSATION_TEST_DB_PASSWORD` 指向独立 PostgreSQL 测试库；CI 已接入现有 PostgreSQL 作业。V13 SQL 同时支持 H2/PostgreSQL，不对原报告/登记建立级联删除关系。
+模型测试使用本机 HTTP OpenAI 桩，不调用实际供应商。`ConversationApiTest` 可通过 `TRIAGE_CONVERSATION_TEST_DB_URL`、`TRIAGE_CONVERSATION_TEST_DB_USER`、`TRIAGE_CONVERSATION_TEST_DB_PASSWORD` 指向独立 PostgreSQL 测试库；CI 已接入现有 PostgreSQL 作业。V13/V14 SQL 同时支持 H2/PostgreSQL，不对原报告/登记建立级联删除关系。

@@ -45,11 +45,21 @@
           <form id="conversation-search" class="history-filters">
             <label class="filter-wide">项目资料关键词<input id="conversation-keyword" type="search" maxlength="200" placeholder="只在原报告保存的项目或仓库范围检索" /></label><button id="conversation-search-button" class="secondary" type="submit">本机检索资料</button>
           </form><p id="conversation-search-notice" class="management-caption" role="status"></p><div id="conversation-hits"></div><p id="conversation-selected" class="management-caption"></p>
+          <fieldset id="conversation-budget-controls" class="history-filters">
+            <legend>保存本对话的上下文预算</legend>
+            <label>完整正文字符上限<input id="conversation-budget-input" type="number" min="8000" max="64000" value="48000" /></label>
+            <label>优先保留最近完整消息<input id="conversation-budget-recent" type="number" min="2" max="12" value="8" /></label>
+            <label>较旧逐字摘录字符（0 为禁用）<input id="conversation-budget-summary" type="number" min="0" max="6000" value="3000" /></label>
+            <button id="conversation-budget-save" class="secondary" type="button">保存预算</button>
+          </fieldset>
+          <p id="conversation-budget-status" class="management-caption"></p>
+          <details><summary>本机历史摘录、版本、覆盖范围与引用</summary><p id="conversation-summary-status"></p><div id="conversation-summary"></div></details>
           <form id="conversation-form">
             <label>继续询问依据、证据缺口或下一步<textarea id="conversation-question" required maxlength="4000" rows="4"></textarea></label>
             <label class="conversation-check"><input id="conversation-use-model" type="checkbox" />本次使用上述已启用模型（需先预览）</label><a href="/settings.html">选择或修改模型服务</a>
-            <div class="dialog-actions"><button id="conversation-reference" class="secondary" type="button">保存问题并查看原依据（未调用模型）</button><button id="conversation-preview-button" class="primary" type="submit">预览本次模型发送内容</button></div>
+            <div class="dialog-actions"><button id="conversation-reference" class="secondary" type="button">保存问题并查看原依据（未调用模型）</button><button id="conversation-context-button" class="secondary" type="button">本机查看本次上下文（无需模型）</button><button id="conversation-preview-button" class="primary" type="submit">预览本次模型发送内容</button></div>
           </form>
+          <section id="conversation-context" aria-label="本机上下文审阅" hidden><h3>本机上下文审阅 · 未调用模型</h3><p id="conversation-context-size"></p><ul id="conversation-context-omissions"></ul><pre id="conversation-context-text" tabindex="0"></pre></section>
           <section id="conversation-preview" aria-label="本次完整发送预览" hidden>
             <h3>本次完整发送预览</h3><p id="conversation-recipient"></p><p id="conversation-preview-hash" class="management-caption"></p><ul id="conversation-preview-omissions"></ul><pre id="conversation-preview-text" tabindex="0"></pre>
             <label class="conversation-check"><input id="conversation-confirm" type="checkbox" />已核对接收方、问题、历史与原报告，同意发送本次预览</label>

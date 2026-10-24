@@ -6,7 +6,7 @@
   const types = ["SERVICE", "PR", "ISSUE", "CI", "WORKFLOW"];
   const states = { RUNNING: "生成中", SUCCEEDED: "回答已保存", CANCELLED: "已取消", TIMED_OUT: "等待超时", FAILED: "调用失败", INVALID_OUTPUT: "输出校验未通过", INTERRUPTED: "重启中断", BUSY: "队列已满", REFERENCE_ONLY: "未调用模型" };
   let active = false, generation = 0, formVersion = 0, listVersion = 0, searchVersion = 0, busy = false, polling = null;
-  let current = null, prepared = null;
+  let current = null, prepared = null, budgetDirty = false;
   const selected = new Map();
   $("#conversation-type").value = types.includes(parameters.get("type")) ? parameters.get("type") : "SERVICE";
   $("#conversation-report").value = parameters.get("report") || "";
@@ -20,6 +20,7 @@
   function stopPolling() { if (polling != null) clearTimeout(polling); polling = null; }
   function invalidate() {
     formVersion++; prepared = null;
+    $("#conversation-context").hidden = true; $("#conversation-context-text").textContent = "";
     $("#conversation-preview").hidden = true; $("#conversation-preview-text").textContent = "";
     $("#conversation-confirm").checked = false; $("#conversation-documents-confirm").checked = false;
     ready();
@@ -29,8 +30,12 @@
     const lastState = current?.attempts?.at(-1)?.state;
     $("#conversation-preview-button").textContent = ["FAILED", "CANCELLED", "INVALID_OUTPUT", "TIMED_OUT", "INTERRUPTED", "BUSY"].includes(lastState) ? "重新预览并重试" : "预览本次模型发送内容";
     $("#conversation-reference").disabled = busy || running || !current;
-    $("#conversation-preview-button").disabled = busy || running || !current || !available || !useModel;
+    $("#conversation-preview-button").disabled = busy || running || !current || !available || !useModel || budgetDirty;
     $("#conversation-use-model").disabled = running || !available;
+    $("#conversation-context-button").disabled = busy || running || !current || budgetDirty;
+    $("#conversation-budget-save").disabled = busy || running || !current || !budgetDirty;
+    for (const id of ["input", "recent", "summary"]) $("#conversation-budget-" + id).disabled = running;
+    $("#conversation-budget-status").textContent = budgetDirty ? "预算有未保存修改，请先保存后查看本次上下文。" : "使用已保存预算；按 UTF-16 字符计算完整系统/用户 JSON（含转义、引用及说明），并非 token 用量或模型窗口保证。";
     $("#conversation-question").disabled = running;
     $("#conversation-search-button").disabled = !current || running || busy || !scope();
     $("#conversation-cancel").hidden = !running; $("#conversation-cancel").disabled = busy;
@@ -54,9 +59,40 @@
       safeLink($("#conversation-citation-link"), c.originalUrl);
     }
   }
+  function renderSummary(summary, status) {
+    if (!summary) return;
+    $("#conversation-summary-status").textContent = status;
+    const parts = [node("p", "本机逐字历史摘录；用户说法/既往助手回答均未验证，不是新事实或记忆。版本 " + summary.version),
+      node("p", "共 " + summary.totalMessages + " 条；近期完整 " + summary.recentMessages + " 条（序号 " + summary.recentOrdinals.join("、") + "）；摘录 " + summary.excerptedMessages + " 条；完全省略 " + summary.omittedMessages + " 条（序号 " + summary.omittedOrdinals.join("、") + "）；未纳入 " + summary.clippedCharacters + " 字符。省略内容未提供给模型。")];
+    for (const e of summary.excerpts) {
+      const card = node("section");
+      card.append(node("h4", "历史消息 #" + e.ordinal + " · " + e.messageId + " · " + e.role),
+        node("p", e.attribution + " · 原文偏移 [" + e.startOffset + ", " + e.endOffset + ") / " + e.originalCharacters + " 字符"), node("pre", e.text));
+      const source = node("button", "查看消息原文 #" + e.ordinal); source.type = "button"; source.className = "secondary";
+      source.addEventListener("click", () => {
+        const m = current?.messages.find(value => value.id === e.messageId); if (!m) return;
+        $("#conversation-citation").hidden = false;
+        $("#conversation-citation-meta").textContent = "历史消息 " + m.id + " · " + m.role + " · 摘录偏移 [" + e.startOffset + ", " + e.endOffset + ")；用户说法/旧回答未经验证。";
+        $("#conversation-citation-text").textContent = m.text;
+        $("#conversation-citation-link").hidden = true;
+      }); card.append(source);
+      for (const citation of e.citations || []) { const button = node("button", "查看摘要引用 " + citation.id); button.type = "button"; button.className = "secondary"; button.addEventListener("click", () => showCitation(citation)); card.append(button); }
+      parts.push(card);
+    }
+    $("#conversation-summary").replaceChildren(...parts);
+  }
   function render(detail) {
+    if (current?.id === detail.id && current.revision > detail.revision) return;
+    if (current?.id === detail.id && current.revision !== detail.revision) invalidate();
     if (prepared && (prepared.context.revision !== detail.revision || JSON.stringify(prepared.preview.recipient) !== JSON.stringify(detail.model))) invalidate();
     current = detail; $("#conversation-detail").hidden = false;
+    if (!budgetDirty) {
+      const b = detail.budget || { maxInputCharacters: 48000, recentMessages: 8, summaryCharacters: 3000 };
+      $("#conversation-budget-input").value = b.maxInputCharacters;
+      $("#conversation-budget-recent").value = b.recentMessages;
+      $("#conversation-budget-summary").value = b.summaryCharacters;
+    }
+    renderSummary(detail.summary, "保存历史的本机摘录；填写问题后点击本机查看，可核对本次实际纳入范围及完整正文大小。");
     const original = detail.original, ref = original.reference, s = ref.scope;
     $("#conversation-title").textContent = "任务追问 · " + ref.type + " · " + detail.id;
     $("#conversation-scope").textContent = "项目 " + (s.projectId || "—") + " · 仓库 " + (s.repositoryId || "—") + " · 服务 " + (s.service || "—");
@@ -75,6 +111,7 @@
     }));
     $("#conversation-attempts").replaceChildren(...detail.attempts.map(a => {
       const card = node("p", (states[a.state] || a.state) + " · " + a.message);
+      if (a.finishedAt && a.createdAt) card.append(node("small", " · 耗时 " + Math.max(0, (new Date(a.finishedAt) - new Date(a.createdAt)) / 1000).toFixed(1) + " 秒"));
       if (a.recipient) card.append(node("small", " · " + a.recipient.model + " / 配置版本 " + a.recipient.version));
       card.append(node("small", a.usage ? " · 已知 tokens：" + a.usage.totalTokens : " · 用量未知或未调用"));
       return card;
@@ -102,7 +139,7 @@
     }, 750);
   }
   async function open(id) {
-    const ticket = ++generation; stopPolling(); busy = false; current = null; selected.clear(); searchVersion++; invalidate();
+    const ticket = ++generation; stopPolling(); busy = false; current = null; budgetDirty = false; selected.clear(); searchVersion++; invalidate();
     $("#conversation-detail").hidden = true; $("#conversation-hits").replaceChildren(); $("#conversation-selected").textContent = "";
     $("#conversation-citation").hidden = true; $("#conversation-question").value = "";
     try {
@@ -125,15 +162,45 @@
     catch (error) { if (active && ticket === generation) message(error.message); }
     finally { if (ticket === generation) { busy = false; ready(); } }
   }
+  const contextInput = () => ({ revision: current.revision, question: $("#conversation-question").value, selectedChunks: [...selected.values()].map(c => ({ versionId: c.versionId, chunkId: c.chunkId })) });
+  async function review() {
+    if (!active || !current || busy || current.activeAttempt || budgetDirty) return;
+    invalidate(); const ticket = generation, version = formVersion, id = current.id; busy = true; ready();
+    try {
+      const result = await post("/" + id + "/context", contextInput());
+      if (!active || ticket !== generation || version !== formVersion || current?.id !== id) return;
+      $("#conversation-context").hidden = false;
+      $("#conversation-context-text").textContent = result.text;
+      $("#conversation-context-size").textContent = "实际完整序列化正文 " + result.serializedCharacters + " / " + result.budget.maxInputCharacters + " 字符 · SHA256 " + result.fingerprint + " · 未创建发送预览、未调用模型。";
+      $("#conversation-context-omissions").replaceChildren(...result.omissions.map(o => node("li", o)));
+      renderSummary(result.summary, "以下是本次问题的实际纳入范围。模型发送仍需另行准确预览与外发确认。");
+      message("本机上下文已展开，未调用模型。问题、预算或资料变化后须重新查看。");
+    } catch (error) { if (active && ticket === generation && version === formVersion) message(error.message); }
+    finally { if (ticket === generation) { busy = false; ready(); } }
+  }
+  async function saveBudget() {
+    if (!active || !current || busy || current.activeAttempt || !budgetDirty) return;
+    const budget = { maxInputCharacters: Number($("#conversation-budget-input").value), recentMessages: Number($("#conversation-budget-recent").value), summaryCharacters: Number($("#conversation-budget-summary").value) };
+    invalidate(); const ticket = generation, version = formVersion, id = current.id, revision = current.revision; busy = true; ready();
+    try {
+      const result = await post("/" + id + "/budget", { revision, budget });
+      if (!active || ticket !== generation || current?.id !== id) return;
+      if (version === formVersion) { budgetDirty = false; render(result); message("预算已保存，旧模型预览已失效；历史原文保持保存。"); }
+      else { current = { ...current, revision: result.revision, budget: result.budget }; message("上一版预算已保存；你刚修改的输入尚未保存。"); }
+      list();
+    } catch (error) { if (active && ticket === generation && version === formVersion) message(error.message); }
+    finally { if (ticket === generation) { busy = false; ready(); } }
+  }
   async function preview() {
-    if (!active || !current || busy || current.activeAttempt || !$("#conversation-use-model").checked) return;
+    if (!active || !current || busy || current.activeAttempt || !$("#conversation-use-model").checked || budgetDirty) return;
     invalidate(); const ticket = generation, version = formVersion, id = current.id; busy = true; ready();
     try {
       const result = await post("/" + id + "/previews", { revision: current.revision, question: $("#conversation-question").value, selectedChunks: [...selected.values()].map(c => ({ versionId: c.versionId, chunkId: c.chunkId })) });
       if (!active || ticket !== generation || version !== formVersion) return;
+      renderSummary(result.context.summary, "本次准确模型预览的实际纳入范围；模型尚未调用。");
       prepared = result; const p = result.preview, r = p.recipient; $("#conversation-preview").hidden = false;
       $("#conversation-recipient").textContent = r.displayName + " / " + r.model + " · " + r.baseUrl + " · Provider " + (r.providerId || "启动配置") + " / 版本 " + r.version;
-      $("#conversation-preview-hash").textContent = "准确系统指令、问题、历史、报告与资料正文 SHA256 " + p.contentSha256 + " · 有效至 " + new Date(p.expiresAt).toLocaleString("zh-CN");
+      $("#conversation-preview-hash").textContent = "实际序列化正文 " + result.context.serializedCharacters + " 字符 · 准确系统指令、问题、历史、报告与资料正文 SHA256 " + p.contentSha256 + " · 有效至 " + new Date(p.expiresAt).toLocaleString("zh-CN");
       $("#conversation-preview-text").textContent = p.text; $("#conversation-preview-omissions").replaceChildren(...p.omissions.map(o => node("li", o)));
       $("#conversation-documents-label").hidden = !result.context.documentsRequired;
       message("已生成准确预览，尚未调用模型。修改问题、资料或模型后需重新预览。");
@@ -174,6 +241,9 @@
     active = value; generation++; listVersion++; searchVersion++; stopPolling(); busy = false; invalidate();
     if (!active) return; await list(); const id = new URLSearchParams(window.location.search).get("conversation"); if (id) await open(id);
   }
+  $("#conversation-context-button").addEventListener("click", review);
+  $("#conversation-budget-save").addEventListener("click", saveBudget);
+  for (const id of ["input", "recent", "summary"]) $("#conversation-budget-" + id).addEventListener("input", () => { budgetDirty = true; invalidate(); });
   $("#conversation-create").addEventListener("submit", create);
   $("#conversation-form").addEventListener("submit", event => { event.preventDefault(); preview(); });
   $("#conversation-reference").addEventListener("click", reference); $("#conversation-send").addEventListener("click", send); $("#conversation-cancel").addEventListener("click", cancel);
@@ -182,6 +252,6 @@
   $("#conversation-keyword").addEventListener("input", () => { searchVersion++; });
   $("#conversation-confirm").addEventListener("change", ready); $("#conversation-documents-confirm").addEventListener("change", ready);
   window.addEventListener("focus", async () => { if (!active || !current) return; const ticket = generation, id = current.id; try { const detail = await request("/api/conversations/" + id); if (active && ticket === generation) { render(detail); poll(ticket); } } catch (error) { if (active && ticket === generation) message(error.message); } });
-  window.conversationPanel = { setActive, open, preview, search, reference };
+  window.conversationPanel = { setActive, open, preview, search, reference, review, saveBudget };
   ready();
 })();
