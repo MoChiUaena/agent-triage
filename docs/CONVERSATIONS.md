@@ -51,7 +51,7 @@
 
 详情 GET 的 summary 是按保存预算生成的本机历史视图；填写问题并调用 `/context` 或 `/previews` 后，summary 才反映本次完整正文实际容纳的范围。Context 另有 `budget`、`serializedCharacters`、`text`、`fingerprint`；serializedCharacters 等于最终 text 的 UTF-16 长度。准确正文的 summary 用 evidenceIds 指向去重的顶层 citation 快照；Detail/Context 响应保留完整历史引用供本机查看。保存的引用在来源被删除后仍可打开；本机审阅旧快照不要求模型/原来源仍有效，新的模型发送仍校验所有实际纳入来源的有效范围/版本。摘要中任何资料派生内容也要求独立 `documentsConfirmed`，本次无新增选段时仍然如此。被省略消息的资料不会暗中加入正文。
 
-追问本身不自动生成跨任务记忆、向量召回、工具执行或新分析器。M1 可在单条已保存消息上显式点击“保存为记忆候选”，逐字复制为未确认候选并保留出处；只有有原始 PROJECT/REPOSITORY UUID 的对话可用，旧服务身份不会猜测绑定。打开候选后仍需编辑/审阅准确版本并确认，永不自动纳入模型上下文。详见[项目记忆](PROJECT_MEMORY.md)。
+追问本身不自动生成跨任务记忆、向量召回、工具执行或新分析器。M1 可在单条已保存消息上显式点击“保存为记忆候选”，逐字复制为未确认候选并保留出处；只有有原始 PROJECT/REPOSITORY UUID 的对话可用，旧服务身份不会猜测绑定。M2 支持按当前问题召回同范围已确认记忆并显式勾选最多 3 条随本次问题发送：召回只匹配 CONFIRMED 当前版本，同主题冲突与适用性变化同时展示；发送须在通用与资料确认之外单独勾选记忆外发，回答通过 `memory:{id}:{revision}` 引用实际使用的记忆。记忆不会未经勾选自动进入模型上下文。详见[项目记忆](PROJECT_MEMORY.md)。
 
 ## 无 API Key 的本地查看步骤
 
