@@ -83,6 +83,18 @@ public class SourceProjectService {
     }
     public Excerpt excerpt(UUID id, String symbol) { return excerpt(projects.require(id), symbol); }
     public Excerpt excerpt(Stored project, String identity) { return excerptAt(project, identity, null); }
+
+    /** Null when the project was removed; used by cross-module consumers that handle absence themselves. */
+    public Stored stored(UUID id) { return projects.find(id).orElse(null); }
+
+    /** Fresh read whose bytes must still hash to the indexed value; null when the file drifted or is excluded. */
+    public String verifiedText(Stored project, String path) {
+        try {
+            String text = SourceFiles.read(SourceFiles.root(project.root()), path);
+            return project.index().files().stream().filter(file -> file.path().equals(path)).findFirst()
+                .map(file -> SourceFiles.hash(text).equals(file.hash()) ? text : null).orElse(null);
+        } catch (Exception e) { return null; }
+    }
     Excerpt excerptAt(Stored project, String identity, Integer focus) {
         Symbol symbol = project.index().files().stream().flatMap(file -> file.symbols().stream()).filter(value -> value.id().equals(identity)).findFirst()
             .orElseThrow(() -> new ResponseStatusException(NOT_FOUND, "这个代码引用不属于当前项目索引。"));

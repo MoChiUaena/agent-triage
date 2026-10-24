@@ -34,23 +34,34 @@ public class PrModelSuggestionParser {
             throw new IllegalArgumentException("Wrong reviewed SHA");
         Map<String, SendFile> sent = new HashMap<>();
         for (SendFile file : preview.files()) sent.put(file.file(), file);
+        Map<String, PrSourceContext.Entry> context = new HashMap<>();
+        for (PrSourceContext.Entry entry : preview.context())
+            if (PrSourceContext.MATCHED.equals(entry.state())) context.put(entry.file(), entry);
         var risks = new ArrayList<Change>();
-        for (JsonNode item : array(node, "risks", 6)) risks.add(new Change(value(item, "text", 600), references(item, sent)));
+        for (JsonNode item : array(node, "risks", 6)) risks.add(new Change(value(item, "text", 600), references(item, sent, context)));
         var gaps = new ArrayList<Change>();
-        for (JsonNode item : array(node, "testGaps", 8)) gaps.add(new Change(value(item, "text", 600), references(item, sent)));
+        for (JsonNode item : array(node, "testGaps", 8)) gaps.add(new Change(value(item, "text", 600), references(item, sent, context)));
         return new Suggestion(value(node, "summary", 1200), value(node, "intent", 1200), confidence, reviewedSha,
-            List.copyOf(risks), List.copyOf(gaps), references(node, sent));
+            List.copyOf(risks), List.copyOf(gaps), references(node, sent, context));
     }
 
-    private List<FileLine> references(JsonNode value, Map<String, SendFile> sent) {
+    private List<FileLine> references(JsonNode value, Map<String, SendFile> sent, Map<String, PrSourceContext.Entry> context) {
         var lines = new LinkedHashSet<FileLine>();
         for (var ref : array(value, "references", 8)) {
             String file = value(ref, "file", 1024);
-            SendFile scope = sent.get(file);
-            if (scope == null) throw new IllegalArgumentException("File outside the sent diff");
             int line = ref.path("line").asInt(-1);
             String side = ref.hasNonNull("side") ? value(ref, "side", 8) : "NEW";
-            if (!Set.of("NEW", "OLD").contains(side)) throw new IllegalArgumentException("Unknown side");
+            if (!Set.of("NEW", "OLD", "CONTEXT").contains(side)) throw new IllegalArgumentException("Unknown side");
+            if ("CONTEXT".equals(side)) {
+                PrSourceContext.Entry entry = context.get(file);
+                if (entry == null || line < 1 || entry.symbols().stream().noneMatch(symbol ->
+                        line >= symbol.startLine() && line <= symbol.endLine()))
+                    throw new IllegalArgumentException("Context citation outside the sent excerpts");
+                lines.add(new FileLine(file, line, side));
+                continue;
+            }
+            SendFile scope = sent.get(file);
+            if (scope == null) throw new IllegalArgumentException("File outside the sent diff");
             List<LineRange> ranges = "OLD".equals(side) ? scope.oldLines() : scope.newLines();
             if (line < 1 || line > 100_000 || ranges.stream().noneMatch(range -> line >= range.start() && line < range.start() + range.count()))
                 throw new IllegalArgumentException("Line outside the sent hunks");

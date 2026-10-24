@@ -32,8 +32,9 @@ public class GithubPrController {
     @GetMapping("/pr/model-option") public PrModelModels.ModelOption modelOption() { return model.option(); }
     /** Preview of the exact redacted diff scope one model call may receive; PR updates invalidate it. */
     @PostMapping("/pr/reports/{id}/model/previews")
-    public ResponseEntity<PrModelModels.Preview> modelPreview(@PathVariable UUID id) {
-        var preview = model.preview(id);
+    public ResponseEntity<PrModelModels.Preview> modelPreview(@PathVariable UUID id,
+            @RequestBody(required = false) PrModelService.ModelPreviewInput input) {
+        var preview = model.preview(id, input);
         return ResponseEntity.created(URI.create("/api/development/pr/model-analyses/" + preview.id())).body(preview);
     }
     /** Saved separately from the rule report; patches are source code and need codeConfirmed. */

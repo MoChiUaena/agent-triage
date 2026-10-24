@@ -26,6 +26,7 @@ public final class PrModelModels {
     public record Preview(UUID id, UUID reportId, UUID repositoryId, String repository, long number, String title,
                           String baseSha, String headSha, String mergeBaseSha, int changedFiles, List<SendFile> files,
                           List<Finding> findings, CiSnapshot ci, List<IssueReference> issues, List<String> omissions,
+                          List<PrSourceContext.Entry> context, boolean contextTruncated,
                           Instant createdAt, Instant expiresAt, ModelOption model) {}
 
     public record FileLine(String file, int line, String side) {}
