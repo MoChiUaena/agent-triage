@@ -79,6 +79,11 @@
             <div class="management-heading"><h3>模型建议（可选 · 用户显式启用）</h3><button id="pr-model-preview-button" class="secondary" type="button" disabled>预览发送范围</button></div>
             <p class="management-caption">在规则提醒之外按需生成模型建议：预览确认前不发送任何内容；补丁属于源码，发送需单独确认；规则报告保持不变，模型失败或超时也会保留规则结论。不构成合入批准，不自动合并或修改代码。</p>
             <p id="pr-model-option" class="management-caption"></p>
+            <details id="pr-model-source-box"><summary>可选：附带本机源码上下文（需已登记本机 Java 项目）</summary>
+              <p class="management-caption">选择与该仓库对应且已按当前版本重新索引的本机项目。上下文按变更行与 PR head 抽样比对：一致才发送限量摘录、调用候选与多实现候选，全部标注为静态候选；不一致、未索引或不可用的文件明确说明且不发送。反射等未知路径保持未知。</p>
+              <label class="management-caption" for="pr-model-source">本机源码项目<select id="pr-model-source"><option value="">不附带本机源码上下文</option></select></label>
+              <p id="pr-model-source-note" class="management-caption"></p>
+            </details>
             <div id="pr-model-preview" hidden></div>
             <label class="management-caption" id="pr-model-consent-row" hidden><input id="pr-model-confirm" type="checkbox" />我已核对发送范围，确认将上述脱敏补丁与差异信息发送至该模型服务。</label>
             <label class="management-caption" id="pr-model-code-row" hidden><input id="pr-model-code-confirm" type="checkbox" />我已知晓补丁属于源码，单独确认将其外发至该模型服务（codeConfirmed）。</label>

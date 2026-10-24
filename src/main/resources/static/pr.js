@@ -32,6 +32,7 @@
     resetModelSection(report.id);
     loadModelOption(report.id);
     loadModelHistory(report.id);
+    loadSourceProjects();
     $("#pr-report-notice").textContent = report.notice;
     $("#pr-report-versions").replaceChildren(...[["Base", report.pull.baseSha], ["Head", report.pull.headSha], ["Merge-base（删除行）", report.mergeBaseSha]].map(([name, sha]) => {
       const row = node("div", null, "pr-version"); row.append(node("span", name), node("code", sha)); return row;
@@ -112,6 +113,7 @@
     modelReportId = reportId; modelPreview = null;
     $("#pr-model-option").textContent = ""; $("#pr-model-preview").replaceChildren(); $("#pr-model-preview").hidden = true;
     $("#pr-model-confirm").checked = false; $("#pr-model-code-confirm").checked = false;
+    $("#pr-model-source").value = ""; $("#pr-model-source-note").textContent = "";
     $("#pr-model-consent-row").hidden = true; $("#pr-model-code-row").hidden = true; $("#pr-model-analyze-button").disabled = true;
     $("#pr-model-preview-button").disabled = true; modelNotice("");
     $("#pr-model-result").replaceChildren(); $("#pr-model-history").replaceChildren(); $("#pr-model-history-box").hidden = true;
@@ -137,17 +139,31 @@
     const current = version, id = currentReportId();
     modelBusy = true; $("#pr-model-preview-button").disabled = true; modelNotice("正在按报告冻结的 SHA 读取差异并准备发送范围…");
     try {
+      const input = {};
+      const source = $("#pr-model-source").value;
+      const selected = sourceProjects.find(project => project.id === source);
+      if (selected) { input.sourceProjectId = selected.id; input.sourceRevision = selected.revision; }
       const value = await request("/api/development/pr/reports/" + encodeURIComponent(id) + "/model/previews",
-        { method: "POST", headers: { "Content-Type": "application/json", "X-Triage-Development": "1" }, body: "{}" });
+        { method: "POST", headers: { "Content-Type": "application/json", "X-Triage-Development": "1" }, body: JSON.stringify(input) });
       if (current !== version || id !== modelReportId) return;
       modelPreview = value;
       const target = $("#pr-model-preview"); target.hidden = false;
-      target.replaceChildren(node("h3", "将发送到模型服务的范围"),
+      const STATES = { MATCHED: "版本核对通过", VERSION_MISMATCH: "版本不一致，未采用", NOT_INDEXED: "不在本机索引", UNAVAILABLE: "不可用" };
+      const children = [node("h3", "将发送到模型服务的范围"),
         node("p", "PR #" + value.number + " " + value.title + " · Base " + value.baseSha + " · Head " + value.headSha),
         node("p", "发送补丁文件：" + value.files.map(file => file.file + (file.clipped ? "（部分 hunk）" : "")).join("、")),
-        node("p", "随补丁一并发送：" + value.findings.length + " 条规则提醒 · 检查状态 · " + value.issues.length + " 条 Issue 引用"),
-        ...value.omissions.map(text => node("p", text)),
+        node("p", "随补丁一并发送：" + value.findings.length + " 条规则提醒 · 检查状态 · " + value.issues.length + " 条 Issue 引用")];
+      for (const entry of value.context || []) {
+        const card = node("section", null, "pr-finding");
+        card.append(node("h4", entry.file + " · " + (STATES[entry.state] || entry.state)), node("p", entry.message, "management-caption"));
+        for (const symbol of entry.symbols || []) card.append(node("p", "摘录 " + symbol.method + "（" + symbol.startLine + "–" + symbol.endLine + " 行 · 本机上下文）", "management-caption"));
+        for (const caller of entry.callers || []) card.append(node("p", "调用候选：" + caller.className + "." + caller.method + "（" + caller.line + " 行 · " + caller.state + "）", "management-caption"));
+        if ((entry.implementations || []).length) card.append(node("p", "实现候选：" + entry.implementations.join("、"), "management-caption"));
+        children.push(card);
+      }
+      children.push(...value.omissions.map(text => node("p", text)),
         node("p", "接收模型：" + (value.model.displayName || "启动配置") + " · " + value.model.modelName + " · 十分钟有效"));
+      target.replaceChildren(...children);
       $("#pr-model-consent-row").hidden = false; $("#pr-model-code-row").hidden = false;
       modelNotice("请核对发送范围，并分别确认一般发送与源码补丁外发。");
     } catch (error) { if (current === version && id === modelReportId) modelNotice(error.message, true); }
@@ -169,7 +185,8 @@
       if (!items.length) { target.append(node("p", "无。", "management-caption")); return; }
       for (const item of items) {
         const row = node("p"); row.append(node("strong", item.text));
-        row.append(node("span", "（引用 " + item.references.map(ref => ref.file + ":" + ref.line + (ref.side === "OLD" ? " 删除行" : " 新增行")).join("、") + "）"));
+        row.append(node("span", "（引用 " + item.references.map(ref => ref.file + ":" + ref.line
+          + (ref.side === "OLD" ? " 删除行" : ref.side === "CONTEXT" ? " 本机上下文" : " 新增行")).join("、") + "）"));
         target.append(row);
       }
     };
@@ -209,6 +226,31 @@
       }
     } catch (error) { if (current === version && modelReportId === reportId) modelNotice(error.message, true); }
   }
+  let sourceProjects = [];
+  async function loadSourceProjects() {
+    const current = version;
+    try {
+      const values = await request("/api/source-projects");
+      if (current !== version) return;
+      sourceProjects = (values || []).slice(0, 20);
+      const select = $("#pr-model-source");
+      const previous = select.value;
+      select.replaceChildren(...[node("option", "不附带本机源码上下文")].concat(sourceProjects.map(project => {
+        const option = node("option", project.name + " · revision " + project.revision + " · " + project.files + " 文件");
+        option.value = project.id; return option;
+      })));
+      if (sourceProjects.some(project => project.id === previous)) select.value = previous;
+      $("#pr-model-source-note").textContent = sourceProjects.length
+        ? "上下文随预览一起展示发送范围；源码内容外发同样受下方 codeConfirmed 约束。"
+        : "尚未登记本机 Java 项目；可在项目源码页登记并索引后再附带上下文。";
+    } catch (error) { if (current === version) $("#pr-model-source-note").textContent = "源码项目列表读取失败：" + error.message; }
+  }
+  $("#pr-model-source").addEventListener("change", () => {
+    const selected = sourceProjects.find(project => project.id === $("#pr-model-source").value);
+    $("#pr-model-source-note").textContent = selected
+      ? "将按 revision " + selected.revision + " 构建上下文；该索引变化后需重新预览。"
+      : "";
+  });
   $("#pr-model-preview-button").addEventListener("click", previewModel);
   for (const name of ["confirm", "code-confirm"]) $("#pr-model-" + name).addEventListener("change", () => {
     $("#pr-model-analyze-button").disabled = !modelPreview || !$("#pr-model-confirm").checked || !$("#pr-model-code-confirm").checked;

@@ -29,12 +29,28 @@ const advice = { id: "a1", headSha: "b".repeat(40), createdAt: "2026-10-24T00:00
   model: { state: "SUCCEEDED", usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 }, elapsedMs: 900, message: "已通过校验。" } };
 const failedAdvice = { id: "a2", headSha: "b".repeat(40), createdAt: "2026-10-24T00:05:00Z", suggestion: null,
   model: { state: "FAILED", usage: null, elapsedMs: 40, message: "模型调用失败，请核对模型设置。本次保留规则报告；没有保存服务原始错误。" } };
+const sourceList = [{ id: "sp1", name: "订单本机项目", revision: 2, files: 5 }];
+const contextPreview = { id: "mp2", number: 7, title: "Update access", baseSha: "a".repeat(40), headSha: "b".repeat(40),
+  files: [{ file: "src/main/java/Security.java", clipped: false }], findings: [], issues: [],
+  context: [{ file: "src/main/java/Security.java", state: "MATCHED", message: "变更行内容与 PR head 一致（抽样比对 3 行）；均为静态候选。",
+    symbols: [{ id: "SRC-1", path: "src/main/java/Security.java", className: "Security", method: "check", signature: "void check()", route: "", startLine: 8, endLine: 14, content: "permitAll();" }],
+    callers: [{ path: "src/main/java/Guard.java", className: "Guard", method: "audit", line: 6, call: "security.check", state: "CANDIDATE" }],
+    implementations: [] },
+    { file: "src/main/java/Gone.java", state: "NOT_INDEXED", message: "该文件不在所选本机索引中；未发送本机上下文。", symbols: [], callers: [], implementations: [] }],
+  omissions: ["源码上下文为本机索引的静态候选；反射保持未知。"],
+  model: { displayName: "页面模型", modelName: "fixture-pr" }, expiresAt: "2026-10-24T00:10:00Z" };
+const contextAdvice = { id: "a3", headSha: "b".repeat(40), createdAt: "2026-10-24T00:02:00Z",
+  suggestion: { summary: "结合本机上下文判断权限放开影响 Guard 调用方。", intent: "替换鉴权实现。", confidence: "LOW", reviewedSha: "b".repeat(40),
+    risks: [{ text: "调用方 Guard 依赖原行为。", references: [{ file: "src/main/java/Security.java", line: 9, side: "CONTEXT" }] }],
+    testGaps: [], references: [{ file: "src/main/java/Security.java", line: 9, side: "CONTEXT" }] },
+  model: { state: "SUCCEEDED", usage: { inputTokens: 120, outputTokens: 40, totalTokens: 160 }, elapsedMs: 700, message: "已通过校验。" } };
 const context = vm.createContext({ document, window, URL, Date, console, URLSearchParams, fetch: async (url, options = {}) => {
   requests.push({ url, options, body: options.body ? JSON.parse(options.body) : null });
   const ok = value => ({ ok: true, json: async () => value });
   if (url === "/api/development/pr/model-option") return ok(modelOption);
-  if (url.endsWith("/model/previews")) return ok(modelPreview);
-  if (url.endsWith("/model/analyses")) return options.method === "POST" ? ok(advice) : ok([failedAdvice]);
+  if (url === "/api/source-projects") return ok(sourceList);
+  if (url.endsWith("/model/previews")) return ok(options.body && JSON.parse(options.body).sourceProjectId ? contextPreview : modelPreview);
+  if (url.endsWith("/model/analyses")) return options.method === "POST" ? ok(requests.some(r => r.url.endsWith("/model/previews") && r.body && r.body.sourceProjectId) ? contextAdvice : advice) : ok([failedAdvice]);
   if (url.endsWith("/pulls/7")) return new Promise(resolve => { pendingPull = resolve; });
   return ok([]);
 }});
