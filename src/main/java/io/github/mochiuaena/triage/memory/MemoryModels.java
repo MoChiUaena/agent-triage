@@ -54,4 +54,27 @@ public final class MemoryModels {
             String topic,
             String bodySha256,
             Instant updatedAt) {}
+
+    public record ConflictPeer(UUID id, long revision, String topic, Instant confirmedAt) {}
+
+    public record RecallItem(
+            UUID id,
+            long revision,
+            String topic,
+            String excerpt,
+            int score,
+            Instant confirmedAt,
+            String scopeService,
+            List<String> applicability,
+            List<ConflictPeer> conflicts) {}
+
+    public record RecallResult(
+            Scope scope,
+            String query,
+            String recallMethod,
+            List<RecallItem> results,
+            int scannedMemories,
+            long availableMemories,
+            boolean truncated,
+            String coverage) {}
 }

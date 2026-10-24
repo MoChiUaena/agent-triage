@@ -5,39 +5,57 @@ import static io.github.mochiuaena.triage.memory.MemoryStore.bad;
 
 import static org.springframework.http.HttpStatus.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import io.github.mochiuaena.triage.conversation.ConversationStore;
 import io.github.mochiuaena.triage.development.GithubRepositoryStore;
 import io.github.mochiuaena.triage.knowledge.*;
 import io.github.mochiuaena.triage.material.*;
 import io.github.mochiuaena.triage.source.SourceProjectRepository;
 
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.*;
+import java.util.regex.Pattern;
 
 @Service
 public class MemoryService {
+    private static final Pattern TOKEN = Pattern.compile("[\\p{L}\\p{N}_]+");
+    private static final int SCAN_LIMIT = 100;
+    private static final String COVERAGE =
+            "仅召回此范围状态为 CONFIRMED 的当前版本；候选、已停用、已删除或确认后被编辑的记忆立即退出召回。"
+                    + "匹配为本机连续关键词（大小写不敏感），问题中所有词都须命中，结果按命中分数和更新时间排序。"
+                    + "召回内容是用户审阅的历史经验，未经独立验证，不代表当前运行观测或 GitHub 状态；实时状态以原报告和重新执行任务为准。"
+                    + "适用性提示仅核对登记绑定与依据版本，不检测代码行为变化。";
+
     private final MemoryStore store;
     private final MaterialService materials;
     private final KnowledgeSearchService knowledge;
+    private final KnowledgeRepository knowledgeStore;
     private final SourceProjectRepository projects;
     private final GithubRepositoryStore repositories;
     private final ConversationStore conversations;
+    private final ObjectMapper json;
 
     public MemoryService(
             MemoryStore store,
             MaterialService materials,
             KnowledgeSearchService knowledge,
+            KnowledgeRepository knowledgeStore,
             SourceProjectRepository projects,
             GithubRepositoryStore repositories,
-            ConversationStore conversations) {
+            ConversationStore conversations,
+            ObjectMapper json) {
         this.store = store;
         this.materials = materials;
         this.knowledge = knowledge;
+        this.knowledgeStore = knowledgeStore;
         this.projects = projects;
         this.repositories = repositories;
         this.conversations = conversations;
+        this.json = json;
     }
 
     public List<MaterialModels.ScopeOption> scopes() {
@@ -165,6 +183,191 @@ public class MemoryService {
     public List<Summary> list(String kind, UUID id, String service, String status, int limit) {
         scope(kind, id, service, true);
         return store.list(new Scope(kind, id, service), status, limit);
+    }
+
+    /** Bounded local recall of current CONFIRMED memories; never a grant to send or share. */
+    public RecallResult recall(String kind, UUID id, String question, Integer limit) {
+        Scope live = scope(kind, id, null, true);
+        if (question == null || question.isBlank() || question.length() > 4000)
+            throw bad("问题须为 1—4000 字符。");
+        var tokens =
+                TOKEN.matcher(question.toLowerCase(Locale.ROOT)).results()
+                        .map(m -> m.group())
+                        .distinct()
+                        .toList();
+        if (tokens.isEmpty()) throw bad("请输入文字或数字关键词。");
+        int max = limit == null ? 5 : limit;
+        if (max < 1 || max > 10) throw bad("召回条数须为 1—10。");
+        Scope selected = new Scope(live.kind(), live.id(), null);
+        var scanned = store.confirmedScan(selected, SCAN_LIMIT);
+        long available = store.confirmedCount(selected);
+        var peers = new HashMap<String, List<MemoryStore.Scanned>>();
+        for (var entry : scanned)
+            peers.computeIfAbsent(normalized(entry.version().body().topic()), k -> new ArrayList<>())
+                    .add(entry);
+        var hits = new ArrayList<MemoryStore.Scanned>();
+        for (var entry : scanned) if (score(entry.version().body(), tokens) > 0) hits.add(entry);
+        hits.sort(
+                Comparator.comparingInt((MemoryStore.Scanned e) -> score(e.version().body(), tokens))
+                        .reversed()
+                        .thenComparing(
+                                e -> e.version().updatedAt(), Comparator.reverseOrder())
+                        .thenComparing(MemoryStore.Scanned::id));
+        var results = new ArrayList<RecallItem>();
+        for (var hit : hits.subList(0, Math.min(max, hits.size()))) {
+            var v = hit.version();
+            var conflicts =
+                    peers.get(normalized(v.body().topic())).stream()
+                            .filter(p -> !p.id().equals(hit.id()))
+                            .map(
+                                    p ->
+                                            new ConflictPeer(
+                                                    p.id(),
+                                                    p.revision(),
+                                                    p.version().body().topic(),
+                                                    p.version().confirmedAt()))
+                            .sorted(Comparator.comparing(ConflictPeer::id))
+                            .toList();
+            results.add(
+                    new RecallItem(
+                            hit.id(),
+                            hit.revision(),
+                            v.body().topic(),
+                            excerpt(v.body().content(), tokens),
+                            score(v.body(), tokens),
+                            v.confirmedAt(),
+                            v.scope().service(),
+                            applicability(live, v),
+                            conflicts));
+        }
+        return new RecallResult(
+                live,
+                question,
+                "KEYWORD_CONFIRMED",
+                List.copyOf(results),
+                scanned.size(),
+                available,
+                available > scanned.size(),
+                COVERAGE);
+    }
+
+    /** Exact confirmed revision for model sends; registration drift stays visible via scope. */
+    public Version recallable(UUID id, String kind, UUID sid, long revision) {
+        scope(kind, sid, null, true);
+        return store.recallable(id, new Scope(kind, sid, null), revision);
+    }
+
+    private List<String> applicability(Scope live, Version v) {
+        var notes = new ArrayList<String>();
+        if (live.kind().equals("PROJECT") && !Objects.equals(live.service(), v.scope().service()))
+            notes.add(
+                    "项目当前绑定服务为 "
+                            + live.service()
+                            + "，与记忆保存服务 "
+                            + v.scope().service()
+                            + " 不同；请先核对是否仍适用。");
+        for (var snapshot : v.body().basis().references()) {
+            var ref = snapshot.reference();
+            if (ref == null || ref.type() == null) continue;
+            if (ref.type().equals("CHUNK")) {
+                try {
+                    if (!knowledgeStore.activeVersion(ref.versionId()))
+                        notes.add("依据的知识版本 " + ref.versionId() + " 已不再有效，请核对最新资料。");
+                } catch (DataAccessException e) {
+                    notes.add("依据的知识版本状态暂不可核对，请先人工确认。");
+                }
+            } else {
+                MaterialModels.Type type;
+                try {
+                    type = MaterialModels.Type.valueOf(ref.type());
+                } catch (IllegalArgumentException e) {
+                    continue;
+                }
+                if (type == MaterialModels.Type.KNOWLEDGE) continue;
+                String savedVersion = savedReportVersion(snapshot.saved());
+                try {
+                    var fresh =
+                            materials.resolve(
+                                    new MaterialModels.Selection(
+                                            type,
+                                            ref.reportId(),
+                                            live.kind().equals("PROJECT") ? live.id() : null,
+                                            live.kind().equals("REPOSITORY") ? live.id() : null,
+                                            null));
+                    if (savedVersion != null && !savedVersion.equals(fresh.reference().version()))
+                        notes.add(
+                                "依据的 "
+                                        + type
+                                        + " 报告版本已从 "
+                                        + savedVersion
+                                        + " 变为 "
+                                        + fresh.reference().version()
+                                        + "，请核对适用性。");
+                } catch (ResponseStatusException e) {
+                    notes.add(
+                            "依据的 "
+                                    + type
+                                    + " 报告已移除或不在当前范围，历史快照仍可阅读。");
+                }
+            }
+        }
+        return notes;
+    }
+
+    private String savedReportVersion(Object saved) {
+        if (saved == null) return null;
+        try {
+            return json.convertValue(saved, MaterialModels.Material.class).reference().version();
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private static int score(Body body, List<String> tokens) {
+        String topic = body.topic().toLowerCase(Locale.ROOT);
+        String content = body.content().toLowerCase(Locale.ROOT);
+        int score = 0;
+        for (String token : tokens) {
+            int value = topic.contains(token) ? 8 : 0;
+            int count = 0, from = 0, at;
+            while (count < 3 && (at = content.indexOf(token, from)) >= 0) {
+                count++;
+                from = at + token.length();
+            }
+            value += count * 2;
+            if (value == 0) return 0;
+            score += value;
+        }
+        return score;
+    }
+
+    private static String excerpt(String content, List<String> tokens) {
+        String folded = content.toLowerCase(Locale.ROOT);
+        int foldedAt =
+                tokens.stream().mapToInt(folded::indexOf).filter(i -> i >= 0).min().orElse(0);
+        int at = 0, foldedPosition = 0;
+        for (int offset = 0; offset < content.length();) {
+            int width = Character.charCount(content.codePointAt(offset));
+            int foldedWidth = content.substring(offset, offset + width).toLowerCase(Locale.ROOT).length();
+            if (foldedPosition + foldedWidth > foldedAt) {
+                at = offset;
+                break;
+            }
+            foldedPosition += foldedWidth;
+            offset += width;
+        }
+        int start = Math.max(0, at - 100), end = Math.min(content.length(), start + 360);
+        if (start > 0 && start < content.length() && Character.isLowSurrogate(content.charAt(start)))
+            start++;
+        if (end > start && end < content.length() && Character.isHighSurrogate(content.charAt(end - 1)))
+            end--;
+        return content.substring(start, end);
+    }
+
+    private static String normalized(String topic) {
+        return topic == null
+                ? ""
+                : topic.strip().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
     }
 
     public Version current(UUID id, String kind, UUID sid, String service) {

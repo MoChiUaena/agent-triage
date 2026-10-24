@@ -145,6 +145,44 @@ public class MemoryStore {
                 id.toString());
     }
 
+    public record Scanned(UUID id, long revision, Version version) {}
+
+    /** Current CONFIRMED versions only; edited, disabled or deleted memories exit immediately. */
+    public List<Scanned> confirmedScan(Scope scope, int limit) {
+        if (limit < 1 || limit > 100) throw bad("扫描条数无效。");
+        return jdbc.query(
+                "SELECT h.id,h.revision,v.payload FROM memory_heads h JOIN memory_versions v"
+                        + " ON v.memory_id=h.id AND v.revision=h.revision"
+                        + " WHERE h.scope_kind=? AND h.scope_id=? AND h.status='CONFIRMED'"
+                        + " ORDER BY h.updated_at DESC,h.id LIMIT ?",
+                (r, n) ->
+                        new Scanned(
+                                UUID.fromString(r.getString(1)),
+                                r.getLong(2),
+                                decode(r.getString(3))),
+                scope.kind(),
+                scope.id().toString(),
+                limit);
+    }
+
+    public long confirmedCount(Scope scope) {
+        return jdbc.queryForObject(
+                "SELECT COUNT(*) FROM memory_heads WHERE scope_kind=? AND scope_id=? AND"
+                        + " status='CONFIRMED'",
+                Long.class,
+                scope.kind(),
+                scope.id().toString());
+    }
+
+    /** Exact pinned revision must still be the current CONFIRMED version, else it left recall. */
+    public Version recallable(UUID id, Scope scope, long revision) {
+        var v = current(id, scope);
+        if (!v.status().equals("CONFIRMED") || v.revision() != revision)
+            throw new ResponseStatusException(
+                    CONFLICT, "记忆已编辑、停用或删除，不再是已确认当前版本；请重新召回并核对。");
+        return v;
+    }
+
     public Version edit(UUID id, Scope scope, long revision, Body body) {
         validate(body);
         return change(id, scope, revision, body, "CANDIDATE", false, null);

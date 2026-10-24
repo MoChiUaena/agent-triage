@@ -37,6 +37,12 @@ public class MemoryController {
     public record Candidate(
             @NotNull UUID conversationId, @NotEmpty @Size(max = 3) List<UUID> messageIds) {}
 
+    public record Recall(
+            @NotBlank String scopeKind,
+            @NotNull UUID scopeId,
+            @NotBlank @Size(max = 4000) String question,
+            @Min(1) @Max(10) Integer limit) {}
+
     private final MemoryService service;
 
     public MemoryController(MemoryService service) {
@@ -46,6 +52,11 @@ public class MemoryController {
     @GetMapping("/scopes")
     public List<ScopeOption> scopes() {
         return service.scopes();
+    }
+
+    @PostMapping(value = "/recall", consumes = "application/json")
+    public RecallResult recall(@Valid @RequestBody Recall in) {
+        return service.recall(in.scopeKind(), in.scopeId(), in.question(), in.limit());
     }
 
     @GetMapping

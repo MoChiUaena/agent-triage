@@ -556,4 +556,156 @@ class MemoryApiTest {
             post("", body, 400);
         }
     }
+
+    JsonNode confirm(JsonNode created) {
+        return post(
+                "/" + created.path("id").asText() + "/confirm",
+                new HashMap<>(
+                        Map.of(
+                                "scopeKind",
+                                "REPOSITORY",
+                                "scopeId",
+                                repo,
+                                "revision",
+                                created.path("revision").asLong(),
+                                "confirmed",
+                                true,
+                                "bodySha256",
+                                created.path("bodySha256").asText())),
+                200);
+    }
+
+    JsonNode recall(String question, Integer limit, int code) {
+        var body = new HashMap<String, Object>();
+        body.put("scopeKind", "REPOSITORY");
+        body.put("scopeId", repo);
+        body.put("question", question);
+        if (limit != null) body.put("limit", limit);
+        return post("/recall", body, code);
+    }
+
+    @Test
+    void recallMatchesConfirmedOnlyShowsConflictsAndExitsImmediately() {
+        var a = input("库存服务超时需要先检查连接池配置再联系负责人");
+        a.put("topic", "超时 处理");
+        var created = post("", a, 201);
+        var confirmedA = confirm(created);
+        var b = input("网关侧超时与重试次数相关，先核对重试配置");
+        b.put("topic", "超时 处理");
+        var createdB = post("", b, 201);
+        var confirmedB = confirm(createdB);
+        String bId = createdB.path("id").asText();
+        var c = input("候选经验未经确认不参与召回");
+        c.put("topic", "其他 主题");
+        post("", c, 201);
+        assertThat(
+                        write(
+                                        "/recall",
+                                        Map.of(
+                                                "scopeKind",
+                                                "REPOSITORY",
+                                                "scopeId",
+                                                repo,
+                                                "question",
+                                                "超时"),
+                                        null,
+                                        null)
+                                .getStatusCode()
+                                .value())
+                .isEqualTo(403);
+        var result = recall("超时 连接池", null, 200);
+        assertThat(result.path("recallMethod").asText()).isEqualTo("KEYWORD_CONFIRMED");
+        assertThat(result.path("coverage").asText()).contains("CONFIRMED");
+        assertThat(result.path("scannedMemories").asInt()).isEqualTo(2);
+        assertThat(result.path("results")).hasSize(1);
+        var hit = result.path("results").get(0);
+        assertThat(hit.path("id").asText()).isEqualTo(created.path("id").asText());
+        assertThat(hit.path("revision").asLong()).isEqualTo(confirmedA.path("revision").asLong());
+        assertThat(hit.path("excerpt").asText()).contains("连接池");
+        assertThat(hit.path("applicability")).isEmpty();
+        assertThat(hit.path("conflicts")).hasSize(1);
+        assertThat(hit.path("conflicts").get(0).path("id").asText()).isEqualTo(bId);
+        var edited = b;
+        edited.put("revision", confirmedB.path("revision").asLong());
+        post("/" + bId + "/edit", edited, 200);
+        var afterEdit = recall("超时 连接池", null, 200);
+        assertThat(afterEdit.path("results").get(0).path("conflicts")).isEmpty();
+        post(
+                "/" + created.path("id").asText() + "/disable",
+                new HashMap<>(
+                        Map.of(
+                                "scopeKind",
+                                "REPOSITORY",
+                                "scopeId",
+                                repo,
+                                "revision",
+                                confirmedA.path("revision").asLong(),
+                                "confirmed",
+                                false,
+                                "bodySha256",
+                                confirmedA.path("bodySha256").asText())),
+                200);
+        assertThat(recall("超时 连接池", null, 200).path("results")).isEmpty();
+        recall("", null, 400);
+        recall("！！！", null, 400);
+        recall("超时", 11, 400);
+    }
+
+    @Test
+    void recallFlagsKnowledgeDriftWhileHistoricalSnapshotStaysReadable() {
+        var scope =
+                new io.github.mochiuaena.triage.knowledge.KnowledgeModels.Scope("REPOSITORY", repo);
+        var preview =
+                new io.github.mochiuaena.triage.knowledge.KnowledgeModels.Preview(
+                        UUID.randomUUID(),
+                        scope,
+                        "GITHUB",
+                        "fixture/memory-" + repo,
+                        "b".repeat(40),
+                        "fixture/memory-" + repo,
+                        UUID.randomUUID(),
+                        0,
+                        List.of(),
+                        List.of(),
+                        0,
+                        0,
+                        0,
+                        true,
+                        "manifest",
+                        Instant.now(),
+                        Instant.now().plusSeconds(600),
+                        io.github.mochiuaena.triage.knowledge.KnowledgeModels.limits());
+        UUID job = UUID.randomUUID();
+        knowledge.createJob(job, preview);
+        knowledge.start(job);
+        String text = "# Drift guide\nSaved historical knowledge.";
+        knowledge.activate(
+                job,
+                preview,
+                List.of(
+                        new io.github.mochiuaena.triage.knowledge.KnowledgeModels.Document(
+                                "guide.md",
+                                io.github.mochiuaena.triage.material.MaterialService.sha(text),
+                                text.length(),
+                                "Guide",
+                                text)));
+        var version = knowledge.versions(preview.sourceId()).getFirst();
+        var chunk = knowledge.chunks(version.id()).getFirst();
+        var body = input("knowledge experience 需先核对依据");
+        body.put(
+                "references",
+                List.of(
+                        Map.of("type", "CHUNK", "versionId", version.id(), "chunkId", chunk.id())));
+        confirm(post("", body, 201));
+        var before = recall("knowledge 核对", null, 200);
+        assertThat(before.path("results").get(0).path("applicability")).isEmpty();
+        var source = knowledge.require(preview.sourceId());
+        knowledge.action(source.id(), scope, source.revision(), "DELETE");
+        var after = recall("knowledge 核对", null, 200);
+        var notes = after.path("results").get(0).path("applicability");
+        assertThat(notes).hasSize(1);
+        assertThat(notes.get(0).asText()).contains("已不再有效");
+        assertThat(after.path("results").get(0).path("excerpt").asText())
+                .contains("knowledge experience");
+    }
 }
