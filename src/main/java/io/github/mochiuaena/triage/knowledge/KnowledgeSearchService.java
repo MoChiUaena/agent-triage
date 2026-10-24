@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
 @Service
 public class KnowledgeSearchService {
     public static final int MAX_SCAN_CHUNKS = 2000;
+    static final String COVERAGE =
+        "仅检索已导入且当前有效的文档；导入排除与缺口见来源预览。扫描按来源/路径/版本/段序固定排序，达上限可能遗漏后续高分内容。";
     private static final Pattern TOKEN = Pattern.compile("[\\p{L}\\p{N}_]+");
     private final KnowledgeRepository store;
     private final KnowledgeService knowledge;
@@ -36,13 +38,24 @@ public class KnowledgeSearchService {
 
     /** Explicit registered UUID scope; optional service must be this project's current binding. */
     public SearchResult search(Scope selected, String query, String docType, String service, int limit) {
+        if (limit < 1 || limit > 20) throw KnowledgeFiles.bad("结果上限须为 1–20。");
+        var pool = keywordPool(selected, query, docType, service, limit);
+        return new SearchResult(pool.scope(), pool.query(), pool.type(), pool.service(), "KEYWORD", pool.hits(),
+            pool.scannedChunks(), pool.availableChunks(), pool.truncated(), COVERAGE);
+    }
+
+    public record KeywordPool(Scope scope, String query, String type, String service, List<String> tokens,
+                              List<Citation> hits, int scannedChunks, long availableChunks, boolean truncated) {}
+
+    /** Shared deterministic keyword stage for the local search and the optional hybrid fusion. */
+    public KeywordPool keywordPool(Scope selected, String query, String docType, String service, int poolSize) {
+        if (poolSize < 1 || poolSize > 100) throw new IllegalArgumentException("poolSize");
         Scope scope = checkedScope(selected);
         if (query == null || query.isBlank() || query.length() > 200)
             throw KnowledgeFiles.bad("检索词须为 1–200 字符。");
         var tokens = TOKEN.matcher(query.toLowerCase(Locale.ROOT)).results()
             .map(m -> m.group()).distinct().toList();
         if (tokens.isEmpty()) throw KnowledgeFiles.bad("请输入文字或数字关键词。");
-        if (limit < 1 || limit > 20) throw KnowledgeFiles.bad("结果上限须为 1–20。");
         String type = docType == null || docType.isBlank() ? "ALL" : docType;
         if (!Set.of("ALL", "MARKDOWN", "TEXT").contains(type))
             throw KnowledgeFiles.bad("文档类型须为 ALL、MARKDOWN 或 TEXT。");
@@ -55,16 +68,16 @@ public class KnowledgeSearchService {
             var hits = new ArrayList<Citation>();
             for (var entry : candidates) {
                 int score = score(entry.version(), entry.chunk(), tokens);
-                if (score > 0) hits.add(citation(entry.version(), entry.chunk(), tokens, score, false));
+                if (score > 0) hits.add(citation(entry.version(), entry.chunk(), tokens, score, false, "KEYWORD"));
             }
             hits.sort(Comparator.comparingInt(Citation::score).reversed().thenComparing(Citation::path)
                 .thenComparing(Citation::sourceId).thenComparing(Citation::versionId)
                 .thenComparingInt(Citation::ordinal).thenComparing(Citation::chunkId));
             // Revalidate registration/binding after storage reads rather than guessing from a name.
             knowledge.validateSearchScope(scope, boundService);
-            return new SearchResult(scope, query, type, boundService, "KEYWORD",
-                List.copyOf(hits.subList(0, Math.min(limit, hits.size()))), candidates.size(), available,
-                available > candidates.size(), "仅检索已导入且当前有效的文档；导入排除与缺口见来源预览。扫描按来源/路径/版本/段序固定排序，达上限可能遗漏后续高分内容。");
+            return new KeywordPool(scope, query, type, boundService, tokens,
+                List.copyOf(hits.subList(0, Math.min(poolSize, hits.size()))), candidates.size(), available,
+                available > candidates.size());
         } catch (DataAccessException e) { throw unavailable(); }
     }
 
@@ -75,7 +88,7 @@ public class KnowledgeSearchService {
         try {
             Version version = knowledge.version(versionId, scope);
             Chunk chunk = store.chunk(versionId, chunkId);
-            return citation(version, chunk, List.of(), 0, true);
+            return citation(version, chunk, List.of(), 0, true, "KEYWORD");
         } catch (DataAccessException e) { throw unavailable(); }
     }
 
@@ -99,7 +112,7 @@ public class KnowledgeSearchService {
         return score;
     }
 
-    private static Citation citation(Version v, Chunk c, List<String> tokens, int score, boolean full) {
+    static Citation citation(Version v, Chunk c, List<String> tokens, int score, boolean full, String recallMethod) {
         String text = c.text(), folded = text.toLowerCase(Locale.ROOT);
         int foldedAt = tokens.stream().mapToInt(folded::indexOf)
             .filter(i -> i >= 0).min().orElse(0);
@@ -119,7 +132,7 @@ public class KnowledgeSearchService {
             + "&version=" + v.id() + "&chunk=" + c.id() + "#knowledge";
         return new Citation(c.id(), v.id(), v.sourceId(), v.scope(), v.title(), text.substring(start, end),
             full ? text : null, v.path(), sourceUrl, original, v.origin(), c.ordinal(), c.startLine(), c.endLine(),
-            c.startOffset(), c.endOffset(), v.sha256(), c.sha256(), v.commitSha(), v.importedAt(), "KEYWORD", score);
+            c.startOffset(), c.endOffset(), v.sha256(), c.sha256(), v.commitSha(), v.importedAt(), recallMethod, score);
     }
 
     private static int originalOffset(String text, int foldedOffset) {

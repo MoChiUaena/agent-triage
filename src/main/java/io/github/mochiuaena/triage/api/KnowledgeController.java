@@ -19,11 +19,14 @@ public class KnowledgeController {
     private final KnowledgeService knowledge;
     private final KnowledgeSearchService search;
     private final EmbeddingIndexService embeddings;
+    private final HybridSearchService hybrid;
 
-    public KnowledgeController(KnowledgeService knowledge, KnowledgeSearchService search, EmbeddingIndexService embeddings) {
+    public KnowledgeController(KnowledgeService knowledge, KnowledgeSearchService search,
+                               EmbeddingIndexService embeddings, HybridSearchService hybrid) {
         this.knowledge = knowledge;
         this.search = search;
         this.embeddings = embeddings;
+        this.hybrid = hybrid;
     }
 
     @GetMapping("/search")
@@ -31,6 +34,12 @@ public class KnowledgeController {
             @RequestParam String query, @RequestParam(required=false) String docType,
             @RequestParam(required=false) String service, @RequestParam(defaultValue="10") int limit) {
         return search.search(knowledge.scope(scopeKind, scopeId), query, docType, service, limit);
+    }
+
+    /** Hybrid retrieval sends the query to the embedding service and opt-in excerpts to a rerank service. */
+    @PostMapping("/hybrid-search")
+    public HybridSearchService.HybridResult hybridSearch(@RequestBody HybridSearchService.Input input) {
+        return hybrid.search(input);
     }
 
     @GetMapping("/versions/{versionId}/chunks/{chunkId}")

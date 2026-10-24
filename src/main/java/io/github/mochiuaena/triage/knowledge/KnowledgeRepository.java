@@ -193,10 +193,29 @@ public class KnowledgeRepository {
     public List<SearchChunk> searchChunks(Scope scope, String type, int limit) {
         return jdbc.query("SELECT v.id AS vid,v.source_id,v.scope_kind,v.scope_id,v.origin,v.root_path,v.commit_sha,v.path,v.content_hash AS version_hash,v.title,v.imported_at,c.*"
                 + CURRENT_CHUNKS + typeFilter(type) + " ORDER BY v.source_id,v.path,v.id,c.ordinal,c.id LIMIT ?",
-            (r, n) -> new SearchChunk(new Version(uuid(r, "vid"), uuid(r, "source_id"), scope(r),
-                r.getString("origin"), r.getString("root_path"), r.getString("commit_sha"), r.getString("path"),
-                r.getString("version_hash"), r.getString("title"), null, instant(r, "imported_at")), readChunk(r)),
-            scope.kind(), id(scope.id()), limit);
+            KnowledgeRepository::searchChunk, scope.kind(), id(scope.id()), limit);
+    }
+
+    /** Full rows for a bounded set of chunk ids within one scope; used by the hybrid fusion stage. */
+    public List<SearchChunk> chunksByIds(Scope scope, Collection<UUID> ids) {
+        if (ids.isEmpty()) return List.of();
+        String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
+        var params = new ArrayList<Object>();
+        params.add(scope.kind());
+        params.add(id(scope.id()));
+        ids.forEach(value -> params.add(id(value)));
+        return jdbc.query("SELECT v.id AS vid,v.source_id,v.scope_kind,v.scope_id,v.origin,v.root_path,v.commit_sha,"
+            + "v.path,v.content_hash AS version_hash,v.title,v.imported_at,c.*"
+            + " FROM knowledge_chunks c JOIN knowledge_versions v ON v.id=c.version_id"
+            + " WHERE v.scope_kind=? AND v.scope_id=? AND c.id IN (" + placeholders + ")"
+            + " ORDER BY v.source_id,v.path,v.id,c.ordinal,c.id", KnowledgeRepository::searchChunk, params.toArray());
+    }
+
+    private static SearchChunk searchChunk(ResultSet r, int n) throws SQLException {
+        return new SearchChunk(new Version(uuid(r, "vid"), uuid(r, "source_id"), new Scope(r.getString("scope_kind"),
+                uuid(r, "scope_id")), r.getString("origin"), r.getString("root_path"), r.getString("commit_sha"),
+                r.getString("path"), r.getString("version_hash"), r.getString("title"), null, instant(r, "imported_at")),
+            readChunk(r));
     }
 
     private static Chunk readChunk(ResultSet r) throws SQLException {

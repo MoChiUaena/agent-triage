@@ -50,21 +50,30 @@ public class EmbeddingRepository {
         + " JOIN knowledge_sources s ON s.id=v.source_id AND s.scope_kind=v.scope_kind AND s.scope_id=v.scope_id"
         + " WHERE s.state='ACTIVE' AND e.scope_kind=? AND e.scope_id=?";
 
-    public long countVectors(Scope scope, String fingerprint) {
-        Long value = jdbc.queryForObject("SELECT COUNT(*)" + ACTIVE_VECTORS + " AND e.fingerprint=?", Long.class,
-            scope.kind(), scope.id().toString(), fingerprint);
-        return value == null ? 0 : value;
-    }
-
     /** Any-fingerprint count tells a stale index apart from a missing one. */
     public long countScopeVectors(Scope scope) {
         Long value = jdbc.queryForObject("SELECT COUNT(*)" + ACTIVE_VECTORS, Long.class, scope.kind(), scope.id().toString());
         return value == null ? 0 : value;
     }
 
-    public List<VectorRow> loadVectors(Scope scope, String fingerprint, int limit) {
+    /** Mirrors the keyword scan's document type filter so both stages stay in the same scope. */
+    private static String typeFilter(String type) {
+        return switch (type) {
+            case "MARKDOWN" -> " AND LOWER(v.path) LIKE '%.md'";
+            case "TEXT" -> " AND LOWER(v.path) LIKE '%.txt'";
+            default -> "";
+        };
+    }
+
+    public long countVectors(Scope scope, String fingerprint, String type) {
+        Long value = jdbc.queryForObject("SELECT COUNT(*)" + ACTIVE_VECTORS + typeFilter(type) + " AND e.fingerprint=?",
+            Long.class, scope.kind(), scope.id().toString(), fingerprint);
+        return value == null ? 0 : value;
+    }
+
+    public List<VectorRow> loadVectors(Scope scope, String fingerprint, String type, int limit) {
         return jdbc.query("SELECT e.chunk_id,e.version_id,e.source_id,e.fingerprint,e.model_name,e.dimensions,e.vector,e.embedded_at"
-            + ACTIVE_VECTORS + " AND e.fingerprint=? ORDER BY e.chunk_id LIMIT ?", (r, n) -> new VectorRow(
+            + ACTIVE_VECTORS + typeFilter(type) + " AND e.fingerprint=? ORDER BY e.chunk_id LIMIT ?", (r, n) -> new VectorRow(
                 uuid(r, "chunk_id"), uuid(r, "version_id"), uuid(r, "source_id"), r.getString("fingerprint"),
                 r.getString("model_name"), r.getInt("dimensions"), decode(r.getString("vector")), instant(r, "embedded_at")),
             scope.kind(), scope.id().toString(), fingerprint, limit);
