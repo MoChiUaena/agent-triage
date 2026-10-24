@@ -91,7 +91,9 @@ public class ConversationService {
                                         && c.original().reference().type()
                                                 == MaterialModels.Type.SERVICE
                                 ? "此旧服务报告未保存项目身份，仅支持服务材料，不能附加当前项目文档。"
-                                : ""));
+                                : ""),
+                c.budget(),
+                new ConversationContextPlanner(json).summary(c));
     }
 
     public Detail reference(UUID id, long revision, String question) {
@@ -115,6 +117,18 @@ public class ConversationService {
                         null,
                         null),
                 false);
+        return detail(id);
+    }
+
+    /** Local-only review: does not create/consume a B0 preview or require a model. */
+    public Context review(UUID id, long revision, String question, List<ChunkSelection> selected) {
+        var c = store.require(id);
+        check(c, revision);
+        return context(c, question, selected, false);
+    }
+
+    public Detail budget(UUID id, long revision, Budget budget) {
+        store.budget(id, revision, budget);
         return detail(id);
     }
 
@@ -357,112 +371,27 @@ public class ConversationService {
     }
 
     private Context context(Conversation c, String q, List<ChunkSelection> selected) {
+        return context(c, q, selected, true);
+    }
+
+    private Context context(
+            Conversation c, String q, List<ChunkSelection> selected, boolean sending) {
         q = question(q);
-        validateOriginal(c);
+        if (sending) validateOriginal(c);
         selected = selected == null ? List.of() : List.copyOf(selected);
         if (selected.size() > 3 || new HashSet<>(selected).size() != selected.size())
             throw new ResponseStatusException(BAD_REQUEST, "最多选择 3 个不重复的知识分段。");
-        var citations = new LinkedHashMap<String, Citation>();
-        var original =
-                new Citation("report:" + c.original().reference().reportId(), c.original(), null);
-        citations.put(original.id(), original);
-        var omissions = new ArrayList<String>(c.original().omissions());
-        var history = new ArrayList<Message>();
-        int count = 0;
-        for (int i = c.messages().size() - 1; i >= 0; i--) {
-            var m = c.messages().get(i);
-            if (history.size() >= 12 || count + m.text().length() > 24000) break;
-            history.addFirst(m);
-            count += m.text().length();
-        }
-        if (history.size() < c.messages().size())
-            omissions.add(
-                    "仅发送最近 "
-                            + history.size()
-                            + " 条、最多 24000 字符历史；省略 "
-                            + (c.messages().size() - history.size())
-                            + " 条，原记录仍保存，无摘要。");
-        boolean documents = history.stream().anyMatch(Message::documentsDerived);
-        for (var m : history)
-            for (var citation : m.citations()) {
-                if (citation.chunk() != null) {
-                    chunk(
-                            c,
-                            new ChunkSelection(
-                                    citation.chunk().versionId(), citation.chunk().chunkId()));
-                    documents = true;
-                }
-                citations.putIfAbsent(citation.id(), citation);
-            }
-        for (var selection : selected) {
-            var citation = chunk(c, selection);
-            citations.put(citation.id(), citation);
-            documents = true;
-        }
-        if (documents) omissions.add("本次选段或纳入的历史问题/回答含项目资料；须独立确认资料外发，即使本次未新选分段。");
-        omissions.add("不包含源码片段、完整日志/补丁，不获取新事实；知识仅发送列出的精确分段，其他分段未读取。最多 12 条历史，无自动摘要。");
-        try {
-            var payload = new LinkedHashMap<String, Object>();
-            payload.put("conversationId", c.id());
-            payload.put("revision", c.revision());
-            payload.put("question", q);
-            payload.put(
-                    "history",
-                    history.stream()
-                            .map(
-                                    m ->
-                                            Map.of(
-                                                    "id",
-                                                    m.id(),
-                                                    "role",
-                                                    m.role(),
-                                                    "text",
-                                                    m.text(),
-                                                    "evidenceIds",
-                                                    m.citations().stream()
-                                                            .map(Citation::id)
-                                                            .toList(),
-                                                    "documentsDerived",
-                                                    m.documentsDerived()))
-                            .toList());
-            payload.put("citations", citations.values());
-            payload.put("omissions", omissions);
-            String text =
-                    json.writeValueAsString(
-                            Map.of(
-                                    "messages",
-                                    List.of(
-                                            Map.of(
-                                                    "role",
-                                                    "system",
-                                                    "content",
-                                                    ConversationModelResponder.SYSTEM),
-                                            Map.of(
-                                                    "role",
-                                                    "user",
-                                                    "content",
-                                                    json.writeValueAsString(payload))),
-                                    "maxOutputTokens",
-                                    responder.outputTokenLimit(),
-                                    "toolChoice",
-                                    "none"));
-            if (text.length() > 64000)
-                throw new ResponseStatusException(
-                        BAD_REQUEST, "精确上下文超过 64000 字符，请减少分段或从报告新建对话；未静默省略资料。");
-            return new Context(
-                    c.id(),
-                    c.revision(),
-                    q,
-                    List.copyOf(history),
-                    List.copyOf(citations.values()),
-                    selected,
-                    documents,
-                    List.copyOf(omissions),
-                    text,
-                    MaterialService.sha(text));
-        } catch (java.io.IOException e) {
-            throw new IllegalStateException("Cannot encode conversation preview", e);
-        }
+        var selectedCitations = selected.stream().map(selection -> chunk(c, selection)).toList();
+        var context =
+                new ConversationContextPlanner(json)
+                        .plan(c, q, selectedCitations, selected, responder.outputTokenLimit());
+        for (var citation : context.citations())
+            if (sending && citation.chunk() != null)
+                chunk(
+                        c,
+                        new ChunkSelection(
+                                citation.chunk().versionId(), citation.chunk().chunkId()));
+        return context;
     }
 
     private void revalidate(Context context) {

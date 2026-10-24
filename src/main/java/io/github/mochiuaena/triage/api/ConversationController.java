@@ -26,6 +26,8 @@ public class ConversationController {
             @NotBlank @Size(max = 4000) String question,
             @Size(max = 3) List<ChunkSelection> selectedChunks) {}
 
+    public record BudgetInput(@Min(0) long revision, @NotNull @Valid Budget budget) {}
+
     public record Send(@NotNull UUID previewId, boolean confirmed, boolean documentsConfirmed) {}
 
     private final ConversationService service;
@@ -53,6 +55,16 @@ public class ConversationController {
     @PostMapping("/{id}/references")
     public Detail reference(@PathVariable UUID id, @Valid @RequestBody Question input) {
         return service.reference(id, input.revision(), input.question());
+    }
+
+    @PostMapping("/{id}/context")
+    public Context context(@PathVariable UUID id, @Valid @RequestBody PreviewInput input) {
+        return service.review(id, input.revision(), input.question(), input.selectedChunks());
+    }
+
+    @PostMapping("/{id}/budget")
+    public Detail budget(@PathVariable UUID id, @Valid @RequestBody BudgetInput input) {
+        return service.budget(id, input.revision(), input.budget());
     }
 
     @PostMapping("/{id}/previews")

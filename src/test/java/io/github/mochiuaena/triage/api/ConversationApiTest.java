@@ -486,6 +486,20 @@ class ConversationApiTest {
             JsonNode accepted = send(id, p, false, 202);
             assertThat(stub.received.await(3, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             post(
+                    "/" + id + "/budget",
+                    Map.of(
+                            "revision",
+                            accepted.path("revision").asLong(),
+                            "budget",
+                            Map.of(
+                                    "maxInputCharacters",
+                                    48000,
+                                    "recentMessages",
+                                    2,
+                                    "summaryCharacters",
+                                    0)),
+                    409);
+            post(
                     "/" + id + "/references",
                     Map.of(
                             "revision",
@@ -642,11 +656,155 @@ class ConversationApiTest {
         for (int i = 0; i < 14; i++)
             post("/" + id + "/references", Map.of("revision", i, "question", "question-" + i), 200);
         JsonNode p = preview(id, 14, "next", List.of());
-        assertThat(p.path("context").path("history")).hasSize(12);
-        assertThat(p.path("context").path("omissions").toString()).contains("省略 2 条");
+        assertThat(p.path("context").path("history")).hasSize(8);
+        assertThat(p.path("context").path("summary").path("excerptedMessages").asInt())
+                .isEqualTo(6);
         assertThat(http.getForObject("/api/conversations/" + id, JsonNode.class).path("messages"))
                 .hasSize(14);
         post("/" + id + "/previews", Map.of("revision", 14, "question", "x".repeat(4001)), 400);
+    }
+
+    @Test
+    void localReviewAndSavedBudgetsNeedNoKeyAndInvalidateOldExactPreview() throws Exception {
+        String id = create("SERVICE", service("original budget question")).path("id").asText();
+        for (int i = 0; i < 16; i++)
+            post(
+                    "/" + id + "/references",
+                    Map.of("revision", i, "question", "history-" + i + " 需检查。".repeat(220)),
+                    200);
+        var input = Map.of("revision", 16, "question", "local next", "selectedChunks", List.of());
+        var local = post("/" + id + "/context", input, 200);
+        assertThat(local.path("history")).hasSize(8);
+        assertThat(local.path("summary").path("excerpts")).isNotEmpty();
+        assertThat(local.path("text").asText()).contains("original budget question", "local next");
+        assertThat(local.path("serializedCharacters").asInt())
+                .isEqualTo(local.path("text").asText().length());
+        var p = preview(id, 16, "local next", List.of());
+        var changed =
+                post(
+                        "/" + id + "/budget",
+                        Map.of(
+                                "revision",
+                                16,
+                                "budget",
+                                Map.of(
+                                        "maxInputCharacters",
+                                        12000,
+                                        "recentMessages",
+                                        2,
+                                        "summaryCharacters",
+                                        0)),
+                        200);
+        assertThat(changed.path("budget").path("summaryCharacters").asInt()).isZero();
+        assertThat(changed.path("messages")).hasSize(16);
+        assertThat(changed.path("revision").asInt()).isEqualTo(17);
+        send(id, p, false, 409);
+        post(
+                "/" + id + "/budget",
+                Map.of(
+                        "revision",
+                        16,
+                        "budget",
+                        Map.of(
+                                "maxInputCharacters",
+                                12000,
+                                "recentMessages",
+                                2,
+                                "summaryCharacters",
+                                0)),
+                409);
+        post(
+                "/" + id + "/budget",
+                Map.of(
+                        "revision",
+                        17,
+                        "budget",
+                        Map.of(
+                                "maxInputCharacters",
+                                1,
+                                "recentMessages",
+                                2,
+                                "summaryCharacters",
+                                0)),
+                400);
+        var reopened = http.getForObject("/api/conversations/" + id, JsonNode.class);
+        assertThat(reopened.path("budget")).isEqualTo(changed.path("budget"));
+        assertThat(reopened.path("summary").path("excerpts")).isEmpty();
+        assertThat(reopened.path("summary").path("omittedMessages").asInt()).isEqualTo(14);
+        var localAgain =
+                post("/" + id + "/context", Map.of("revision", 17, "question", "next"), 200);
+        assertThat(localAgain.path("text").asText().length()).isLessThanOrEqualTo(12000);
+        assertThat(reopened.path("attempts")).hasSize(16);
+    }
+
+    @Test
+    void summarizedDocumentHistoryKeepsSnapshotsAndConsentAndExactWire() throws Exception {
+        try (var stub = new Stub()) {
+            UUID version = document("# historical doc\nIMMUTABLE_SUMMARY_DOC");
+            var chunk = knowledgeStore.chunks(version).getFirst();
+            String id = create("PR", saved("PR")).path("id").asText();
+            var first =
+                    preview(
+                            id,
+                            0,
+                            "doc history",
+                            List.of(Map.of("versionId", version, "chunkId", chunk.id())));
+            send(id, first, true, 202);
+            var completed = ended(id);
+            long revision = completed.path("revision").asLong();
+            post(
+                    "/" + id + "/budget",
+                    Map.of(
+                            "revision",
+                            revision,
+                            "budget",
+                            Map.of(
+                                    "maxInputCharacters",
+                                    48000,
+                                    "recentMessages",
+                                    2,
+                                    "summaryCharacters",
+                                    3000)),
+                    200);
+            revision++;
+            for (int i = 0; i < 3; i++) {
+                post(
+                        "/" + id + "/references",
+                        Map.of("revision", revision, "question", "recent-" + i),
+                        200);
+                revision++;
+            }
+            var p = preview(id, revision, "use historical summary", List.of());
+            assertThat(p.path("context").path("summary").path("excerpts")).hasSize(3);
+            assertThat(p.path("context").path("documentsRequired").asBoolean()).isTrue();
+            send(id, p, false, 400);
+            assertThat(stub.calls.get()).isEqualTo(1);
+            send(id, p, true, 202);
+            ended(id);
+            var wire = json.readTree(stub.body).path("messages");
+            var expected = json.readTree(p.path("preview").path("text").asText()).path("messages");
+            assertThat(wire).isEqualTo(expected);
+            jdbc.update(
+                    "DELETE FROM knowledge_active_documents WHERE version_id=?",
+                    version.toString());
+            var reopened = http.getForObject("/api/conversations/" + id, JsonNode.class);
+            assertThat(reopened.path("messages").get(0).path("citations").toString())
+                    .contains("IMMUTABLE_SUMMARY_DOC");
+            var local =
+                    post(
+                            "/" + id + "/context",
+                            Map.of(
+                                    "revision",
+                                    reopened.path("revision").asLong(),
+                                    "question",
+                                    "read saved only"),
+                            200);
+            assertThat(local.path("text").asText()).contains("IMMUTABLE_SUMMARY_DOC");
+            post(
+                    "/" + id + "/previews",
+                    Map.of("revision", reopened.path("revision").asLong(), "question", "new send"),
+                    409);
+        }
     }
 
     @Test
