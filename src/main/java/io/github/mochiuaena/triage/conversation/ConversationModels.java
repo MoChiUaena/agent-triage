@@ -12,7 +12,25 @@ public final class ConversationModels {
 
     public record ChunkSelection(UUID versionId, UUID chunkId) {}
 
-    public record Citation(String id, Material report, KnowledgeSearchService.Citation chunk) {}
+    public record MemorySelection(UUID memoryId, long revision) {}
+
+    /** Compact citation of one exact confirmed memory version; the full basis never leaves local storage. */
+    public record MemoryCitation(
+            UUID memoryId,
+            long revision,
+            String scopeKind,
+            UUID scopeId,
+            String scopeService,
+            String topic,
+            String content,
+            Instant confirmedAt,
+            String bodySha256) {}
+
+    public record Citation(String id, Material report, KnowledgeSearchService.Citation chunk, MemoryCitation memory) {
+        public Citation(String id, Material report, KnowledgeSearchService.Citation chunk) {
+            this(id, report, chunk, null);
+        }
+    }
 
     public record Message(
             UUID id,
@@ -167,7 +185,9 @@ public final class ConversationModels {
             List<Message> history,
             List<Citation> citations,
             List<ChunkSelection> selectedChunks,
+            List<MemorySelection> selectedMemories,
             boolean documentsRequired,
+            boolean memoriesRequired,
             List<String> omissions,
             String text,
             String fingerprint,
@@ -192,7 +212,9 @@ public final class ConversationModels {
                     history,
                     citations,
                     selectedChunks,
+                    List.of(),
                     documentsRequired,
+                    false,
                     omissions,
                     text,
                     fingerprint,

@@ -289,6 +289,56 @@ class ConversationApiTest {
                 code);
     }
 
+    JsonNode memory(String topic, String content) {
+        var h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        h.set("X-Triage-Memory", "1");
+        var result =
+                http.postForEntity(
+                        "/api/memories",
+                        new HttpEntity<>(
+                                Map.of(
+                                        "scopeKind",
+                                        "REPOSITORY",
+                                        "scopeId",
+                                        repository,
+                                        "topic",
+                                        topic,
+                                        "content",
+                                        content,
+                                        "note",
+                                        "fixture statement"),
+                                h),
+                        JsonNode.class);
+        assertThat(result.getStatusCode().value()).isEqualTo(201);
+        return result.getBody();
+    }
+
+    JsonNode memoryAction(String id, long revision, String action, String hash) {
+        var h = new HttpHeaders();
+        h.setContentType(MediaType.APPLICATION_JSON);
+        h.set("X-Triage-Memory", "1");
+        var result =
+                http.postForEntity(
+                        "/api/memories/" + id + "/" + action,
+                        new HttpEntity<>(
+                                Map.of(
+                                        "scopeKind",
+                                        "REPOSITORY",
+                                        "scopeId",
+                                        repository,
+                                        "revision",
+                                        revision,
+                                        "confirmed",
+                                        action.equals("confirm"),
+                                        "bodySha256",
+                                        hash),
+                                h),
+                        JsonNode.class);
+        assertThat(result.getStatusCode().value()).isEqualTo(200);
+        return result.getBody();
+    }
+
     JsonNode ended(String id) throws Exception {
         for (int i = 0; i < 100; i++) {
             JsonNode c = http.getForObject("/api/conversations/" + id, JsonNode.class);
@@ -848,5 +898,133 @@ class ConversationApiTest {
                         "selectedChunks",
                         List.of(Map.of("versionId", version, "chunkId", chunk.id()))),
                 409);
+    }
+
+    @Test
+    void confirmedMemorySelectionNeedsOwnConsentExactVersionAndExitsAfterDisable() throws Exception {
+        var created = memory("部署 经验", "RELEASE_MARKER 部署前需要先停掉灰度节点");
+        String memoryId = created.path("id").asText();
+        var confirmed = memoryAction(memoryId, 1, "confirm", created.path("bodySha256").asText());
+        long revision = confirmed.path("revision").asLong();
+        assertThat(confirmed.path("status").asText()).isEqualTo("CONFIRMED");
+        try (var stub = new Stub()) {
+            String legacy = create("SERVICE", service("legacy")).path("id").asText();
+            post(
+                    "/" + legacy + "/previews",
+                    Map.of(
+                            "revision",
+                            0,
+                            "question",
+                            "memories",
+                            "selectedChunks",
+                            List.of(),
+                            "selectedMemories",
+                            List.of(Map.of("memoryId", memoryId, "revision", revision))),
+                    409);
+            String id = create("PR", saved("PR")).path("id").asText();
+            post(
+                    "/" + id + "/previews",
+                    Map.of(
+                            "revision",
+                            0,
+                            "question",
+                            "stale revision",
+                            "selectedChunks",
+                            List.of(),
+                            "selectedMemories",
+                            List.of(Map.of("memoryId", memoryId, "revision", 1))),
+                    409);
+            JsonNode p =
+                    post(
+                            "/" + id + "/previews",
+                            Map.of(
+                                    "revision",
+                                    0,
+                                    "question",
+                                    "use confirmed memory",
+                                    "selectedChunks",
+                                    List.of(),
+                                    "selectedMemories",
+                                    List.of(Map.of("memoryId", memoryId, "revision", revision))),
+                            201);
+            assertThat(p.path("context").path("memoriesRequired").asBoolean()).isTrue();
+            assertThat(p.path("preview").path("text").asText()).contains("RELEASE_MARKER");
+            assertThat(
+                            p.path("context")
+                                    .path("citations")
+                                    .get(1)
+                                    .path("memory")
+                                    .path("content")
+                                    .asText())
+                    .contains("RELEASE_MARKER");
+            send(id, p, false, 400);
+            assertThat(stub.calls.get()).isZero();
+            var accepted =
+                    post(
+                            "/" + id + "/attempts",
+                            Map.of(
+                                    "previewId",
+                                    p.path("preview").path("id").asText(),
+                                    "confirmed",
+                                    true,
+                                    "documentsConfirmed",
+                                    false,
+                                    "memoriesConfirmed",
+                                    true),
+                            202);
+            JsonNode done = ended(id);
+            assertThat(done.path("messages")).hasSize(2);
+            assertThat(stub.body).contains("RELEASE_MARKER");
+            assertThat(
+                            done.path("messages")
+                                    .get(0)
+                                    .path("citations")
+                                    .get(1)
+                                    .path("memory")
+                                    .path("content")
+                                    .asText())
+                    .contains("RELEASE_MARKER");
+            JsonNode next =
+                    post(
+                            "/" + id + "/previews",
+                            Map.of(
+                                    "revision",
+                                    done.path("revision").asLong(),
+                                    "question",
+                                    "history keeps memory consent",
+                                    "selectedChunks",
+                                    List.of()),
+                            201);
+            assertThat(next.path("context").path("memoriesRequired").asBoolean()).isTrue();
+            memoryAction(
+                    memoryId,
+                    confirmed.path("revision").asLong(),
+                    "disable",
+                    confirmed.path("bodySha256").asText());
+            post(
+                    "/" + id + "/attempts",
+                    Map.of(
+                            "previewId",
+                            next.path("preview").path("id").asText(),
+                            "confirmed",
+                            true,
+                            "documentsConfirmed",
+                            false,
+                            "memoriesConfirmed",
+                            true),
+                    409);
+            assertThat(stub.calls.get()).isEqualTo(1);
+            assertThat(accepted.path("revision").asLong()).isGreaterThan(0);
+            var reopened = http.getForObject("/api/conversations/" + id, JsonNode.class);
+            assertThat(
+                            reopened.path("messages")
+                                    .get(0)
+                                    .path("citations")
+                                    .get(1)
+                                    .path("memory")
+                                    .path("content")
+                                    .asText())
+                    .contains("RELEASE_MARKER");
+        }
     }
 }

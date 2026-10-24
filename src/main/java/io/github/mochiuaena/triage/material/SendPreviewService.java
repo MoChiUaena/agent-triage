@@ -12,7 +12,7 @@ import static org.springframework.http.HttpStatus.*;
 /** Bounded, expiring admission for future callers. This service never invokes a model. */
 @Service
 public class SendPreviewService {
-    private record Prepared(Preview preview,List<Selection> selections,String binding,boolean documentsRequired) {}
+    private record Prepared(Preview preview,List<Selection> selections,String binding,boolean documentsRequired,boolean memoriesRequired) {}
     private final MaterialService materials;
     private final ProviderRegistry providers;
     private final Clock clock;
@@ -44,7 +44,7 @@ public class SendPreviewService {
         }
         Instant now=clock.instant();
         Preview preview=new Preview(UUID.randomUUID(),now,now.plus(lifetime),recipient(),resolved,text.toString(),MaterialService.sha(text.toString()),omissions);
-        previews.put(preview.id(),new Prepared(preview,List.copyOf(selections),null,false));return preview;
+        previews.put(preview.id(),new Prepared(preview,List.copyOf(selections),null,false,false));return preview;
     }
     public synchronized Preview get(UUID id) { return require(id).preview(); }
     /** Revalidates then removes a preview once. Callers must send only the returned immutable text. */
@@ -74,20 +74,21 @@ public class SendPreviewService {
         return new Consumed(id,current,references,preview.text(),preview.contentSha256());
     }
     /** Exact contextual payload admission. Never calls the network while holding the preview lock. */
-    public synchronized Preview createBound(String binding,List<Material> resolved,String text,List<String> omissions,boolean documentsRequired) {
+    public synchronized Preview createBound(String binding,List<Material> resolved,String text,List<String> omissions,boolean documentsRequired,boolean memoriesRequired) {
         prune();
         if(previews.size()>=capacity) throw new ResponseStatusException(TOO_MANY_REQUESTS,"发送预览已达上限，请等待旧预览过期。");
         if(binding==null || text==null || text.length()>64000) throw new ResponseStatusException(BAD_REQUEST,"对话正文超过 64000 字符上限。");
         Instant now=clock.instant();
         Preview preview=new Preview(UUID.randomUUID(),now,now.plus(lifetime),recipient(),resolved,text,MaterialService.sha(text),omissions);
-        previews.put(preview.id(),new Prepared(preview,List.of(),binding,documentsRequired));return preview;
+        previews.put(preview.id(),new Prepared(preview,List.of(),binding,documentsRequired,memoriesRequired));return preview;
     }
-    public synchronized Consumed consumeBound(UUID id,String binding,String exactText,boolean confirmed,boolean documentsConfirmed) {
+    public synchronized Consumed consumeBound(UUID id,String binding,String exactText,boolean confirmed,boolean documentsConfirmed,boolean memoriesConfirmed) {
         Prepared prepared=require(id);Preview preview=prepared.preview();
         if(prepared.binding()==null || !prepared.binding().equals(binding) || !preview.text().equals(exactText))
             throw new ResponseStatusException(CONFLICT,"对话、问题、历史或引用已变化，请重新预览。");
         if(!confirmed)throw new ResponseStatusException(BAD_REQUEST,"请核对准确正文并确认外发。");
         if(prepared.documentsRequired()&&!documentsConfirmed)throw new ResponseStatusException(BAD_REQUEST,"本次资料或历史回答含项目资料，须单独确认 documentsConfirmed。");
+        if(prepared.memoriesRequired()&&!memoriesConfirmed)throw new ResponseStatusException(BAD_REQUEST,"本次上下文含已确认项目记忆，须单独确认 memoriesConfirmed。");
         if(!preview.recipient().equals(recipient())){previews.remove(id);throw new ResponseStatusException(CONFLICT,"模型选择或配置已变化，请重新预览。");}
         if(!preview.recipient().available())throw new ResponseStatusException(SERVICE_UNAVAILABLE,"模型不可用；可继续阅读原报告，未调用模型。");
         previews.remove(id);return new Consumed(id,preview.recipient(),preview.materials().stream().map(Material::reference).toList(),preview.text(),preview.contentSha256());

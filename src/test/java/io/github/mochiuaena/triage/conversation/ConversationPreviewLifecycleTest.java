@@ -85,6 +85,7 @@ class ConversationPreviewLifecycleTest {
                         null,
                         null,
                         responder,
+                        null,
                         new ObjectMapper().findAndRegisterModules());
         try {
             for (int i = 0; i < 101; i++)

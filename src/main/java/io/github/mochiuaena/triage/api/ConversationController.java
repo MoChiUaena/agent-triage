@@ -24,11 +24,16 @@ public class ConversationController {
     public record PreviewInput(
             @Min(0) long revision,
             @NotBlank @Size(max = 4000) String question,
-            @Size(max = 3) List<ChunkSelection> selectedChunks) {}
+            @Size(max = 3) List<ChunkSelection> selectedChunks,
+            @Size(max = 3) List<MemorySelection> selectedMemories) {}
 
     public record BudgetInput(@Min(0) long revision, @NotNull @Valid Budget budget) {}
 
-    public record Send(@NotNull UUID previewId, boolean confirmed, boolean documentsConfirmed) {}
+    public record Send(
+            @NotNull UUID previewId,
+            boolean confirmed,
+            boolean documentsConfirmed,
+            boolean memoriesConfirmed) {}
 
     private final ConversationService service;
 
@@ -59,7 +64,12 @@ public class ConversationController {
 
     @PostMapping("/{id}/context")
     public Context context(@PathVariable UUID id, @Valid @RequestBody PreviewInput input) {
-        return service.review(id, input.revision(), input.question(), input.selectedChunks());
+        return service.review(
+                id,
+                input.revision(),
+                input.question(),
+                input.selectedChunks(),
+                input.selectedMemories());
     }
 
     @PostMapping("/{id}/budget")
@@ -70,7 +80,13 @@ public class ConversationController {
     @PostMapping("/{id}/previews")
     public ResponseEntity<Prepared> preview(
             @PathVariable UUID id, @Valid @RequestBody PreviewInput input) {
-        var p = service.preview(id, input.revision(), input.question(), input.selectedChunks());
+        var p =
+                service.preview(
+                        id,
+                        input.revision(),
+                        input.question(),
+                        input.selectedChunks(),
+                        input.selectedMemories());
         return ResponseEntity.created(URI.create("/api/materials/previews/" + p.preview().id()))
                 .body(p);
     }
@@ -83,7 +99,8 @@ public class ConversationController {
                                 id,
                                 input.previewId(),
                                 input.confirmed(),
-                                input.documentsConfirmed()));
+                                input.documentsConfirmed(),
+                                input.memoriesConfirmed()));
     }
 
     @PostMapping("/{id}/attempts/{attempt}/cancel")

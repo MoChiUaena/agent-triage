@@ -91,6 +91,17 @@ public final class ConversationContextPlanner {
             List<Citation> selectedCitations,
             List<ChunkSelection> selections,
             int outputLimit) {
+        return plan(c, question, selectedCitations, selections, List.of(), List.of(), outputLimit);
+    }
+
+    public Context plan(
+            Conversation c,
+            String question,
+            List<Citation> selectedCitations,
+            List<ChunkSelection> selections,
+            List<Citation> selectedMemories,
+            List<MemorySelection> memorySelections,
+            int outputLimit) {
         int recent = Math.min(c.budget().recentMessages(), c.messages().size());
         int summaryLimit = c.budget().summaryCharacters();
         while (true) {
@@ -105,6 +116,7 @@ public final class ConversationContextPlanner {
                             "report:" + c.original().reference().reportId(), c.original(), null);
             citations.put(report.id(), report);
             selectedCitations.forEach(x -> citations.putIfAbsent(x.id(), x));
+            selectedMemories.forEach(x -> citations.putIfAbsent(x.id(), x));
             history.forEach(m -> m.citations().forEach(x -> citations.putIfAbsent(x.id(), x)));
             summary.excerpts()
                     .forEach(e -> e.citations().forEach(x -> citations.putIfAbsent(x.id(), x)));
@@ -113,6 +125,9 @@ public final class ConversationContextPlanner {
                             || history.stream().anyMatch(Message::documentsDerived)
                             || summary.excerpts().stream().anyMatch(Excerpt::documentsDerived)
                             || citations.values().stream().anyMatch(x -> x.chunk() != null);
+            boolean memories =
+                    !selectedMemories.isEmpty()
+                            || citations.values().stream().anyMatch(x -> x.memory() != null);
             var omissions = new ArrayList<String>(c.original().omissions());
             omissions.add(
                     "本机逐字历史摘录，并非已验证事实或新观测；完整近期 "
@@ -125,6 +140,9 @@ public final class ConversationContextPlanner {
                             + summary.clippedCharacters()
                             + "。消息序号/摘录偏移见 summary，原记录保留。summaryCharacters=0 禁用较旧摘录。");
             if (documents) omissions.add("纳入的资料、历史或摘要派生自项目资料，须独立确认资料外发；未选/已省略资料不发送。");
+            if (memories)
+                omissions.add(
+                        "纳入的已确认项目记忆是用户审阅的历史经验，未经独立验证，不代表当前运行观测或 GitHub 状态，运行观测与当前状态优先；发送须单独确认 memoriesConfirmed，未选择或已省略记忆不发送。");
             omissions.add("不包含新观测、源码读取或工具调用；仅发送列出的准确引用。预算计算最终序列化系统/用户正文，非模型窗口或实际 token 用量保证。");
             var payload = new LinkedHashMap<String, Object>();
             payload.put("conversationId", c.id());
@@ -176,7 +194,9 @@ public final class ConversationContextPlanner {
                         history,
                         List.copyOf(citations.values()),
                         selections,
+                        memorySelections,
                         documents,
+                        memories,
                         List.copyOf(omissions),
                         text,
                         MaterialService.sha(text),

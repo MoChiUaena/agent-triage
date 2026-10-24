@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.github.mochiuaena.triage.knowledge.*;
 import io.github.mochiuaena.triage.material.*;
+import io.github.mochiuaena.triage.memory.MemoryService;
 
 import jakarta.annotation.PreDestroy;
 
@@ -27,6 +28,7 @@ public class ConversationService {
     private final KnowledgeSearchService search;
     private final KnowledgeRepository knowledgeStore;
     private final ConversationModelResponder responder;
+    private final MemoryService memories;
     private final ObjectMapper json;
     private final Map<UUID, ScheduledFuture<?>> deadlines = new ConcurrentHashMap<>();
     private final Map<UUID, Prepared> prepared = new ConcurrentHashMap<>();
@@ -52,6 +54,7 @@ public class ConversationService {
             KnowledgeSearchService search,
             KnowledgeRepository knowledgeStore,
             ConversationModelResponder responder,
+            MemoryService memories,
             ObjectMapper json) {
         this.store = store;
         this.materials = materials;
@@ -60,6 +63,7 @@ public class ConversationService {
         this.search = search;
         this.knowledgeStore = knowledgeStore;
         this.responder = responder;
+        this.memories = memories;
         this.json = json;
         timer.setRemoveOnCancelPolicy(true);
     }
@@ -122,9 +126,18 @@ public class ConversationService {
 
     /** Local-only review: does not create/consume a B0 preview or require a model. */
     public Context review(UUID id, long revision, String question, List<ChunkSelection> selected) {
+        return review(id, revision, question, selected, List.of());
+    }
+
+    public Context review(
+            UUID id,
+            long revision,
+            String question,
+            List<ChunkSelection> selected,
+            List<MemorySelection> selectedMemories) {
         var c = store.require(id);
         check(c, revision);
-        return context(c, question, selected, false);
+        return context(c, question, selected, selectedMemories, false);
     }
 
     public Detail budget(UUID id, long revision, Budget budget) {
@@ -134,9 +147,18 @@ public class ConversationService {
 
     public synchronized Prepared preview(
             UUID id, long revision, String question, List<ChunkSelection> selected) {
+        return preview(id, revision, question, selected, List.of());
+    }
+
+    public synchronized Prepared preview(
+            UUID id,
+            long revision,
+            String question,
+            List<ChunkSelection> selected,
+            List<MemorySelection> selectedMemories) {
         var c = store.require(id);
         check(c, revision);
-        Context context = context(c, question, selected);
+        Context context = context(c, question, selected, selectedMemories, true);
         prepared.values().removeIf(p -> Instant.now().isAfter(p.preview().expiresAt()));
         if (prepared.size() >= 100)
             throw new ResponseStatusException(TOO_MANY_REQUESTS, "追问预览已达上限，请等待旧预览过期。");
@@ -146,7 +168,8 @@ public class ConversationService {
                         List.of(c.original()),
                         context.text(),
                         context.omissions(),
-                        context.documentsRequired());
+                        context.documentsRequired(),
+                        context.memoriesRequired());
         var result = new Prepared(context, preview);
         prepared.put(preview.id(), result);
         return result;
@@ -154,19 +177,39 @@ public class ConversationService {
 
     public synchronized Detail send(
             UUID id, UUID previewId, boolean confirmed, boolean documentsConfirmed) {
+        return send(id, previewId, confirmed, documentsConfirmed, false);
+    }
+
+    public synchronized Detail send(
+            UUID id,
+            UUID previewId,
+            boolean confirmed,
+            boolean documentsConfirmed,
+            boolean memoriesConfirmed) {
         Prepared p = prepared.get(previewId);
         if (p == null) throw new ResponseStatusException(GONE, "预览已过期、已消费或应用已重启。");
         if (!p.context().conversationId().equals(id)) throw ConversationStore.conflict();
         var c = store.require(id);
         check(c, p.context().revision());
-        Context fresh = context(c, p.context().question(), p.context().selectedChunks());
+        Context fresh =
+                context(
+                        c,
+                        p.context().question(),
+                        p.context().selectedChunks(),
+                        p.context().selectedMemories(),
+                        true);
         if (!fresh.fingerprint().equals(p.context().fingerprint())
                 || !fresh.text().equals(p.preview().text())) throw ConversationStore.conflict();
         if (workers.getActiveCount() >= 2 && workers.getQueue().remainingCapacity() == 0)
             throw new ResponseStatusException(TOO_MANY_REQUESTS, "追问队列已满，请稍后重新预览。");
         try {
             previews.consumeBound(
-                    previewId, fresh.fingerprint(), fresh.text(), confirmed, documentsConfirmed);
+                    previewId,
+                    fresh.fingerprint(),
+                    fresh.text(),
+                    confirmed,
+                    documentsConfirmed,
+                    memoriesConfirmed);
         } catch (ResponseStatusException error) {
             if (error.getStatusCode().value() == 409 || error.getStatusCode().value() == 410)
                 prepared.remove(previewId);
@@ -367,42 +410,95 @@ public class ConversationService {
         if (!knowledgeStore.activeVersion(selection.versionId()))
             throw new ResponseStatusException(CONFLICT, "知识版本不再有效，请重新检索。");
         var hit = search.chunk(s, selection.versionId(), selection.chunkId());
-        return new Citation("chunk:" + hit.chunkId(), null, hit);
+        return new Citation("chunk:" + hit.chunkId(), null, hit, null);
+    }
+
+    /** Exact confirmed memory version; edited, disabled or deleted memories leave sends at once. */
+    private Citation memory(Conversation c, MemorySelection selection) {
+        if (selection == null || selection.memoryId() == null || selection.revision() < 1)
+            throw new ResponseStatusException(BAD_REQUEST, "请选择准确的已确认记忆版本。");
+        var s = scope(c);
+        var v = memories.recallable(selection.memoryId(), s.kind(), s.id(), selection.revision());
+        var scope = v.scope();
+        return new Citation(
+                "memory:" + v.id() + ":" + v.revision(),
+                null,
+                null,
+                new MemoryCitation(
+                        v.id(),
+                        v.revision(),
+                        scope.kind(),
+                        scope.id(),
+                        scope.service(),
+                        v.body().topic(),
+                        v.body().content(),
+                        v.confirmedAt(),
+                        v.bodySha256()));
     }
 
     private Context context(Conversation c, String q, List<ChunkSelection> selected) {
-        return context(c, q, selected, true);
+        return context(c, q, selected, List.of(), true);
     }
 
     private Context context(
-            Conversation c, String q, List<ChunkSelection> selected, boolean sending) {
+            Conversation c,
+            String q,
+            List<ChunkSelection> selected,
+            List<MemorySelection> selectedMemories,
+            boolean sending) {
         q = question(q);
         if (sending) validateOriginal(c);
         selected = selected == null ? List.of() : List.copyOf(selected);
         if (selected.size() > 3 || new HashSet<>(selected).size() != selected.size())
             throw new ResponseStatusException(BAD_REQUEST, "最多选择 3 个不重复的知识分段。");
+        selectedMemories =
+                selectedMemories == null ? List.of() : List.copyOf(selectedMemories);
+        if (selectedMemories.size() > 3
+                || new HashSet<>(selectedMemories).size() != selectedMemories.size())
+            throw new ResponseStatusException(BAD_REQUEST, "最多选择 3 条不重复的已确认记忆。");
         var selectedCitations = selected.stream().map(selection -> chunk(c, selection)).toList();
+        var memoryCitations =
+                selectedMemories.stream().map(selection -> memory(c, selection)).toList();
         var context =
                 new ConversationContextPlanner(json)
-                        .plan(c, q, selectedCitations, selected, responder.outputTokenLimit());
-        for (var citation : context.citations())
+                        .plan(
+                                c,
+                                q,
+                                selectedCitations,
+                                selected,
+                                memoryCitations,
+                                selectedMemories,
+                                responder.outputTokenLimit());
+        for (var citation : context.citations()) {
             if (sending && citation.chunk() != null)
                 chunk(
                         c,
                         new ChunkSelection(
                                 citation.chunk().versionId(), citation.chunk().chunkId()));
+            if (sending && citation.memory() != null)
+                memory(
+                        c,
+                        new MemorySelection(
+                                citation.memory().memoryId(), citation.memory().revision()));
+        }
         return context;
     }
 
     private void revalidate(Context context) {
         var c = store.require(context.conversationId());
         validateOriginal(c);
-        for (var citation : context.citations())
+        for (var citation : context.citations()) {
             if (citation.chunk() != null)
                 chunk(
                         c,
                         new ChunkSelection(
                                 citation.chunk().versionId(), citation.chunk().chunkId()));
+            if (citation.memory() != null)
+                memory(
+                        c,
+                        new MemorySelection(
+                                citation.memory().memoryId(), citation.memory().revision()));
+        }
     }
 
     @PreDestroy
