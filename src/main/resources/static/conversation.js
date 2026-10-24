@@ -5,10 +5,11 @@
   const parameters = new URLSearchParams(window.location.search);
   const types = ["SERVICE", "PR", "ISSUE", "CI", "WORKFLOW"];
   const states = { RUNNING: "生成中", SUCCEEDED: "回答已保存", CANCELLED: "已取消", TIMED_OUT: "等待超时", FAILED: "调用失败", INVALID_OUTPUT: "输出校验未通过", INTERRUPTED: "重启中断", BUSY: "队列已满", REFERENCE_ONLY: "未调用模型" };
-  let active = false, generation = 0, formVersion = 0, listVersion = 0, searchVersion = 0, busy = false, polling = null;
+  let active = false, generation = 0, formVersion = 0, listVersion = 0, searchVersion = 0, memoryVersion = 0, busy = false, polling = null;
   let current = null, prepared = null, budgetDirty = false, actualReview = null;
   const baselineSummaryNotice = "保存历史的本机摘录；填写问题后点击本机查看，可核对本次实际纳入范围及完整正文大小。";
   const selected = new Map();
+  const recalled = new Map();
   $("#conversation-type").value = types.includes(parameters.get("type")) ? parameters.get("type") : "SERVICE";
   $("#conversation-report").value = parameters.get("report") || "";
   async function request(url, options = {}) {
@@ -25,7 +26,7 @@
     else { $("#conversation-summary").replaceChildren(); $("#conversation-summary-status").textContent = ""; }
     $("#conversation-context").hidden = true; $("#conversation-context-text").textContent = "";
     $("#conversation-preview").hidden = true; $("#conversation-preview-text").textContent = "";
-    $("#conversation-confirm").checked = false; $("#conversation-documents-confirm").checked = false;
+    $("#conversation-confirm").checked = false; $("#conversation-documents-confirm").checked = false; $("#conversation-memory-confirm").checked = false;
     ready();
   }
   function ready() {
@@ -41,8 +42,11 @@
     $("#conversation-budget-status").textContent = budgetDirty ? "预算有未保存修改，请先保存后查看本次上下文。" : "使用已保存预算；按 UTF-16 字符计算完整系统/用户 JSON（含转义、引用及说明），并非 token 用量或模型窗口保证。";
     $("#conversation-question").disabled = running;
     $("#conversation-search-button").disabled = !current || running || busy || !scope();
+    $("#conversation-memory-button").disabled = !current || running || busy || !scope();
     $("#conversation-cancel").hidden = !running; $("#conversation-cancel").disabled = busy;
-    $("#conversation-send").disabled = busy || running || !prepared || !available || !useModel || !$("#conversation-confirm").checked || (prepared.context.documentsRequired && !$("#conversation-documents-confirm").checked);
+    $("#conversation-send").disabled = Boolean(busy || running || !prepared || !available || !useModel || !$("#conversation-confirm").checked
+      || (prepared.context.documentsRequired && !$("#conversation-documents-confirm").checked)
+      || (prepared.context.memoriesRequired && !$("#conversation-memory-confirm").checked));
   }
   function safeLink(element, value) {
     element.hidden = !/^\/(?:\?run=|development\.html\?|sources\.html\?)/.test(value || "");
@@ -55,6 +59,11 @@
       $("#conversation-citation-meta").textContent = citation.id + " · " + ref.version + " · SHA256 " + ref.contentSha256;
       $("#conversation-citation-text").textContent = saved.text;
       safeLink($("#conversation-citation-link"), ref.originalLink);
+    } else if (citation.memory) {
+      const m = citation.memory, s = scope();
+      $("#conversation-citation-meta").textContent = citation.id + " · 主题 " + m.topic + " · v" + m.revision + " · 确认于 " + (m.confirmedAt ? new Date(m.confirmedAt).toLocaleString("zh-CN") : "—") + " · SHA256 " + m.bodySha256 + " · 用户审阅的历史经验，非当前观测";
+      $("#conversation-citation-text").textContent = m.content;
+      safeLink($("#conversation-citation-link"), s ? "/sources.html?scopeKind=" + encodeURIComponent(s.scopeKind) + "&scopeId=" + encodeURIComponent(s.scopeId) + "&memory=" + encodeURIComponent(m.memoryId) + "&memoryRevision=" + m.revision + "#memory-panel" : null);
     } else if (citation.chunk) {
       const c = citation.chunk;
       $("#conversation-citation-meta").textContent = citation.id + " · " + c.path + " · 版本 " + c.versionId + " · 行 " + c.startLine + "—" + c.endLine + " · 偏移 " + c.startOffset + "—" + c.endOffset + " · SHA256 " + c.chunkSha256;
@@ -165,8 +174,9 @@
     }, 750);
   }
   async function open(id) {
-    const ticket = ++generation; stopPolling(); busy = false; current = null; budgetDirty = false; selected.clear(); searchVersion++; invalidate();
+    const ticket = ++generation; stopPolling(); busy = false; current = null; budgetDirty = false; selected.clear(); recalled.clear(); searchVersion++; memoryVersion++; invalidate();
     $("#conversation-detail").hidden = true; $("#conversation-hits").replaceChildren(); $("#conversation-selected").textContent = "";
+    $("#conversation-memory-hits").replaceChildren(); $("#conversation-memory-notice").textContent = ""; $("#conversation-memory-selected").textContent = "";
     $("#conversation-citation").hidden = true; $("#conversation-question").value = "";
     try {
       const detail = await request("/api/conversations/" + encodeURIComponent(id)); if (!active || ticket !== generation) return;
@@ -188,7 +198,7 @@
     catch (error) { if (active && ticket === generation) message(error.message); }
     finally { if (ticket === generation) { busy = false; ready(); } }
   }
-  const contextInput = () => ({ revision: current.revision, question: $("#conversation-question").value, selectedChunks: [...selected.values()].map(c => ({ versionId: c.versionId, chunkId: c.chunkId })) });
+  const contextInput = () => ({ revision: current.revision, question: $("#conversation-question").value, selectedChunks: [...selected.values()].map(c => ({ versionId: c.versionId, chunkId: c.chunkId })), selectedMemories: [...recalled.values()].map(m => ({ memoryId: m.id, revision: m.revision })) });
   async function review() {
     if (!active || !current || busy || current.activeAttempt || budgetDirty) return;
     invalidate(); const ticket = generation, version = formVersion, id = current.id; busy = true; ready();
@@ -221,7 +231,7 @@
     if (!active || !current || busy || current.activeAttempt || !$("#conversation-use-model").checked || budgetDirty) return;
     invalidate(); const ticket = generation, version = formVersion, id = current.id; busy = true; ready();
     try {
-      const result = await post("/" + id + "/previews", { revision: current.revision, question: $("#conversation-question").value, selectedChunks: [...selected.values()].map(c => ({ versionId: c.versionId, chunkId: c.chunkId })) });
+      const result = await post("/" + id + "/previews", { revision: current.revision, question: $("#conversation-question").value, selectedChunks: [...selected.values()].map(c => ({ versionId: c.versionId, chunkId: c.chunkId })), selectedMemories: [...recalled.values()].map(m => ({ memoryId: m.id, revision: m.revision })) });
       if (!active || ticket !== generation || version !== formVersion) return;
       renderActualSummary(result.context.summary, "本次准确模型预览的实际纳入范围；模型尚未调用。");
       prepared = result; const p = result.preview, r = p.recipient; $("#conversation-preview").hidden = false;
@@ -229,7 +239,8 @@
       $("#conversation-preview-hash").textContent = "实际序列化正文 " + result.context.serializedCharacters + " 字符 · 准确系统指令、问题、历史、报告与资料正文 SHA256 " + p.contentSha256 + " · 有效至 " + new Date(p.expiresAt).toLocaleString("zh-CN");
       $("#conversation-preview-text").textContent = p.text; $("#conversation-preview-omissions").replaceChildren(...p.omissions.map(o => node("li", o)));
       $("#conversation-documents-label").hidden = !result.context.documentsRequired;
-      message("已生成准确预览，尚未调用模型。修改问题、资料或模型后需重新预览。");
+      $("#conversation-memory-label").hidden = !result.context.memoriesRequired;
+      message("已生成准确预览，尚未调用模型。修改问题、资料、记忆或模型后需重新预览。");
     } catch (error) { if (active && ticket === generation && version === formVersion) message(error.message); }
     finally { if (ticket === generation) { busy = false; ready(); } }
   }
@@ -238,7 +249,7 @@
     const ticket = generation, id = current.id, p = prepared;
     busy = true; ready();
     try {
-      const result = await post("/" + id + "/attempts", { previewId: p.preview.id, confirmed: $("#conversation-confirm").checked, documentsConfirmed: $("#conversation-documents-confirm").checked });
+      const result = await post("/" + id + "/attempts", { previewId: p.preview.id, confirmed: $("#conversation-confirm").checked, documentsConfirmed: $("#conversation-documents-confirm").checked, memoriesConfirmed: $("#conversation-memory-confirm").checked });
       if (!active || ticket !== generation) return; invalidate(); render(result); message("请求已受理；可取消或刷新恢复。已发出的请求可能计费。"); poll(ticket); list();
     } catch (error) { if (active && ticket === generation) { invalidate(); message(error.message + " 请刷新状态并重新预览后再试。"); } }
     finally { if (ticket === generation) { busy = false; ready(); } }
@@ -263,8 +274,41 @@
       }));
     } catch (error) { if (active && ticket === generation && version === searchVersion) $("#conversation-search-notice").textContent = error.message; }
   }
+  async function recall() {
+    const s = scope(); if (!active || !s || !current || current.activeAttempt) return;
+    if (!$("#conversation-question").value.trim()) { $("#conversation-memory-notice").textContent = "请先填写问题，再按问题关键词召回已确认记忆。"; return; }
+    const ticket = generation, version = ++memoryVersion;
+    $("#conversation-memory-hits").replaceChildren();
+    try {
+      const result = await request("/api/memories/recall", { method: "POST", headers: { "Content-Type": "application/json", "X-Triage-Memory": "1" }, body: JSON.stringify({ scopeKind: s.scopeKind, scopeId: s.scopeId, question: $("#conversation-question").value, limit: 5 }) });
+      if (!active || ticket !== generation || version !== memoryVersion) return;
+      $("#conversation-memory-notice").textContent = result.coverage + (result.truncated ? " 已达扫描上限，可能遗漏后续记忆。" : "") + " 最多选择 3 条随问题发送。";
+      $("#conversation-memory-hits").replaceChildren(...result.results.map(v => {
+        const card = node("section"), label = node("label"), check = node("input");
+        check.type = "checkbox"; check.checked = recalled.has(v.id);
+        label.append(check, node("span", v.topic + " · v" + v.revision + " · 确认于 " + (v.confirmedAt ? new Date(v.confirmedAt).toLocaleString("zh-CN") : "—") + " · 保存服务 " + (v.scopeService || "—") + " · 分数 " + v.score));
+        card.append(label, node("pre", v.excerpt));
+        for (const note of v.applicability || []) card.append(node("p", "⚠ 核对适用性：" + note));
+        for (const peer of v.conflicts || []) {
+          const warning = node("p", "⚠ 同主题存在其他已确认记忆（v" + peer.revision + " · " + peer.topic + "）；请打开记忆面板核对后停用其一或改写。");
+          const link = node("a", "查看冲突记忆"); link.href = "/sources.html?scopeKind=" + encodeURIComponent(s.scopeKind) + "&scopeId=" + encodeURIComponent(s.scopeId) + "&memory=" + encodeURIComponent(peer.id) + "&memoryRevision=" + peer.revision + "#memory-panel"; link.rel = "noopener noreferrer";
+          warning.append(link); card.append(warning);
+        }
+        const detail = node("a", "打开记忆面板核对与纠错"); detail.href = "/sources.html?scopeKind=" + encodeURIComponent(s.scopeKind) + "&scopeId=" + encodeURIComponent(s.scopeId) + "&memory=" + encodeURIComponent(v.id) + "&memoryRevision=" + v.revision + "#memory-panel"; detail.rel = "noopener noreferrer";
+        card.append(detail);
+        check.addEventListener("change", () => {
+          if (!current || ticket !== generation) return;
+          if (check.checked && recalled.size >= 3) { check.checked = false; message("最多选择 3 条记忆。"); return; }
+          if (check.checked) recalled.set(v.id, v); else recalled.delete(v.id);
+          invalidate(); $("#conversation-memory-selected").textContent = recalled.size ? "已选记忆：" + [...recalled.values()].map(m => m.topic + " v" + m.revision).join("、") : "";
+        });
+        return card;
+      }));
+      if (!result.results.length) $("#conversation-memory-hits").append(node("p", "此问题没有命中的已确认记忆；候选或已停用记忆不参与召回。"));
+    } catch (error) { if (active && ticket === generation && version === memoryVersion) $("#conversation-memory-notice").textContent = error.message; }
+  }
   async function setActive(value) {
-    active = value; generation++; listVersion++; searchVersion++; stopPolling(); busy = false; invalidate();
+    active = value; generation++; listVersion++; searchVersion++; memoryVersion++; stopPolling(); busy = false; invalidate();
     if (!active) return; await list(); const id = new URLSearchParams(window.location.search).get("conversation"); if (id) await open(id);
   }
   $("#conversation-context-button").addEventListener("click", review);
@@ -274,10 +318,11 @@
   $("#conversation-form").addEventListener("submit", event => { event.preventDefault(); preview(); });
   $("#conversation-reference").addEventListener("click", reference); $("#conversation-send").addEventListener("click", send); $("#conversation-cancel").addEventListener("click", cancel);
   $("#conversation-search").addEventListener("submit", event => { event.preventDefault(); search(); });
+  $("#conversation-memory-search").addEventListener("submit", event => { event.preventDefault(); recall(); });
   $("#conversation-question").addEventListener("input", invalidate); $("#conversation-use-model").addEventListener("change", invalidate);
   $("#conversation-keyword").addEventListener("input", () => { searchVersion++; });
-  $("#conversation-confirm").addEventListener("change", ready); $("#conversation-documents-confirm").addEventListener("change", ready);
+  $("#conversation-confirm").addEventListener("change", ready); $("#conversation-documents-confirm").addEventListener("change", ready); $("#conversation-memory-confirm").addEventListener("change", ready);
   window.addEventListener("focus", async () => { if (!active || !current) return; const ticket = generation, id = current.id; try { const detail = await request("/api/conversations/" + id); if (active && ticket === generation) { render(detail); poll(ticket); } } catch (error) { if (active && ticket === generation) message(error.message); } });
-  window.conversationPanel = { setActive, open, preview, search, reference, review, saveBudget };
+  window.conversationPanel = { setActive, open, preview, search, reference, review, saveBudget, recall };
   ready();
 })();

@@ -45,6 +45,9 @@
           <form id="conversation-search" class="history-filters">
             <label class="filter-wide">项目资料关键词<input id="conversation-keyword" type="search" maxlength="200" placeholder="只在原报告保存的项目或仓库范围检索" /></label><button id="conversation-search-button" class="secondary" type="submit">本机检索资料</button>
           </form><p id="conversation-search-notice" class="management-caption" role="status"></p><div id="conversation-hits"></div><p id="conversation-selected" class="management-caption"></p>
+          <form id="conversation-memory-search" class="history-filters">
+            <button id="conversation-memory-button" class="secondary" type="submit">按当前问题召回已确认项目记忆</button>
+          </form><p id="conversation-memory-notice" class="management-caption" role="status"></p><div id="conversation-memory-hits"></div><p id="conversation-memory-selected" class="management-caption"></p>
           <fieldset id="conversation-budget-controls" class="history-filters">
             <legend>保存本对话的上下文预算</legend>
             <label>完整正文字符上限<input id="conversation-budget-input" type="number" min="8000" max="64000" value="48000" /></label>
@@ -64,6 +67,7 @@
             <h3>本次完整发送预览</h3><p id="conversation-recipient"></p><p id="conversation-preview-hash" class="management-caption"></p><ul id="conversation-preview-omissions"></ul><pre id="conversation-preview-text" tabindex="0"></pre>
             <label class="conversation-check"><input id="conversation-confirm" type="checkbox" />已核对接收方、问题、历史与原报告，同意发送本次预览</label>
             <label id="conversation-documents-label" class="conversation-check"><input id="conversation-documents-confirm" type="checkbox" />单独同意本次项目资料及由资料派生的历史问题/回答外发</label>
+            <label id="conversation-memory-label" class="conversation-check"><input id="conversation-memory-confirm" type="checkbox" />单独同意本次外发已确认项目记忆（历史经验，非当前观测）</label>
             <button id="conversation-send" type="button" class="primary" disabled>确认并发送本次预览</button>
           </section>
         </section>

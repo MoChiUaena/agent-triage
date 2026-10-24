@@ -7,7 +7,7 @@ class Element {
  append(...c){this.children.push(...c);}replaceChildren(...c){this.children=c;this.text="";}addEventListener(e,cb){this.events[e]=cb;}setAttribute(){}classList={toggle(){}};
 }
 const nodes=new Map(),$=s=>{if(!nodes.has(s))nodes.set(s,new Element());return nodes.get(s);};
-const document={querySelector:$,createElement:()=>new Element()};let requests=[],resolvePreview,resolveSearch,resolveContext,resolveBudget,resolveDetail;let deferDetail=false;
+const document={querySelector:$,createElement:()=>new Element()};let requests=[],resolvePreview,resolveSearch,resolveContext,resolveBudget,resolveDetail,resolveRecall;let deferDetail=false;
 const model={available:true,providerId:"provider",version:1,displayName:"<model>",model:"stub",baseUrl:"http://localhost"};
 const material={text:"<script>original</script>",reference:{type:"PR",reportId:"report",scope:{repositoryId:"repository"},contentSha256:"hash",version:"fixed",originalLink:"/development.html?report=report"},fields:["title"],omissions:["no source"]};
 const budget={maxInputCharacters:48000,recentMessages:8,summaryCharacters:3000};
@@ -16,7 +16,7 @@ const detail={budget,summary,id:"one",revision:0,original:material,messages:[{id
 const prepared={context:{conversationId:"one",revision:0,question:"why",documentsRequired:true,summary,budget,serializedCharacters:123,omissions:["omitted text not read"]},preview:{id:"preview",recipient:model,text:"<script>preview</script>",contentSha256:"payload-hash",expiresAt:"2099-01-01T00:00:00Z",omissions:["history docs"]}};
 let remoteDetail=detail;
 const events={},window={location:{search:"?conversation=one",hash:"#conversations"},history:{replaceState(){}},addEventListener:(e,cb)=>events[e]=cb};
-const fetch=async(url,options={})=>{requests.push({url,options});let value;if(url==="/api/memories/conversation-candidates")value={id:"memory",scope:{kind:"REPOSITORY",id:"repository"}};else if(url==="/api/conversations")value=[];else if(url==="/api/conversations/one"){if(deferDetail)return new Promise(r=>resolveDetail=r);value=remoteDetail;}else if(url.endsWith("/context"))return new Promise(r=>resolveContext=r);else if(url.endsWith("/budget"))return new Promise(r=>resolveBudget=r);else if(url.endsWith("/previews"))return new Promise(r=>resolvePreview=r);else if(url.startsWith("/api/knowledge/search"))return new Promise(r=>resolveSearch=r);else if(url.endsWith("/attempts"))value={...detail,activeAttempt:"attempt"};else if(url.endsWith("/references"))value={...detail,revision:1,messages:[...detail.messages,{role:"USER",text:"why",citations:[]}],attempts:[{state:"REFERENCE_ONLY",message:"未调用模型"}]};else throw Error(url);return{ok:true,json:async()=>value};};
+const fetch=async(url,options={})=>{requests.push({url,options});let value;if(url==="/api/memories/conversation-candidates")value={id:"memory",scope:{kind:"REPOSITORY",id:"repository"}};else if(url==="/api/memories/recall")return new Promise(r=>resolveRecall=r);else if(url==="/api/conversations")value=[];else if(url==="/api/conversations/one"){if(deferDetail)return new Promise(r=>resolveDetail=r);value=remoteDetail;}else if(url.endsWith("/context"))return new Promise(r=>resolveContext=r);else if(url.endsWith("/budget"))return new Promise(r=>resolveBudget=r);else if(url.endsWith("/previews"))return new Promise(r=>resolvePreview=r);else if(url.startsWith("/api/knowledge/search"))return new Promise(r=>resolveSearch=r);else if(url.endsWith("/attempts"))value={...detail,activeAttempt:"attempt"};else if(url.endsWith("/references"))value={...detail,revision:1,messages:[...detail.messages,{role:"USER",text:"why",citations:[]}],attempts:[{state:"REFERENCE_ONLY",message:"未调用模型"}]};else throw Error(url);return{ok:true,json:async()=>value};};
 const context=vm.createContext({window,document,URLSearchParams,Date,JSON,console,fetch,encodeURIComponent,setTimeout:()=>1,clearTimeout(){}});
 vm.runInContext(fs.readFileSync("src/main/resources/static/conversation.js","utf8"),context);
 (async()=>{
@@ -91,5 +91,38 @@ vm.runInContext(fs.readFileSync("src/main/resources/static/conversation.js","utf
  await window.conversationPanel.setActive(true);$("#conversation-question").value="why";await window.conversationPanel.reference();assert.match($("#conversation-attempts").textContent,/未调用模型/);assert.equal(requests.filter(r=>r.url.endsWith("/attempts")).length,0);
  remoteDetail={...detail,original:{...material,reference:{...material.reference,scope:{service:"legacy-service"}}}};await window.conversationPanel.open("one");
  const legacyCandidate=flatten($("#conversation-messages")).find(e=>e.textContent==="保存为记忆候选");assert.equal(legacyCandidate.disabled,true);assert.match($("#conversation-messages").textContent,/未保存项目或仓库身份/);
- console.log("Conversation UI checks passed: local no-key review, saved budget, summary XSS, stale budget, exact preview, XSS, stale response, consent invalidation, reference-only, explicit memory candidate and legacy scope rejection.");
+ // Confirmed memory recall: safe rendering, applicability/conflict warnings, separate send consent.
+ remoteDetail=detail;await window.conversationPanel.open("one");$("#conversation-question").value="连接池 超时";
+ let recallWork=window.conversationPanel.recall();window.conversationPanel.setActive(false);
+ resolveRecall({ok:true,json:async()=>({recallMethod:"KEYWORD_CONFIRMED",coverage:"仅召回 CONFIRMED 当前版本",truncated:false,results:[{id:"memory-1",revision:2,topic:"超时 处理",excerpt:"<script>memory excerpt</script>",score:12,confirmedAt:"2026-10-24T00:00:00Z",scopeService:null,applicability:["项目当前绑定服务为 A，与记忆保存服务 B 不同"],conflicts:[{id:"memory-2",revision:3,topic:"超时 处理",confirmedAt:"2026-10-24T00:00:00Z"}]}]})});await recallWork;
+ assert.equal($("#conversation-memory-hits").children.length,0,"Inactive recall response cannot render hits");
+ await window.conversationPanel.setActive(true);$("#conversation-question").value="连接池 超时";
+ recallWork=window.conversationPanel.recall();
+ resolveRecall({ok:true,json:async()=>({recallMethod:"KEYWORD_CONFIRMED",coverage:"仅召回 CONFIRMED 当前版本",truncated:false,results:[{id:"memory-1",revision:2,topic:"超时 处理",excerpt:"<script>memory excerpt</script>",score:12,confirmedAt:"2026-10-24T00:00:00Z",scopeService:null,applicability:["项目当前绑定服务为 A，与记忆保存服务 B 不同"],conflicts:[{id:"memory-2",revision:3,topic:"超时 处理",confirmedAt:"2026-10-24T00:00:00Z"}]}]})});await recallWork;
+ assert.match($("#conversation-memory-notice").textContent,/CONFIRMED/);
+ assert.equal($("#conversation-memory-hits").children.length,1);
+ assert.match($("#conversation-memory-hits").textContent,/核对适用性/);
+ assert.match($("#conversation-memory-hits").textContent,/同主题存在其他已确认记忆/);
+ assert.match($("#conversation-memory-hits").textContent,/<script>/,"Recall excerpt rendered through text nodes; innerHTML would throw");
+ const recallCard=$("#conversation-memory-hits").children[0];
+ const recallCheck=flatten(recallCard).find(e=>e.type==="checkbox");
+ assert.match(flatten(recallCard).find(e=>e.textContent==="查看冲突记忆").href,/memory=memory-2/);
+ recallCheck.checked=true;recallCheck.events.change();
+ assert.match($("#conversation-memory-selected").textContent,/已选记忆/);
+ const recallRequest=requests.find(r=>r.url==="/api/memories/recall");
+ assert.equal(recallRequest.options.headers["X-Triage-Memory"],"1");
+ assert.deepEqual(JSON.parse(recallRequest.options.body),{scopeKind:"REPOSITORY",scopeId:"repository",question:"连接池 超时",limit:5});
+ $("#conversation-use-model").checked=true;$("#conversation-use-model").events.change();
+ let memoryPreview=window.conversationPanel.preview();resolvePreview({ok:true,json:async()=>({...prepared,context:{...prepared.context,memoriesRequired:true}})});await memoryPreview;
+ assert.equal($("#conversation-memory-label").hidden,false,"Memory consent label stays visible for this preview");
+ const previewBody=JSON.parse(requests.filter(r=>r.url.endsWith("/previews")).at(-1).options.body);
+ assert.deepEqual(previewBody.selectedMemories,[{memoryId:"memory-1",revision:2}]);
+ $("#conversation-confirm").checked=true;$("#conversation-confirm").events.change();$("#conversation-documents-confirm").checked=true;$("#conversation-documents-confirm").events.change();
+ assert.equal($("#conversation-send").disabled,true,"Memory consent is a separate send gate");
+ $("#conversation-memory-confirm").checked=true;$("#conversation-memory-confirm").events.change();
+ assert.equal($("#conversation-send").disabled,false);
+ $("#conversation-question").value="edited after memory consent";$("#conversation-question").events.input();
+ assert.equal($("#conversation-memory-confirm").checked,false,"Question edit invalidates memory consent");
+ assert.equal($("#conversation-memory-hits").children.length,1,"Explicit selections survive question edits like chunk selections");
+ console.log("Conversation UI checks passed: local no-key review, saved budget, summary XSS, stale budget, exact preview, XSS, stale response, consent invalidation, reference-only, explicit memory candidate, legacy scope rejection and confirmed-memory recall consent.");
 })().catch(e=>{console.error(e);process.exitCode=1;});
