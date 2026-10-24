@@ -119,7 +119,12 @@
   <dialog id="workflow-plan-dialog" aria-labelledby="workflow-plan-heading"><div class="dialog-heading"><h2 id="workflow-plan-heading">确认执行计划</h2><button id="workflow-close-plan" type="button" class="secondary">返回修改</button></div><div class="dialog-content"><pre id="workflow-plan-context" class="pr-dialog-versions"></pre><ol id="workflow-plan-tasks" class="workflow-plan-tasks"></ol><p id="workflow-plan-notice" class="management-caption"></p><p class="management-caption">计划五分钟内有效，所有外部读取均为只读操作。任务失败仍会生成包含缺口的综合报告。</p></div><div class="dialog-actions"><button id="workflow-execute" type="button" class="primary" disabled>执行工作流</button></div></dialog>
   <dialog id="issue-triage-dialog" aria-labelledby="issue-dialog-title"><form id="issue-generate-form"><div class="dialog-heading"><h2 id="issue-dialog-title">Issue 分诊</h2><button class="secondary" id="issue-close-dialog" type="button">关闭</button></div><div class="dialog-content">
     <p id="issue-preview-title"></p><p id="issue-preview-version" class="ci-report-meta"></p><p id="issue-dialog-notice" class="settings-notice" role="status" hidden></p>
-    <label class="issue-path-label" for="issue-code-paths">补充 Java 文件路径（可选）<textarea id="issue-code-paths" maxlength="1200" rows="2" placeholder="每行一个仓库相对路径，最多三个。也会读取 Issue 正文明确提到的路径。"></textarea></label><button class="secondary" id="issue-read-context" type="button">重新读取上下文</button>
+    <label class="issue-path-label" for="issue-code-paths">补充 Java 文件路径（可选）<textarea id="issue-code-paths" maxlength="1200" rows="2" placeholder="每行一个仓库相对路径，最多三个。也会读取 Issue 正文明确提到的路径。"></textarea></label>
+    <details class="issue-preview-details"><summary>可选：附带本机源码符号候选（S1，需已登记本机 Java 项目）</summary>
+      <p class="management-caption">选择与本仓库对应且已按当前版本重新索引的本机项目。系统从标题、正文与最近评论提取标识符检索本机索引，最多六条静态候选；版本未与任何提交核对，不证明执行路径，反射等未知路径保持未知。</p>
+      <label class="management-caption" for="issue-source-select">本机源码项目<select id="issue-source-select"><option value="">不附带符号候选</option></select></label>
+      <p id="issue-source-note" class="management-caption"></p>
+    </details><button class="secondary" id="issue-read-context" type="button">重新读取上下文</button>
     <details class="issue-preview-details" open><summary>已读取的脱敏上下文</summary><div id="issue-preview-evidence"></div><ul id="issue-preview-gaps"></ul></details>
     <label class="issue-model-consent"><input id="issue-use-model" type="checkbox" disabled /><span>使用模型建议：将上方脱敏内容（含代码和贡献者）发送给下方启用模型。</span></label><p id="issue-model-destination" class="management-caption"></p><p class="management-caption"><a href="/settings.html">模型设置</a> · 只调用一轮，最多等待 30 秒；可能产生模型费用。</p>
   </div><div class="dialog-actions"><button class="primary" id="issue-generate-button" type="submit" disabled>生成分诊报告</button></div></form></dialog>

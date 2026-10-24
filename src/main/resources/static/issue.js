@@ -5,6 +5,7 @@
   const date = value => new Date(value).toLocaleString("zh-CN", {hour12:false});
   const category = {BUG:"缺陷", FEATURE_REQUEST:"功能请求", QUESTION:"使用咨询", DOCUMENTATION:"文档", UNKNOWN:"待分类"};
   let repository = "", number = 0, preview = null, version = 0, busy = false;
+  let sourceProjects = [];
   function link(text, url) {
     const value = node("a", text);
     try { const target = new URL(url); if (target.protocol === "https:" && target.hostname === "github.com" && !target.username && !target.password) value.href = target.href; } catch {}
@@ -85,7 +86,10 @@
     $("#issue-preview-evidence").replaceChildren(); $("#issue-preview-gaps").replaceChildren(); $("#issue-model-destination").textContent = "";
     try {
       const paths = $("#issue-code-paths").value.split("\n").map(path => path.trim()).filter(Boolean);
-      const result = await post("/api/development/repositories/" + selected + "/issue/previews", {number, codePaths:paths}); if (current !== version) return;
+      const input = {number, codePaths:paths};
+      const selectedSource = sourceProjects.find(project => project.id === $("#issue-source-select").value);
+      if (selectedSource) { input.sourceProjectId = selectedSource.id; input.sourceRevision = selectedSource.revision; }
+      const result = await post("/api/development/repositories/" + selected + "/issue/previews", input); if (current !== version) return;
       preview = result; $("#issue-preview-title").textContent = "#" + result.issue.number + " " + result.issue.title + (result.issue.state === "closed" ? " · 已关闭" : " · 开放");
       $("#issue-preview-version").textContent = result.branch + " / " + (result.headSha || "版本未读取");
       evidenceBlocks(result.evidence, $("#issue-preview-evidence"));
@@ -103,7 +107,30 @@
   }
   $("#issue-close-dialog").addEventListener("click", () => { if (!busy) { $("#issue-use-model").checked = false; $("#issue-triage-dialog").close(); } });
   $("#issue-triage-dialog").addEventListener("cancel", event => { if (busy) event.preventDefault(); else $("#issue-use-model").checked = false; });
+  async function loadSourceProjects() {
+    const current = version;
+    try {
+      const values = await request("/api/source-projects");
+      if (current !== version) return;
+      sourceProjects = (values || []).slice(0, 20);
+      const select = $("#issue-source-select");
+      const previous = select.value;
+      select.replaceChildren(...[node("option", "不附带符号候选")].concat(sourceProjects.map(project => {
+        const option = node("option", project.name + " · revision " + project.revision + " · " + project.files + " 文件");
+        option.value = project.id; return option;
+      })));
+      if (sourceProjects.some(project => project.id === previous)) select.value = previous;
+      $("#issue-source-note").textContent = sourceProjects.length
+        ? "符号候选随预览一起展示并受脱敏约束；索引更新后需重新读取上下文。"
+        : "尚未登记本机 Java 项目；可在项目源码页登记并索引后再附带符号候选。";
+    } catch (error) { if (current === version) $("#issue-source-note").textContent = "源码项目列表读取失败：" + error.message; }
+  }
+  $("#issue-source-select").addEventListener("change", () => {
+    const selected = sourceProjects.find(project => project.id === $("#issue-source-select").value);
+    $("#issue-source-note").textContent = selected ? "将按 revision " + selected.revision + " 检索；该索引变化后需重新读取上下文。" : "";
+  });
   $("#issue-read-context").addEventListener("click", readContext);
+  loadSourceProjects();
   $("#issue-code-paths").addEventListener("input", () => { preview = null; $("#issue-use-model").checked = false; ready(); message("路径已修改，请重新读取上下文后生成报告。"); });
   $("#issue-refresh-reports").addEventListener("click", loadReports);
   $("#issue-number-form").addEventListener("submit", event => { event.preventDefault(); const value = Number($("#issue-number-input").value); if (Number.isSafeInteger(value) && value > 0 && value <= 2147483647) openIssue(repository, value); });
