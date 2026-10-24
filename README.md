@@ -179,3 +179,5 @@ docs/                      接入、架构、版本与验证说明
 项目采用 [MIT License](LICENSE)。
 
 任务追问：从五类保存报告连续询问依据、查看固定引用并恢复历史；无模型仍可保存问题和阅读原依据。完整链路和授权边界见 [docs/CONVERSATIONS.md](docs/CONVERSATIONS.md)。
+
+用户确认的本机项目经验：见 [项目记忆（M1）](docs/PROJECT_MEMORY.md)。支持不可变版本、明确确认、消息候选与历史依据；尚无自动检索或模型注入。

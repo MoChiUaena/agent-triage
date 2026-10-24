@@ -94,3 +94,12 @@
 #knowledge article > button { margin: 5px 8px 5px 0; }
 #knowledge .knowledge-consent { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0; }
 #knowledge .knowledge-consent input { width: auto; flex-shrink: 0; }
+.memory-controls, .memory-list { display:flex; flex-wrap:wrap; gap:10px; align-items:end; margin:12px 0; }
+.memory-controls label { flex:1 1 240px; }
+.memory-controls select, .memory-editor input, .memory-editor textarea, .memory-reference input, .memory-reference select { display:block; width:100%; margin-top:6px; }
+.memory-editor { display:grid; gap:14px; margin:16px 0; }
+.memory-reference { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; border:1px solid var(--border-color,#cbdce8); border-radius:10px; margin:12px 0; padding:12px; }
+.memory-review { display:flex; gap:10px; align-items:start; padding:14px; background:var(--surface-soft,#eff7fd); border-radius:10px; margin:16px 0; overflow-wrap:anywhere; }
+#memory-evidence pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:420px; overflow:auto; }
+#memory-evidence a { display:block; margin:8px 0; }
+#memory-detail-meta, #memory-scope-note { overflow-wrap:anywhere; }

@@ -116,6 +116,23 @@
       card.className = "conversation-message"; card.append(heading, node("pre", m.text));
       for (const citation of m.citations) { const button = node("button", "查看引用 " + citation.id); button.type = "button"; button.className = "secondary"; button.addEventListener("click", () => showCitation(citation)); card.append(button); }
       if (m.documentsDerived) card.append(node("p", "此条消息或生成上下文含项目资料；纳入后续发送时仍须独立授权。"));
+      const candidate = node("button", "保存为记忆候选"); candidate.type = "button"; candidate.className = "secondary";
+      const memoryScope = scope(); candidate.disabled = !memoryScope;
+      if (!memoryScope) { candidate.title = "此旧对话未保存项目或仓库身份，不能猜测今日服务绑定。"; card.append(node("p", candidate.title)); }
+      candidate.addEventListener("click", async () => {
+        if (!memoryScope || !current) return;
+        const ticket = generation, conversationId = current.id;
+        candidate.disabled = true;
+        try {
+          const saved = await request("/api/memories/conversation-candidates", { method: "POST", headers: { "Content-Type": "application/json", "X-Triage-Memory": "1" }, body: JSON.stringify({ conversationId, messageIds: [m.id] }) });
+          if (ticket !== generation || current?.id !== conversationId) return;
+          const link = node("a", "打开候选，编辑并审阅确认");
+          link.href = "/sources.html?scopeKind=" + encodeURIComponent(saved.scope.kind) + "&scopeId=" + encodeURIComponent(saved.scope.id) + "&memory=" + encodeURIComponent(saved.id) + "#memory-panel";
+          card.append(node("p", "已保存本机候选，尚未确认；用户说法/旧回答未经独立验证，未加入模型上下文。"), link);
+        } catch (error) { if (ticket === generation && current?.id === conversationId) message(error.message); }
+        finally { if (ticket === generation && current?.id === conversationId) candidate.disabled = false; }
+      });
+      card.append(candidate);
       return card;
     }));
     $("#conversation-attempts").replaceChildren(...detail.attempts.map(a => {

@@ -53,11 +53,12 @@ public class MemoryStore {
                                     id, scope, 1, "CANDIDATE", body, hash, now, now, null, null);
                     jdbc.update(
                             "INSERT INTO"
-                                + " memory_heads(id,scope_kind,scope_id,revision,status,topic,body_sha256,updated_at)"
-                                + " VALUES(?,?,?,1,'CANDIDATE',?,?,?)",
+                                + " memory_heads(id,scope_kind,scope_id,scope_service,revision,status,topic,body_sha256,updated_at)"
+                                + " VALUES(?,?,?,?,1,'CANDIDATE',?,?,?)",
                             id.toString(),
                             scope.kind(),
                             scope.id().toString(),
+                            scope.service(),
                             body.topic(),
                             hash,
                             now.atOffset(ZoneOffset.UTC));
@@ -104,23 +105,26 @@ public class MemoryStore {
                 || limit > 100
                 || !Set.of("ALL", "CANDIDATE", "CONFIRMED", "DISABLED", "DELETED").contains(status))
             throw bad("状态或条数无效；条数上限 100。");
+        var args = new ArrayList<Object>(List.of(scope.kind(), scope.id().toString()));
+        if (!status.equals("ALL")) args.add(status);
+        if (scope.service() != null) args.add(scope.service());
+        args.add(limit);
         return jdbc.query(
-                "SELECT id,revision,status,topic,body_sha256,updated_at FROM memory_heads WHERE"
-                        + " scope_kind=? AND scope_id=?"
+                "SELECT id,revision,status,topic,body_sha256,updated_at,scope_service FROM"
+                    + " memory_heads WHERE scope_kind=? AND scope_id=?"
                         + (status.equals("ALL") ? "" : " AND status=?")
+                        + (scope.service() == null ? "" : " AND scope_service=?")
                         + " ORDER BY updated_at DESC,id LIMIT ?",
                 (r, n) ->
                         new Summary(
                                 UUID.fromString(r.getString(1)),
-                                scope,
+                                new Scope(scope.kind(), scope.id(), r.getString(7)),
                                 r.getLong(2),
                                 r.getString(3),
                                 r.getString(4),
                                 r.getString(5),
                                 r.getObject(6, OffsetDateTime.class).toInstant()),
-                status.equals("ALL")
-                        ? new Object[] {scope.kind(), scope.id().toString(), limit}
-                        : new Object[] {scope.kind(), scope.id().toString(), status, limit});
+                args.toArray());
     }
 
     public List<Summary> history(UUID id, Scope scope) {
@@ -215,6 +219,11 @@ public class MemoryStore {
     }
 
     private void validate(Body body) {
+        if (body != null
+                && (hasNul(body.topic())
+                        || hasNul(body.content())
+                        || (body.basis() != null && hasNul(body.basis().note()))))
+            throw bad("主题、正文及用户陈述不能包含 NUL 字符。");
         if (body == null
                 || body.topic() == null
                 || body.topic().isBlank()
@@ -229,6 +238,10 @@ public class MemoryStore {
                 || body.basis().references().size() > 3
                 || encode(body.basis()).length() > 48000)
             throw bad("记忆正文或依据超出上限（主题120 / 正文4000 / 用户陈述2000 / 引用3 / 依据48000字符）。");
+    }
+
+    private boolean hasNul(String text) {
+        return text != null && text.indexOf(0) >= 0;
     }
 
     private void insert(Version v) {

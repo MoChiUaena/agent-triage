@@ -145,7 +145,7 @@ async function reload() {
   if (services.some(service => service.id === selected)) $("#check-source-service").value = selected;
   clearReadiness(); checkWindows();
   render();
-  window.knowledgePanel?.refreshScopes();
+  window.knowledgePanel?.refreshScopes(); window.memoryPanel?.refreshScopes();
 }
 function clearReadiness() {
   readinessVersion++; $("#source-check-result").replaceChildren();

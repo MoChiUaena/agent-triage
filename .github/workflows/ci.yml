@@ -43,6 +43,8 @@ jobs:
           node scripts/material_ui_check.js
           node --check src/main/resources/static/conversation.js
           node scripts/conversation_ui_check.js
+          node --check src/main/resources/static/memory.js
+          node scripts/memory_ui_check.js
           node --check src/main/resources/static/sources.js
           node --check src/main/resources/static/knowledge.js
           node scripts/knowledge_ui_check.js
@@ -93,7 +95,8 @@ jobs:
           cache: maven
       # Each provider key file must own its provider database; do not weaken cipher policy.
       - run: docker exec ${{ job.services.postgres.id }} psql -U triage -d triage -c 'CREATE DATABASE triage_conversations'
-      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest,HistoryApiTest,StatisticsApiTest,SourceProjectApiTest,KnowledgeApiTest,KnowledgeSearchApiTest,ConversationApiTest test
+      - run: docker exec ${{ job.services.postgres.id }} psql -U triage -d triage -c 'CREATE DATABASE triage_memory'
+      - run: ./mvnw -B -ntp -Dtest=RunApiTest,ProviderSettingsTest,HistoryApiTest,StatisticsApiTest,SourceProjectApiTest,KnowledgeApiTest,KnowledgeSearchApiTest,ConversationApiTest,MemoryApiTest test
         env:
           TRIAGE_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage
           TRIAGE_TEST_DB_USER: triage
@@ -101,6 +104,9 @@ jobs:
           TRIAGE_CONVERSATION_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage_conversations
           TRIAGE_CONVERSATION_TEST_DB_USER: triage
           TRIAGE_CONVERSATION_TEST_DB_PASSWORD: triage-ci
+          TRIAGE_MEMORY_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage_memory
+          TRIAGE_MEMORY_TEST_DB_USER: triage
+          TRIAGE_MEMORY_TEST_DB_PASSWORD: triage-ci
           TRIAGE_KNOWLEDGE_TEST_DB_URL: jdbc:postgresql://localhost:5432/triage
           TRIAGE_KNOWLEDGE_TEST_DB_USER: triage
           TRIAGE_KNOWLEDGE_TEST_DB_PASSWORD: triage-ci

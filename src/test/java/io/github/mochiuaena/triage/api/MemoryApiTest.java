@@ -92,14 +92,14 @@ class MemoryApiTest {
 
     JsonNode post(String route, Object input, int code) {
         var result = write(route, input, "X-Triage-Memory", null);
-        assertThat(result.getStatusCode().value()).as(result.toString()).isEqualTo(code);
+        assertThat(result.getStatusCode().value()).as("POST %s", route).isEqualTo(code);
         assertThat(result.getHeaders().getCacheControl()).isEqualTo("no-store");
         return result.getBody();
     }
 
     JsonNode get(String route, int code) {
         var r = http.getForEntity("/api/memories" + route, JsonNode.class);
-        assertThat(r.getStatusCode().value()).as(r.toString()).isEqualTo(code);
+        assertThat(r.getStatusCode().value()).as("GET %s", route).isEqualTo(code);
         return r.getBody();
     }
 
@@ -460,5 +460,100 @@ class MemoryApiTest {
         assertThat(candidate.at("/body/content").asText()).hasSize(4000);
         assertThat(candidate.at("/body/basis/provenance").asText()).contains("前4000");
         assertThat(candidate.at("/body/basis/messages/0/text").asText()).hasSize(5000);
+    }
+
+    @Test
+    void serviceBindingDriftRejectsCandidateEditAndConfirmButAllowsWithdrawal() {
+        var index =
+                new io.github.mochiuaena.triage.source.SourceModels.Index(
+                        "fixture", Instant.now(), 0, 0, 0, List.of());
+        String service = "old-" + UUID.randomUUID();
+        var project = projects.create("bound", service, "fixture", index);
+        var body = input("old service experience");
+        body.put("scopeKind", "PROJECT");
+        body.put("scopeId", project.id());
+        var first = post("", body, 201);
+        String id = first.path("id").asText();
+        var original =
+                new Material(
+                        new Reference(
+                                Type.SERVICE,
+                                UUID.randomUUID(),
+                                new Scope(project.id(), null, service),
+                                "saved",
+                                "hash",
+                                Instant.now(),
+                                "UNCONFIRMED",
+                                "/?run=old"),
+                        "saved report",
+                        List.of(),
+                        List.of());
+        var conversation = withMessage(original, "old service message");
+        String replacementService = "new-" + UUID.randomUUID();
+        projects.update(project, project.name(), replacementService, project.root(), index);
+        post(
+                "/conversation-candidates",
+                Map.of(
+                        "conversationId",
+                        conversation.id(),
+                        "messageIds",
+                        List.of(conversation.messages().getFirst().id())),
+                409);
+        body.put("revision", 1);
+        post("/" + id + "/edit", body, 409);
+        var action =
+                new HashMap<String, Object>(
+                        Map.of(
+                                "scopeKind",
+                                "PROJECT",
+                                "scopeId",
+                                project.id(),
+                                "revision",
+                                1,
+                                "confirmed",
+                                true,
+                                "bodySha256",
+                                first.path("bodySha256").asText()));
+        post("/" + id + "/confirm", action, 409);
+        String q = "scopeKind=PROJECT&scopeId=" + project.id();
+        var summaries = get("?" + q + "&status=ALL", 200);
+        assertThat(summaries).hasSize(1);
+        assertThat(summaries.get(0).at("/scope/service").asText()).isEqualTo(service);
+        assertThat(get("?" + q + "&status=ALL&service=" + replacementService, 200)).isEmpty();
+        action.put("service", service);
+        post("/" + id + "/disable", action, 200);
+        action.put("revision", 2);
+        post("/" + id + "/delete", action, 200);
+        assertThat(get("/" + id + "/versions/1?" + q, 200).at("/scope/service").asText())
+                .isEqualTo(service);
+        projects.delete(project.id(), projects.require(project.id()).revision());
+    }
+
+    @Test
+    void clippingKeepsCompleteUnicodeCharactersAndNulInputIsRejected() {
+        var conversation = withMessage(original(repo), "x".repeat(3999) + "😀tail");
+        var saved =
+                post(
+                        "/conversation-candidates",
+                        Map.of(
+                                "conversationId",
+                                conversation.id(),
+                                "messageIds",
+                                List.of(conversation.messages().getFirst().id())),
+                        201);
+        String content = saved.at("/body/content").asText();
+        assertThat(content).hasSize(3999);
+        assertThat(Character.isHighSurrogate(content.charAt(content.length() - 1))).isFalse();
+        assertThat(saved.at("/body/basis/messages/0/text").asText()).endsWith("😀tail");
+        assertThat(saved.at("/body/basis/provenance").asText()).contains("裁剪");
+    }
+
+    @Test
+    void nulInUserAuthoredFieldsIsExplicitlyRejected() {
+        for (String field : List.of("topic", "content", "note")) {
+            var body = input("safe");
+            body.put(field, "before" + (char) 0 + "after");
+            post("", body, 400);
+        }
     }
 }

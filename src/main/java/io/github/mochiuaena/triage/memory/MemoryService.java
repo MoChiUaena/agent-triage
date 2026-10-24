@@ -81,6 +81,7 @@ public class MemoryService {
             List<Reference> references) {
         Scope scope = scope(kind, sid, service, true);
         var old = store.current(id, new Scope(kind, sid, null));
+        assertBinding(old.scope(), scope);
         // Explicit retained references may be reviewed as immutable historical evidence. New
         // references
         // must be resolved again. Conversation provenance is always retained and never client
@@ -154,12 +155,16 @@ public class MemoryService {
             String action,
             boolean confirmed,
             String hash) {
-        scope(kind, sid, service, true);
-        return store.transition(id, new Scope(kind, sid, null), revision, action, confirmed, hash);
+        Scope live = scope(kind, sid, null, true);
+        Scope selected = new Scope(kind, sid, service);
+        if (action.equals("CONFIRMED"))
+            assertBinding(store.current(id, selected).scope(), live);
+        return store.transition(id, selected, revision, action, confirmed, hash);
     }
 
     public List<Summary> list(String kind, UUID id, String service, String status, int limit) {
-        return store.list(scope(kind, id, service, true), status, limit);
+        scope(kind, id, service, true);
+        return store.list(new Scope(kind, id, service), status, limit);
     }
 
     public Version current(UUID id, String kind, UUID sid, String service) {
@@ -192,6 +197,7 @@ public class MemoryService {
                         origin.projectId() != null ? origin.projectId() : origin.repositoryId(),
                         null,
                         true);
+        assertBinding(new Scope(scope.kind(), scope.id(), origin.service()), scope);
         var messages =
                 selected.stream()
                         .map(
@@ -209,7 +215,7 @@ public class MemoryService {
                         + "；消息 ID "
                         + selected
                         + "。用户说法/旧回答未经独立验证；原始报告及消息引用是历史快照，不是当前观察，不授权外发。"
-                        + (clipped ? " 候选正文仅前4000字符；完整选中消息保存在依据中。" : "");
+                        + (clipped ? " 候选正文裁剪为至多前4000字符（保留完整字符边界）；完整选中消息保存在依据中。" : "");
         var basis =
                 new Basis(
                         "",
@@ -219,7 +225,16 @@ public class MemoryService {
                         new ArrayList<>(messages),
                         provenance,
                         c.original());
-        return store.create(
-                scope, new Body("对话经验候选", text.substring(0, Math.min(text.length(), 4000)), basis));
+        int end = Math.min(text.length(), 4000);
+        if (end > 0
+                && end < text.length()
+                && Character.isHighSurrogate(text.charAt(end - 1))
+                && Character.isLowSurrogate(text.charAt(end))) end--;
+        return store.create(scope, new Body("对话经验候选", text.substring(0, end), basis));
+    }
+
+    private void assertBinding(Scope saved, Scope live) {
+        if (!Objects.equals(saved.service(), live.service()))
+            throw new ResponseStatusException(CONFLICT, "项目服务绑定已变化；旧经验仅可阅读或撤回，不能改绑、编辑或确认。");
     }
 }
