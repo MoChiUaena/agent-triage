@@ -193,3 +193,5 @@ PR 模型辅助审查（A2）：见[研发协作说明](docs/DEVELOPMENT_COLLABO
 Issue 上下文补全（A3）：见[研发协作说明](docs/DEVELOPMENT_COLLABORATION.md)。Issue 分诊读取最近五条评论（纳入预览指纹）、可选本机符号候选与 CODEOWNERS 负责人线索；评论提及不构成因果或推荐，分诊不等于复现成功。
 
 仓库健康摘要（R0）：见[研发协作说明](docs/DEVELOPMENT_COLLABORATION.md)。按规则汇总概览快照与本机分析记录——来源、抽样范围与缺口逐项标注，快照过期提示更新，可保存与重开；生成不访问 GitHub、不调用模型。
+
+研发活动报告（R1）：见[研发协作说明](docs/DEVELOPMENT_COLLABORATION.md)。按日期范围（日报/周报）整理提交、Issue、PR、CI 与本机分析记录——按日分组、每项活动可跳转来源或重开本机报告，待处理事项与读取缺口逐条标注，空范围与读取失败区分；支持历史重开与 Markdown 本机导出，不自动发送邮件或评论，回写知识库选项未启用。
