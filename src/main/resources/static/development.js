@@ -28,6 +28,68 @@ function renderList(selector, section, render) {
 }
 function statistic(title, count, caption) { const card = element("div", null, "repository-statistic"); card.append(element("p", title), element("strong", count), element("small", caption)); return card; }
 function scope(section, text) { return section.available ? text + (section.truncated ? " · 还有更多条目" : "") : "读取失败"; }
+const SECTION_NAMES = { ISSUES: "开放 Issue 抽样", PULL_REQUESTS: "开放 PR 抽样", WORKFLOWS: "默认分支近期工作流" };
+let healthReport = null;
+function setHealthBusy(value) { $("#health-generate").disabled = value || !$("#repository-select").value; }
+function renderHealthReport(report) {
+  healthReport = report;
+  const target = $("#health-summary-result"); target.hidden = false; target.replaceChildren();
+  const heading = element("div", null, "repository-heading");
+  heading.append(element("h3", "健康摘要 · " + time(report.createdAt)),
+    element("span", report.stale ? "快照过期或上次读取失败" : "快照有效", "repository-label"));
+  target.append(heading);
+  const list = element("ul");
+  for (const section of report.sections) {
+    const item = element("li");
+    if (!section.available) item.append(element("span", SECTION_NAMES[section.kind] + "：未读取", "repository-error"));
+    else {
+      item.append(element("span", SECTION_NAMES[section.kind] + "：列出 " + section.listed + " 条"
+        + (section.truncated ? "（截断，覆盖不完整）" : "（抽样，最多 20 条）")
+        + (section.kind === "WORKFLOWS" ? " · 失败 " + section.failing + " 次" : "")));
+      const runs = element("ul");
+      for (const run of section.failingRuns || []) { const row = element("li"); row.append(link(run.name + " · " + run.conclusion, run.url)); runs.append(row); }
+      if ((section.failingRuns || []).length) item.append(runs);
+    }
+    list.append(item);
+  }
+  for (const record of report.localRecords) {
+    const item = element("li");
+    item.append(element("span", (record.kind === "CI" ? "CI 排障" : record.kind === "PR" ? "PR 审查" : "Issue 分诊")
+      + " 本机记录 " + record.saved + " 条" + (record.latestAt ? " · 最近 " + time(record.latestAt) + " · " + record.latestTitle : " · 暂无")));
+    list.append(item);
+  }
+  target.append(list);
+  const notes = element("ul");
+  for (const note of report.notes) notes.append(element("li", note, "management-caption"));
+  target.append(notes);
+}
+async function loadHealthSummaries(id, current) {
+  try {
+    const values = await request("/api/development/repositories/" + encodeURIComponent(id) + "/health-summaries");
+    if (current !== selectionVersion) return;
+    const target = $("#health-summary-history"); target.replaceChildren();
+    $("#health-summary-history-box").hidden = !values.length;
+    for (const report of values) {
+      const row = element("button", time(report.createdAt) + (report.stale ? " · 快照过期" : ""), "ci-history-item");
+      row.type = "button"; row.addEventListener("click", () => renderHealthReport(report));
+      target.append(row);
+    }
+  } catch (error) { if (current === selectionVersion) notice("健康摘要历史读取失败：" + error.message, true); }
+}
+async function generateHealthSummary() {
+  if (busy) return; const id = $("#repository-select").value; if (!id) return;
+  const current = selectionVersion; setHealthBusy(true); notice("正在按规则生成健康摘要…");
+  try {
+    const report = await request("/api/development/repositories/" + encodeURIComponent(id) + "/health-summaries",
+      { method: "POST", headers: writeHeaders });
+    if (current !== selectionVersion) return;
+    renderHealthReport(report); await loadHealthSummaries(id, current);
+    notice("健康摘要已生成：基于快照与本机记录，未访问 GitHub 或调用模型。");
+  } catch (error) { if (current === selectionVersion) notice(error.message, true); }
+  finally { if (current === selectionVersion) setHealthBusy(false); }
+}
+$("#health-generate").addEventListener("click", generateHealthSummary);
+$("#repository-select").addEventListener("change", () => setHealthBusy(!$("#repository-select").value));
 function workflowState(run) {
   if (run.status !== "completed") return [run.status === "in_progress" ? "执行中" : run.status === "queued" ? "排队中" : "等待执行", "running"];
   if (run.conclusion === "success") return ["通过", "success"];
@@ -94,6 +156,8 @@ async function loadHealth() {
   window.workflowPanel?.selectRepository(id);
   window.issuePanel?.selectRepository(id);
   window.prPanel?.selectRepository(id);
+  setHealthBusy(!!id); $("#health-summary-result").hidden = true; $("#health-summary-history").replaceChildren(); $("#health-summary-history-box").hidden = true;
+  if (id) loadHealthSummaries(id, version);
   if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; window.ciPanel?.selectRepository(""); setBusy(false); return; }
   setBusy(true);
   try { const snapshot = await request("/api/development/repositories/" + id + "/health"); if (version === selectionVersion) renderHealth(snapshot); }

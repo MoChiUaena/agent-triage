@@ -1,19 +1,27 @@
 "use strict";
 const assert = require("node:assert/strict"), fs = require("node:fs"), path = require("node:path"), vm = require("node:vm");
 class Element {
-  constructor(tag = "div") { this.tagName = tag; this.children = []; this.value = ""; this.text = ""; }
+  constructor(tag = "div") { this.tagName = tag; this.children = []; this.value = ""; this.text = ""; this.disabled = false; this.hidden = false; this.type = ""; }
   set textContent(value) { this.text = String(value ?? ""); this.children = []; }
   get textContent() { return this.text + this.children.map(child => child.textContent).join(""); }
   set innerHTML(value) { throw new Error("Untrusted HTML must not be rendered"); }
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; this.text = ""; }
-  addEventListener() {}
+  addEventListener(name, callback) { this.events = this.events || {}; this.events[name] = callback; }
   classList = { toggle() {} };
 }
-const nodes = new Map(), document = {
+const nodes = new Map(), calls = [], document = {
   querySelector(selector) { if (!nodes.has(selector)) nodes.set(selector, new Element()); return nodes.get(selector); },
   createElement: tag => new Element(tag),
 };
+const healthReport = { id: "h1", repositoryId: "repo", repository: "acme/service", createdAt: "2026-10-24T00:00:00Z", stale: true,
+  sections: [{ kind: "ISSUES", name: "开放 Issue 抽样", available: true, listed: 1, truncated: false, failing: 0, failingRuns: [], readAt: "2026-10-24T00:00:00Z" },
+    { kind: "WORKFLOWS", name: "默认分支近期工作流", available: true, listed: 2, truncated: false, failing: 1,
+      failingRuns: [{ name: "Verify", conclusion: "failure", url: "https://github.com/acme/service/actions/runs/9" }], readAt: "2026-10-24T00:00:00Z" }],
+  localRecords: [{ kind: "CI", saved: 1, latestAt: "2026-10-24T00:00:00Z", latestTitle: "Verify / Build" }, { kind: "PR", saved: 0, latestAt: null, latestTitle: "" }],
+  notes: ["汇总基于快照；生成时未重新访问 GitHub。", "Issue 与 PR 为抽样列表（最多 20 条），不代表全量统计；完整列表以 GitHub 为准。",
+    "快照已过期或上次读取失败；请先点击“更新 GitHub 状态”再生成。", "本机记录仅统计已保存的分析报告（每类最多 20 条窗口），不代表仓库全部状态；既有报告结论保持原版本，本摘要只引用数量与时间，不改写任何结论。"] };
+const history = [{ ...healthReport, id: "h0" }];
 const context = vm.createContext({ document, window: {}, URL, Date, console, fetch: () => new Promise(() => {}) });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../src/main/resources/static/development.js"), "utf8"), context);
 const section = items => ({ available: true, items, truncated: false, message: "" });
@@ -39,7 +47,11 @@ assert.match(document.querySelector("#repository-warning").textContent, /暂时�
 console.log("Development UI passed: real state labels, unavailable sections, drafts and text rendering");
 let completeReport,rendered=null;
 context.fetch=async()=>new Promise(resolve=>completeReport=resolve);
-context.window.prPanel={render:report=>rendered=report};
+context.window.prPanel={render:report=>rendered=report, selectRepository(){}};
+context.window.issuePanel={selectRepository(){}};
+context.window.ciPanel={selectRepository(){}};
+context.window.workflowPanel={selectRepository(){}};
+context.window.knowledgePanel={selectRepository(){}, loadRepositoryKnowledge(){}};
 document.querySelector("#repository-select").value="repo";
 context.requestedParameters=new URL("http://localhost/development.html?repository=repo&reportType=PR&report=saved").searchParams;
 (async()=>{
@@ -50,5 +62,32 @@ context.requestedParameters=new URL("http://localhost/development.html?repositor
   vm.runInContext("selectionVersion++",context);
   completeReport({ok:true,json:async()=>({id:"saved",repositoryId:"repo"})});await stale;
   assert.equal(rendered,null);
-  console.log("Development original-report links passed: saved report opening and stale scope guard");
+  // R0：仓库健康摘要——生成、来源与缺口标注、stale 提示、历史重开与安全链接。
+  context.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.endsWith("/health-summaries") && options.method === "POST") return { ok: true, json: async () => healthReport };
+    if (url.endsWith("/health-summaries")) return { ok: true, json: async () => history };
+    return { ok: true, json: async () => ({}) };
+  };
+  document.querySelector("#repository-select").events = document.querySelector("#repository-select").events || {};
+  document.querySelector("#repository-select").events.change();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(document.querySelector("#health-summary-history-box").hidden, false);
+  document.querySelector("#health-generate").disabled = false;
+  const generating = vm.runInContext("generateHealthSummary()", context);
+  await generating; await new Promise(resolve => setImmediate(resolve));
+  const generateCall = calls.filter(call => call.url.endsWith("/health-summaries") && call.options?.method === "POST");
+  assert.equal(generateCall.length, 1, "Health summary generation must not repeat");
+  const result = document.querySelector("#health-summary-result");
+  assert.match(result.textContent, /快照过期或上次读取失败/);
+  assert.match(result.textContent, /请先点击“更新 GitHub 状态”/);
+  assert.match(result.textContent, /默认分支近期工作流：列出 2 条（抽样，最多 20 条） · 失败 1 次/);
+  assert.match(result.textContent, /Verify · failure/);
+  assert.match(result.textContent, /CI 排障 本机记录 1 条/);
+  assert.match(result.textContent, /PR 审查 本机记录 0 条 · 暂无/);
+  assert.match(result.textContent, /不代表全量统计/);
+  const unsafe = vm.runInContext("link('run', 'javascript:alert(1)').href", context);
+  assert.equal(unsafe, undefined, "Failing run links must reject unsafe URLs");
+  console.log("Development original-report links passed: saved report opening, stale scope guard and rule-based health summary");
 })().catch(error=>{console.error(error);process.exitCode=1;});
+

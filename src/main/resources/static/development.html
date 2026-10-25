@@ -37,6 +37,12 @@
         <div class="repository-heading"><div><h2 id="repository-name"></h2><p id="repository-description" class="management-caption"></p></div><a id="repository-link" target="_blank" rel="noopener noreferrer">在 GitHub 查看 ↗</a></div>
         <p id="repository-freshness" class="management-caption" role="status"></p><p id="repository-warning" class="repository-warning" hidden></p>
         <div class="repository-statistics" id="repository-statistics"></div>
+        <section class="management-card" aria-labelledby="health-summary-heading">
+          <div class="management-heading"><h2 id="health-summary-heading">仓库健康摘要</h2><button id="health-generate" class="secondary" type="button" disabled>生成健康摘要</button></div>
+          <p class="management-caption">按规则汇总当前快照与本机已保存分析记录：标注来源读取时间、抽样范围与失败项；不访问 GitHub、不调用模型，不改写既有报告结论，移除仓库时一并删除。快照过期或上次读取失败时会在摘要中提示先更新。</p>
+          <div id="health-summary-result" hidden></div>
+          <details id="health-summary-history-box" hidden><summary>本仓库的摘要历史（最近 20 份）</summary><div id="health-summary-history"></div></details>
+        </section>
         <section class="management-card workflow-setup" aria-labelledby="workflow-heading"><div class="management-heading"><h2 id="workflow-heading">PR 协同检查</h2><span class="repository-label">依赖任务与综合报告</span></div><p class="management-caption">组合仓库、PR、Issue 和 CI 分析，先确认计划再执行。已有报告保留原版本，不发起新的模型调用。</p>
           <p id="workflow-notice" class="settings-notice" role="status" hidden></p>
           <form id="workflow-plan-form" class="workflow-form"><label>PR 编号<input id="workflow-pr-number" type="number" min="1" max="2147483647" required placeholder="例如 7" /></label><label>Issue 编号（可选）<input id="workflow-issue-number" type="number" min="1" max="2147483647" placeholder="留空使用 PR 明确引用" /></label><label>Issue 材料<select id="workflow-issue-report"></select></label><label>CI 材料<select id="workflow-ci-report"></select></label><button id="workflow-plan-button" class="primary" type="submit">生成执行计划</button></form>
