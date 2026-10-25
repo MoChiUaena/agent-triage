@@ -434,6 +434,106 @@ function renderExecutionResult(record, box, draft) {
   if (record.message) box.append(element("p", record.message, record.state === "SUCCESS" ? "management-caption" : "repository-error"));
   box.append(element("p", "已写入本机执行审计（不保存凭据）；本次确认时间 " + time(record.confirmedAt) + "。", "management-caption"));
 }
+let workflowCatalog = null;
+let templateCheckboxes = {};
+function setTemplateBusy(value) {
+  $("#workflow-template-create").disabled = value || !$("#repository-select").value || selectedTemplateTasks().length < 2;
+}
+function selectedTemplateTasks() {
+  if (!Array.isArray(workflowCatalog)) return [];
+  return workflowCatalog.filter(entry => entry.id === "SUMMARY" || templateCheckboxes[entry.id]?.checked).map(entry => entry.id);
+}
+async function loadWorkflowCatalog() {
+  if (Array.isArray(workflowCatalog)) return;
+  try {
+    const values = await request("/api/development/workflow-task-catalog");
+    if (!Array.isArray(values) || !values.length) throw new Error("目录响应无效");
+    workflowCatalog = values;
+    templateCheckboxes = {};
+    const box = $("#workflow-template-tasks"); box.replaceChildren();
+    for (const entry of values) {
+      const label = element("label", null, "management-caption");
+      const checkbox = element("input"); checkbox.type = "checkbox"; checkbox.id = "template-task-" + entry.id;
+      checkbox.checked = entry.id === "SUMMARY" || ["REPOSITORY", "PR", "CHECK"].includes(entry.id);
+      checkbox.disabled = entry.id === "SUMMARY";
+      checkbox.addEventListener("change", setTemplateBusy);
+      templateCheckboxes[entry.id] = checkbox;
+      label.append(checkbox, element("span", entry.title + "（" + entry.id + (entry.requires.length ? " · 前置 " + entry.requires.join("/") : "") + "）" + entry.description));
+      box.append(label);
+    }
+    setTemplateBusy(false);
+  } catch (error) { notice("任务目录读取失败：" + error.message, true); }
+}
+async function createWorkflowTemplate(event) {
+  event.preventDefault();
+  if (busy) return;
+  const id = $("#repository-select").value; if (!id) return;
+  const name = $("#workflow-template-name").value.trim();
+  if (!name) { notice("请填写模板名称。", true); return; }
+  const current = selectionVersion; setTemplateBusy(true); notice("正在保存模板…");
+  try {
+    await request("/api/development/repositories/" + encodeURIComponent(id) + "/workflow-templates",
+      { method: "POST", headers: writeHeaders, body: JSON.stringify({ name, tasks: selectedTemplateTasks().map(task => ({ id: task })) }) });
+    if (current !== selectionVersion) return;
+    $("#workflow-template-name").value = "";
+    notice("模板已保存；可在下方按 PR 编号生成计划并执行。");
+    await loadWorkflowTemplates(id, current);
+  } catch (error) { if (current === selectionVersion) notice(error.message, true); }
+  finally { if (current === selectionVersion) setTemplateBusy(false); }
+}
+async function runWorkflowTemplate(template) {
+  const id = $("#repository-select").value; if (!id) return;
+  const input = $("#template-run-" + template.id);
+  const prNumber = input && input.value ? Number(input.value) : 0;
+  if (!prNumber || prNumber < 1) { notice("请填写模板执行使用的 PR 编号。", true); return; }
+  notice("正在按模板创建计划…");
+  try {
+    const plan = await request("/api/development/repositories/" + encodeURIComponent(id) + "/workflow-templates/" + encodeURIComponent(template.id) + "/plans",
+      { method: "POST", headers: writeHeaders, body: JSON.stringify({ prNumber }) });
+    const run = await request("/api/development/repositories/" + encodeURIComponent(id) + "/workflows",
+      { method: "POST", headers: writeHeaders, body: JSON.stringify({ planId: plan.id }) });
+    notice("模板工作流已启动，任务快照已冻结；可在下方记录中查看进度。");
+    window.workflowPanel?.openRun(run.id);
+  } catch (error) { notice(error.message, true); }
+}
+async function loadWorkflowTemplates(id, current) {
+  try {
+    const values = await request("/api/development/repositories/" + encodeURIComponent(id) + "/workflow-templates");
+    if (current !== selectionVersion) return;
+    const target = $("#workflow-template-list"); target.replaceChildren();
+    if (!values.length) { target.append(element("p", "此仓库暂无模板，可在上方保存第一个任务组合。")); return; }
+    for (const template of values) {
+      const card = element("article", null, "management-card");
+      const heading = element("div", null, "repository-heading");
+      heading.append(element("h4", template.name), element("span", "修订 " + template.revision + " · " + time(template.updatedAt), "repository-label"));
+      card.append(heading);
+      card.append(element("p", template.tasks.map(task => task.id).join(" → ") + "（创建计划时冻结）", "management-caption"));
+      const run = element("label", null, "management-caption");
+      const runInput = element("input"); runInput.type = "number"; runInput.min = 1; runInput.placeholder = "PR 编号"; runInput.id = "template-run-" + template.id;
+      const runButton = element("button", "生成计划并执行", "primary"); runButton.type = "button";
+      runButton.addEventListener("click", () => runWorkflowTemplate(template));
+      const deleteButton = element("button", "删除", "secondary"); deleteButton.type = "button";
+      deleteButton.addEventListener("click", () => {
+        if (deleteButton.armed !== true) {
+          deleteButton.armed = true; deleteButton.textContent = "确认删除";
+          setTimeout(() => { deleteButton.armed = false; deleteButton.textContent = "删除"; }, 3000);
+          return;
+        }
+        (async () => {
+          try {
+            await request("/api/development/workflow-templates/" + encodeURIComponent(template.id), { method: "DELETE", headers: writeHeaders });
+            notice("模板已删除；已保存的工作流记录不受影响。");
+            await loadWorkflowTemplates($("#repository-select").value, selectionVersion);
+          } catch (error) { notice(error.message, true); }
+        })();
+      });
+      run.append(runInput, runButton, deleteButton);
+      card.append(run);
+      target.append(card);
+    }
+  } catch (error) { if (current === selectionVersion) notice("模板列表读取失败：" + error.message, true); }
+}
+$("#workflow-template-form").addEventListener("submit", createWorkflowTemplate);
 function workflowState(run) {
   if (run.status !== "completed") return [run.status === "in_progress" ? "执行中" : run.status === "queued" ? "排队中" : "等待执行", "running"];
   if (run.conclusion === "success") return ["通过", "success"];
@@ -504,7 +604,8 @@ async function loadHealth() {
   activityReport = null; setActivityBusy(!!id); $("#activity-result").hidden = true; $("#activity-history").replaceChildren(); $("#activity-history-box").hidden = true;
   draftBasis = []; $("#draft-basis").replaceChildren(element("option", id ? "正在加载依据报告…" : "选择仓库后加载")); $("#draft-basis").value = ""; $("#draft-list").replaceChildren(); setDraftBusy(true);
   $("#draft-executions").replaceChildren(); $("#draft-executions-box").hidden = true; loadDraftWriteOption();
-  if (id) { loadHealthSummaries(id, version); loadActivityReports(id, version); loadDrafts(id, version); loadDraftBasisOptions(id, version); loadDraftExecutions(id, version); }
+  $("#workflow-template-list").replaceChildren(); loadWorkflowCatalog();
+  if (id) { loadHealthSummaries(id, version); loadActivityReports(id, version); loadDrafts(id, version); loadDraftBasisOptions(id, version); loadDraftExecutions(id, version); loadWorkflowTemplates(id, version); }
   if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; window.ciPanel?.selectRepository(""); setBusy(false); return; }
   setBusy(true);
   try { const snapshot = await request("/api/development/repositories/" + id + "/health"); if (version === selectionVersion) renderHealth(snapshot); }

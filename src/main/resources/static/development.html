@@ -78,6 +78,16 @@
           <section id="workflow-summary" hidden><h3>综合报告</h3><p id="workflow-summary-state" class="issue-classification"></p><p id="workflow-summary-text" class="ci-summary"></p><h3>下一步核查</h3><ol id="workflow-summary-actions"></ol><h3>读取缺口</h3><ul id="workflow-summary-gaps"></ul><h3>适用报告来源</h3><div id="workflow-summary-sources" class="workflow-references"></div><p id="workflow-summary-scope" class="management-caption"></p></section>
         </article>
         <section class="management-card workflow-panel" aria-labelledby="workflow-history-heading"><div class="management-heading"><h2 id="workflow-history-heading">协同工作流记录</h2><button id="workflow-refresh-history" type="button" class="secondary">刷新工作流与材料</button></div><p class="management-caption">最近 20 次执行。运行中的任务可重新打开，已结束结果保持执行时的版本。</p><div id="workflow-history"></div></section>
+        <section class="management-card workflow-panel" aria-labelledby="workflow-templates-heading">
+          <div class="management-heading"><h2 id="workflow-templates-heading">工作流模板</h2><span class="repository-label">表单配置 · 任务快照执行</span></div>
+          <p class="management-caption">从受控任务目录勾选组合（如只读 PR 检查、CI 排障）保存为模板，依赖默认由目录推导，服务端校验依赖环、缺失任务与材料约束（CI 需 PR、补查需核对、综合报告在末尾）。执行使用创建计划时冻结的任务快照，模板修改不影响在途任务；沿用固定模板的并发、时限与只读边界。</p>
+          <form id="workflow-template-form" class="workflow-form">
+            <label>模板名称<input id="workflow-template-name" maxlength="80" required placeholder="例如：只读 PR 检查" /></label>
+            <fieldset id="workflow-template-tasks" class="ci-dialog-fields"><legend class="management-caption">任务组合（按执行顺序）</legend></fieldset>
+            <button id="workflow-template-create" class="primary" type="submit" disabled>保存模板</button>
+          </form>
+          <div id="workflow-template-list"></div>
+        </section>
         <div class="repository-panels">
           <section class="management-card"><div class="management-heading"><h2>开放 Issue</h2><span class="management-caption" id="issue-scope"></span></div><div id="repository-issues"></div></section>
           <section class="management-card"><div class="management-heading"><h2>开放 Pull Request</h2><span class="management-caption" id="pull-scope"></span></div><div id="repository-pulls"></div></section>

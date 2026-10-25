@@ -22,7 +22,7 @@ const healthReport = { id: "h1", repositoryId: "repo", repository: "acme/service
   notes: ["汇总基于快照；生成时未重新访问 GitHub。", "Issue 与 PR 为抽样列表（最多 20 条），不代表全量统计；完整列表以 GitHub 为准。",
     "快照已过期或上次读取失败；请先点击“更新 GitHub 状态”再生成。", "本机记录仅统计已保存的分析报告（每类最多 20 条窗口），不代表仓库全部状态；既有报告结论保持原版本，本摘要只引用数量与时间，不改写任何结论。"] };
 const history = [{ ...healthReport, id: "h0" }];
-const context = vm.createContext({ document, window: {}, URL, Date, console, fetch: () => new Promise(() => {}) });
+const context = vm.createContext({ document, window: {}, URL, Date, console, fetch: () => new Promise(() => {}), setTimeout, clearTimeout });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../src/main/resources/static/development.js"), "utf8"), context);
 const section = items => ({ available: true, items, truncated: false, message: "" });
 const fixture = { registration: { url: "https://github.com/acme/service" }, stale: false, error: null, health: {
@@ -290,5 +290,83 @@ context.requestedParameters=new URL("http://localhost/development.html?repositor
   assert.equal(retryControls.children[3].hidden, false, "Uncertain drafts must allow re-previewing");
   assert.equal(retryControls.children[0].hidden, false, "Uncertain drafts must stay editable");
   console.log("Development draft execution passed: write option, preview gate, one-shot confirm, audit refresh and uncertain recovery");
+  // F1：工作流模板——目录勾选、保存、按 PR 编号执行、两步删除与选择门控。
+  const catalogFixture = [
+    { id: "REPOSITORY", title: "读取仓库概览", requires: [], description: "读取抽样并标注缺口。" },
+    { id: "PR", title: "审查固定 PR 版本", requires: ["REPOSITORY"], description: "只读规则审查。" },
+    { id: "ISSUE", title: "Issue 分诊", requires: ["REPOSITORY"], description: "本机规则分诊。" },
+    { id: "CI", title: "排查同一提交的 CI", requires: ["PR"], description: "同一提交失败作业。" },
+    { id: "CHECK", title: "核对证据与版本", requires: [], description: "核对版本与来源。" },
+    { id: "RECHECK", title: "一次有界补查", requires: [], description: "最多一次补查。" },
+    { id: "SUMMARY", title: "生成综合报告", requires: [], description: "汇总结果与缺口。" }];
+  const templateFixture = { id: "t1", repositoryId: "repo", repository: "acme/service", name: "只读 PR 检查",
+    tasks: [
+      { id: "REPOSITORY", title: "读取仓库概览", requires: [], after: [] },
+      { id: "PR", title: "审查固定 PR 版本", requires: ["REPOSITORY"], after: [] },
+      { id: "CHECK", title: "核对证据与版本", requires: [], after: ["REPOSITORY", "PR"] },
+      { id: "SUMMARY", title: "生成综合报告", requires: [], after: ["REPOSITORY", "PR", "CHECK"] }],
+    revision: 1, createdAt: "2026-10-25T00:00:00Z", updatedAt: "2026-10-25T00:00:00Z" };
+  calls.length = 0;
+  let openedRun = null;
+  context.window.workflowPanel.openRun = id => { openedRun = id; };
+  context.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.endsWith("/workflow-task-catalog")) return { ok: true, json: async () => catalogFixture };
+    if (url.endsWith("/workflow-templates") && options.method === "POST") return { ok: true, json: async () => templateFixture };
+    if (url.endsWith("/workflow-templates") && options.method === "DELETE") return { ok: true, json: async () => ({}) };
+    if (url.endsWith("/workflow-templates")) return { ok: true, json: async () => [templateFixture] };
+    if (url.endsWith("/plans") && options.method === "POST") return { ok: true, json: async () => ({ id: "plan-1", tasks: templateFixture.tasks }) };
+    if (url.endsWith("/workflows") && options.method === "POST") return { ok: true, json: async () => ({ id: "run-9" }) };
+    return { ok: true, json: async () => ({}) };
+  };
+  document.querySelector("#repository-select").events.change();
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  const taskBox = document.querySelector("#workflow-template-tasks");
+  assert.equal(taskBox.children.length, 7, "Catalog must render all seven tasks");
+  assert.equal(taskBox.children[6].children[0].disabled, true, "SUMMARY is mandatory and cannot be unchecked");
+  assert.equal(taskBox.children[6].children[0].checked, true);
+  assert.equal(taskBox.children[3].children[0].checked, false);
+  assert.equal(taskBox.children[1].children[0].checked, true);
+  const templateList = document.querySelector("#workflow-template-list");
+  assert.match(templateList.textContent, /只读 PR 检查/);
+  assert.match(templateList.textContent, /REPOSITORY → PR → CHECK → SUMMARY/);
+  assert.match(templateList.textContent, /创建计划时冻结/);
+  document.querySelector("#workflow-template-name").value = "CI 排障组合";
+  taskBox.children[3].children[0].checked = true;
+  document.querySelector("#workflow-template-create").disabled = false;
+  await vm.runInContext("createWorkflowTemplate({ preventDefault() {} })", context);
+  await new Promise(resolve => setImmediate(resolve));
+  const templatePost = calls.filter(call => call.url.endsWith("/workflow-templates") && call.options?.method === "POST");
+  assert.equal(templatePost.length, 1);
+  assert.equal(templatePost[0].options.body, JSON.stringify({ name: "CI 排障组合",
+    tasks: [{ id: "REPOSITORY" }, { id: "PR" }, { id: "CI" }, { id: "CHECK" }, { id: "SUMMARY" }] }));
+  assert.match(document.querySelector("#development-notice").textContent, /模板已保存/);
+  document.querySelector("#template-task-t1").value = "7";
+  document.querySelector("#template-run-t1").value = "7";
+  const runRow = templateList.children[0].children[2];
+  await runRow.children[1].events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  const planPost = calls.find(call => call.url.endsWith("/plans") && call.options?.method === "POST");
+  assert.ok(planPost, "Template run must create a plan first");
+  assert.equal(planPost.options.body, JSON.stringify({ prNumber: 7 }));
+  const workflowPost = calls.find(call => call.url.endsWith("/workflows") && call.options?.method === "POST");
+  assert.ok(workflowPost, "Template run must start the workflow");
+  assert.equal(workflowPost.options.body, JSON.stringify({ planId: "plan-1" }));
+  assert.equal(openedRun, "run-9", "The started run must open in the workflow panel");
+  const deleteButton = runRow.children[2];
+  await deleteButton.events.click();
+  assert.equal(deleteButton.textContent, "确认删除", "Delete needs a second confirming click");
+  assert.equal(calls.filter(call => call.options?.method === "DELETE").length, 0);
+  await deleteButton.events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(calls.some(call => call.url.endsWith("/workflow-templates/t1") && call.options?.method === "DELETE"));
+  taskBox.children[0].children[0].checked = false;
+  taskBox.children[1].children[0].checked = false;
+  taskBox.children[3].children[0].checked = false;
+  taskBox.children[4].children[0].checked = false;
+  taskBox.children[0].children[0].events.change();
+  assert.equal(document.querySelector("#workflow-template-create").disabled, true, "Saving requires at least one task besides SUMMARY");
+  console.log("Development workflow templates passed: catalog selection, save, frozen plan run and two-step delete");
 })().catch(error=>{console.error(error);process.exitCode=1;});
 
