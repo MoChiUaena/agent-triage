@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -44,6 +45,26 @@ public class OperationDraftStore {
             return jdbc.update("UPDATE operation_drafts SET state='DISCARDED', updated_at=?, payload=? WHERE id=? AND state='DRAFT'",
                 Timestamp.from(discarded.updatedAt()), json.writeValueAsString(discarded), id.toString()) == 1;
         } catch (java.io.IOException error) { throw new IllegalStateException("Cannot encode operation draft", error); }
+    }
+
+    /** Claims an active draft for execution (DRAFT -> EXECUTING) to prevent duplicate submissions. */
+    public boolean claim(UUID id, Instant now) {
+        return jdbc.update("UPDATE operation_drafts SET state='EXECUTING', updated_at=? WHERE id=? AND state='DRAFT'",
+            Timestamp.from(now), id.toString()) == 1;
+    }
+
+    /** Finalizes a claimed draft as executed (EXECUTING -> EXECUTED) with its final payload. */
+    public boolean complete(UUID id, Draft executed) {
+        try {
+            return jdbc.update("UPDATE operation_drafts SET state='EXECUTED', updated_at=?, payload=? WHERE id=? AND state='EXECUTING'",
+                Timestamp.from(executed.updatedAt()), json.writeValueAsString(executed), id.toString()) == 1;
+        } catch (java.io.IOException error) { throw new IllegalStateException("Cannot encode operation draft", error); }
+    }
+
+    /** Releases a claimed draft back to DRAFT after a failed or uncertain attempt. */
+    public boolean revert(UUID id, Instant now) {
+        return jdbc.update("UPDATE operation_drafts SET state='DRAFT', updated_at=? WHERE id=? AND state='EXECUTING'",
+            Timestamp.from(now), id.toString()) == 1;
     }
 
     public List<Draft> list(UUID repositoryId) {
