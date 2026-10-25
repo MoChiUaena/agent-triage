@@ -89,5 +89,66 @@ context.requestedParameters=new URL("http://localhost/development.html?repositor
   const unsafe = vm.runInContext("link('run', 'javascript:alert(1)').href", context);
   assert.equal(unsafe, undefined, "Failing run links must reject unsafe URLs");
   console.log("Development original-report links passed: saved report opening, stale scope guard and rule-based health summary");
+  // R1：研发活动报告——日期范围生成、来源跳转、本机报告重开、缺口渲染、历史重开与 Markdown 导出。
+  const activityFixture = { id: "a1", repositoryId: "repo", repository: "acme/service", createdAt: "2026-10-24T00:00:00Z",
+    fromDate: "2026-10-13", toDate: "2026-10-13", stale: false, snapshotReadAt: "2026-10-13T12:00:00Z",
+    days: [{ date: "2026-10-13", items: [
+      { kind: "COMMIT", title: "Fix login timeout", detail: "dev · aaaaaaa", url: "https://github.com/acme/service/commit/" + "a".repeat(40), reportType: null, reportId: null, at: "2026-10-13T12:00:00Z" },
+      { kind: "CI_REPORT", title: "Verify / Build", detail: "本机 CI 排障报告", url: "https://github.com/acme/service/actions/runs/9901/job/777", reportType: "ci", reportId: "local-1", at: "2026-10-13T06:00:00Z" },
+      { kind: "ISSUE", title: "<img src=x onerror=alert(1)>", detail: "", url: "javascript:alert(1)", reportType: null, reportId: null, at: "2026-10-13T05:00:00Z" }] }],
+    actionItems: [{ kind: "FAILING_WORKFLOW", title: "Verify", detail: "结论 failure · main", url: "https://github.com/acme/service/actions/runs/9" },
+      { kind: "OPEN_ISSUE", title: "#7 Slow request", detail: "bug", url: "https://github.com/acme/service/issues/7" }],
+    localRecords: [{ kind: "CI", inRange: 1, saved: 1, latestInRangeAt: "2026-10-13T06:00:00Z" }],
+    gaps: ["提交区段未读取：GitHub 未允许读取这部分数据，请检查访问权限。本报告不含该区段数据，不代表该时段没有相关活动。"],
+    notes: ["提交、Issue、PR 与工作流来自快照抽样（各最多 20 条；Issue 与 PR 仅开放状态），仅覆盖已读取样本，完整列表以 GitHub 为准。"] };
+  const activityHistory = [{ ...activityFixture, id: "a0" }];
+  calls.length = 0;
+  context.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.endsWith("/activity-reports") && options.method === "POST") return { ok: true, json: async () => activityFixture };
+    if (url.endsWith("/activity-reports")) return { ok: true, json: async () => activityHistory };
+    if (url.includes("/markdown")) return { ok: true, text: async () => "# 研发活动报告 · acme/service\n" };
+    if (url.endsWith("/health-summaries")) return { ok: true, json: async () => history };
+    return { ok: true, json: async () => ({}) };
+  };
+  document.querySelector("#repository-select").events.change();
+  await new Promise(resolve => setImmediate(resolve));
+  document.querySelector("#activity-from").value = "2026-10-13";
+  document.querySelector("#activity-to").value = "2026-10-13";
+  document.querySelector("#activity-generate").disabled = false;
+  await vm.runInContext("generateActivityReport({ preventDefault() {} })", context);
+  await new Promise(resolve => setImmediate(resolve));
+  const activityCalls = calls.filter(call => call.url.endsWith("/activity-reports") && call.options?.method === "POST");
+  assert.equal(activityCalls.length, 1, "Activity report generation must not repeat");
+  assert.equal(activityCalls[0].options.body, JSON.stringify({ fromDate: "2026-10-13", toDate: "2026-10-13" }));
+  assert.equal(activityCalls[0].options.headers["X-Triage-Development"], "1");
+  const activityResult = document.querySelector("#activity-result");
+  assert.equal(activityResult.hidden, false);
+  assert.match(activityResult.textContent, /Fix login timeout/);
+  assert.match(activityResult.textContent, /Verify \/ Build/);
+  assert.match(activityResult.textContent, /打开本机报告/);
+  assert.match(activityResult.textContent, /待处理事项/);
+  assert.match(activityResult.textContent, /#7 Slow request/);
+  assert.match(activityResult.textContent, /CI 排障 范围内 1 条（窗口 1 条，最多 20 条）/);
+  assert.match(activityResult.textContent, /读取缺口/);
+  assert.match(activityResult.textContent, /提交区段未读取/);
+  assert.match(activityResult.textContent, /完整列表以 GitHub 为准/);
+  assert.match(activityResult.textContent, /<img src=x onerror=alert\(1\)>/);
+  assert.doesNotMatch(activityResult.textContent, /href="javascript/);
+  assert.equal(document.querySelector("#activity-history-box").hidden, false);
+  assert.match(document.querySelector("#activity-history").children[0].textContent, /2026-10-13 至 2026-10-13/);
+  document.querySelector("#activity-history").children[0].events.click();
+  assert.match(activityResult.textContent, /Fix login timeout/, "History reopen must re-render the saved report");
+  const exportPending = vm.runInContext("exportActivityMarkdown()", context);
+  await exportPending; await new Promise(resolve => setImmediate(resolve));
+  const markdownCall = calls.find(call => call.url.includes("/markdown"));
+  assert.ok(markdownCall, "Markdown export must call the export endpoint");
+  assert.ok(markdownCall.url.endsWith("/api/development/activity-reports/a0/markdown"), "Export follows the reopened report");
+  assert.match(document.querySelector("#development-notice").textContent, /Markdown 已生成/);
+  context.emptyActivity = { ...activityFixture, days: [], gaps: [] };
+  vm.runInContext("renderActivityReport(emptyActivity)", context);
+  assert.match(activityResult.textContent, /所选日期范围内没有匹配的活动记录/);
+  assert.doesNotMatch(activityResult.textContent, /读取缺口/);
+  console.log("Development activity report passed: dated generation, source links, local report reopen, gaps, history and Markdown export");
 })().catch(error=>{console.error(error);process.exitCode=1;});
 

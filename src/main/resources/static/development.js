@@ -89,7 +89,125 @@ async function generateHealthSummary() {
   finally { if (current === selectionVersion) setHealthBusy(false); }
 }
 $("#health-generate").addEventListener("click", generateHealthSummary);
-$("#repository-select").addEventListener("change", () => setHealthBusy(!$("#repository-select").value));
+$("#repository-select").addEventListener("change", () => { setHealthBusy(!$("#repository-select").value); setActivityBusy(!$("#repository-select").value); });
+const ACTIVITY_KINDS = { COMMIT: "提交", ISSUE: "Issue", PULL_REQUEST: "PR", WORKFLOW: "工作流",
+  CI_REPORT: "CI 排障报告", PR_REPORT: "PR 审查报告", ISSUE_REPORT: "Issue 分诊报告" };
+const ACTION_KINDS = { FAILING_WORKFLOW: "失败工作流", OPEN_ISSUE: "开放 Issue", OPEN_PULL_REQUEST: "开放 PR" };
+let activityReport = null;
+function setActivityBusy(value) {
+  for (const id of ["#activity-generate", "#activity-today", "#activity-week"]) $(id).disabled = value || !$("#repository-select").value;
+}
+function localIso(date) {
+  const pad = value => String(value).padStart(2, "0");
+  return date.getFullYear() + "-" + pad(date.getMonth() + 1) + "-" + pad(date.getDate());
+}
+function activityRow(item) {
+  const row = element("li");
+  row.append(element("span", (ACTIVITY_KINDS[item.kind] || item.kind) + " · ", "repository-label"), link(item.title, item.url));
+  if (item.detail) row.append(element("small", " " + item.detail));
+  if (item.reportId) {
+    const open = element("button", "打开本机报告", "secondary ci-open-button"); open.type = "button";
+    open.addEventListener("click", () => {
+      window.location.href = "/development.html?repository=" + encodeURIComponent(activityReport.repositoryId)
+        + "&reportType=" + item.reportType + "&report=" + encodeURIComponent(item.reportId);
+    });
+    row.append(open);
+  }
+  return row;
+}
+function renderActivityReport(report) {
+  activityReport = report;
+  const target = $("#activity-result"); target.hidden = false; target.replaceChildren();
+  const heading = element("div", null, "repository-heading");
+  heading.append(element("h3", "活动报告 · " + report.fromDate + " 至 " + report.toDate),
+    element("span", report.stale ? "快照过期或上次读取失败" : "快照有效", "repository-label"));
+  target.append(heading);
+  target.append(element("p", "生成于 " + time(report.createdAt) + " · 快照读取 " + time(report.snapshotReadAt), "management-caption"));
+  if (!report.days.length) target.append(element("p", "所选日期范围内没有匹配的活动记录。"));
+  for (const day of report.days) {
+    target.append(element("h4", day.date));
+    const list = element("ul");
+    for (const item of day.items) list.append(activityRow(item));
+    target.append(list);
+  }
+  target.append(element("h4", "待处理事项"));
+  if (!report.actionItems.length) target.append(element("p", "当前快照抽样内没有待处理事项。"));
+  else {
+    const actions = element("ul");
+    for (const item of report.actionItems) {
+      const row = element("li");
+      row.append(element("span", (ACTION_KINDS[item.kind] || item.kind) + " · ", "repository-label"), link(item.title, item.url));
+      if (item.detail) row.append(element("small", " " + item.detail));
+      actions.append(row);
+    }
+    target.append(actions);
+  }
+  target.append(element("p", report.localRecords.map(record =>
+    (record.kind === "CI" ? "CI 排障" : record.kind === "PR" ? "PR 审查" : "Issue 分诊")
+    + " 范围内 " + record.inRange + " 条（窗口 " + record.saved + " 条，最多 20 条）").join(" · "), "management-caption"));
+  if (report.gaps.length) {
+    target.append(element("h4", "读取缺口"));
+    const gaps = element("ul");
+    for (const gap of report.gaps) gaps.append(element("li", gap, "repository-error"));
+    target.append(gaps);
+  }
+  target.append(element("h4", "说明"));
+  const notes = element("ul");
+  for (const note of report.notes) notes.append(element("li", note, "management-caption"));
+  target.append(notes);
+  const exportButton = element("button", "导出 Markdown", "secondary"); exportButton.type = "button";
+  exportButton.addEventListener("click", exportActivityMarkdown);
+  target.append(exportButton);
+}
+async function loadActivityReports(id, current) {
+  try {
+    const values = await request("/api/development/repositories/" + encodeURIComponent(id) + "/activity-reports");
+    if (current !== selectionVersion) return;
+    const target = $("#activity-history"); target.replaceChildren();
+    $("#activity-history-box").hidden = !values.length;
+    for (const report of values) {
+      const row = element("button", report.fromDate + " 至 " + report.toDate + " · " + time(report.createdAt)
+        + (report.stale ? " · 快照过期" : ""), "ci-history-item");
+      row.type = "button"; row.addEventListener("click", () => renderActivityReport(report));
+      target.append(row);
+    }
+  } catch (error) { if (current === selectionVersion) notice("活动报告历史读取失败：" + error.message, true); }
+}
+async function generateActivityReport(event) {
+  event.preventDefault();
+  if (busy) return; const id = $("#repository-select").value; if (!id) return;
+  const from = $("#activity-from").value, to = $("#activity-to").value;
+  if (!from || !to) { notice("请选择开始与结束日期。", true); return; }
+  const current = selectionVersion; setActivityBusy(true); notice("正在按规则生成活动报告…");
+  try {
+    const report = await request("/api/development/repositories/" + encodeURIComponent(id) + "/activity-reports",
+      { method: "POST", headers: writeHeaders, body: JSON.stringify({ fromDate: from, toDate: to }) });
+    if (current !== selectionVersion) return;
+    renderActivityReport(report); await loadActivityReports(id, current);
+    notice("活动报告已生成：基于快照与本机记录，未访问 GitHub 或调用模型。");
+  } catch (error) { if (current === selectionVersion) notice(error.message, true); }
+  finally { if (current === selectionVersion) setActivityBusy(false); }
+}
+async function exportActivityMarkdown() {
+  if (!activityReport) return;
+  try {
+    const response = await fetch("/api/development/activity-reports/" + encodeURIComponent(activityReport.id) + "/markdown",
+      { headers: { "X-Triage-Development": "1" } });
+    if (!response.ok) throw new Error("请求失败 (" + response.status + ")");
+    const text = await response.text();
+    if (typeof Blob === "function" && typeof URL.createObjectURL === "function") {
+      const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=UTF-8" }));
+      const anchor = element("a"); anchor.href = url; anchor.download = "activity-report-" + activityReport.id + ".md";
+      if (document.body?.append) { document.body.append(anchor); anchor.click?.(); URL.revokeObjectURL(url); }
+      notice("Markdown 已导出（仅本机下载，未发送任何内容）。");
+    } else notice("Markdown 已生成 " + text.length + " 字符（当前环境不支持文件下载）。");
+  } catch (error) { notice("Markdown 导出失败：" + error.message, true); }
+}
+$("#activity-form").addEventListener("submit", generateActivityReport);
+$("#activity-today").addEventListener("click", () => { const today = localIso(new Date()); $("#activity-from").value = today; $("#activity-to").value = today; });
+$("#activity-week").addEventListener("click", () => {
+  const now = new Date(); $("#activity-to").value = localIso(now); $("#activity-from").value = localIso(new Date(now.getTime() - 6 * 86400000));
+});
 function workflowState(run) {
   if (run.status !== "completed") return [run.status === "in_progress" ? "执行中" : run.status === "queued" ? "排队中" : "等待执行", "running"];
   if (run.conclusion === "success") return ["通过", "success"];
@@ -157,7 +275,8 @@ async function loadHealth() {
   window.issuePanel?.selectRepository(id);
   window.prPanel?.selectRepository(id);
   setHealthBusy(!!id); $("#health-summary-result").hidden = true; $("#health-summary-history").replaceChildren(); $("#health-summary-history-box").hidden = true;
-  if (id) loadHealthSummaries(id, version);
+  activityReport = null; setActivityBusy(!!id); $("#activity-result").hidden = true; $("#activity-history").replaceChildren(); $("#activity-history-box").hidden = true;
+  if (id) { loadHealthSummaries(id, version); loadActivityReports(id, version); }
   if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; window.ciPanel?.selectRepository(""); setBusy(false); return; }
   setBusy(true);
   try { const snapshot = await request("/api/development/repositories/" + id + "/health"); if (version === selectionVersion) renderHealth(snapshot); }

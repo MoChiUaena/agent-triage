@@ -43,6 +43,19 @@
           <div id="health-summary-result" hidden></div>
           <details id="health-summary-history-box" hidden><summary>本仓库的摘要历史（最近 20 份）</summary><div id="health-summary-history"></div></details>
         </section>
+        <section class="management-card" aria-labelledby="activity-heading">
+          <div class="management-heading"><h2 id="activity-heading">研发活动报告</h2><span class="repository-label">规则汇总 · 日报 / 周报</span></div>
+          <p class="management-caption">按日期范围整理提交、Issue、PR、CI 与本机分析记录：每项活动标注来源并可跳转原文或重开本机报告；生成只读快照与本机记录，不访问 GitHub、不调用模型；可导出 Markdown，仅本机下载。回写知识库选项未启用（后续按 K1 版本机制导入，默认关闭）；不自动发送邮件或评论。</p>
+          <form id="activity-form" class="workflow-form">
+            <label>开始日期<input id="activity-from" type="date" required /></label>
+            <label>结束日期<input id="activity-to" type="date" required /></label>
+            <button type="button" class="secondary" id="activity-today">今天</button>
+            <button type="button" class="secondary" id="activity-week">最近 7 天</button>
+            <button id="activity-generate" class="primary" type="submit" disabled>生成活动报告</button>
+          </form>
+          <div id="activity-result" hidden></div>
+          <details id="activity-history-box" hidden><summary>本仓库的活动报告历史（最近 20 份）</summary><div id="activity-history"></div></details>
+        </section>
         <section class="management-card workflow-setup" aria-labelledby="workflow-heading"><div class="management-heading"><h2 id="workflow-heading">PR 协同检查</h2><span class="repository-label">依赖任务与综合报告</span></div><p class="management-caption">组合仓库、PR、Issue 和 CI 分析，先确认计划再执行。已有报告保留原版本，不发起新的模型调用。</p>
           <p id="workflow-notice" class="settings-notice" role="status" hidden></p>
           <form id="workflow-plan-form" class="workflow-form"><label>PR 编号<input id="workflow-pr-number" type="number" min="1" max="2147483647" required placeholder="例如 7" /></label><label>Issue 编号（可选）<input id="workflow-issue-number" type="number" min="1" max="2147483647" placeholder="留空使用 PR 明确引用" /></label><label>Issue 材料<select id="workflow-issue-report"></select></label><label>CI 材料<select id="workflow-ci-report"></select></label><button id="workflow-plan-button" class="primary" type="submit">生成执行计划</button></form>
@@ -121,7 +134,7 @@
       </section>
     </main>
   </div>
-  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照、CI、PR、Issue 报告与协同工作流。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
+  <dialog id="remove-repository-dialog" aria-labelledby="remove-heading"><form id="remove-repository-form"><div class="dialog-heading"><h2 id="remove-heading">移除仓库登记</h2></div><div class="dialog-content"><p id="remove-detail"></p><p class="management-caption">会删除本机保存的概览快照、CI/PR/Issue 报告、健康摘要、活动报告与协同工作流。GitHub 仓库和其中的内容不会删除。</p></div><div class="dialog-actions"><button class="secondary" type="button" id="cancel-remove">保留登记</button><button class="danger-button" type="submit">确认移除</button></div></form></dialog>
   <dialog id="workflow-plan-dialog" aria-labelledby="workflow-plan-heading"><div class="dialog-heading"><h2 id="workflow-plan-heading">确认执行计划</h2><button id="workflow-close-plan" type="button" class="secondary">返回修改</button></div><div class="dialog-content"><pre id="workflow-plan-context" class="pr-dialog-versions"></pre><ol id="workflow-plan-tasks" class="workflow-plan-tasks"></ol><p id="workflow-plan-notice" class="management-caption"></p><p class="management-caption">计划五分钟内有效，所有外部读取均为只读操作。任务失败仍会生成包含缺口的综合报告。</p></div><div class="dialog-actions"><button id="workflow-execute" type="button" class="primary" disabled>执行工作流</button></div></dialog>
   <dialog id="issue-triage-dialog" aria-labelledby="issue-dialog-title"><form id="issue-generate-form"><div class="dialog-heading"><h2 id="issue-dialog-title">Issue 分诊</h2><button class="secondary" id="issue-close-dialog" type="button">关闭</button></div><div class="dialog-content">
     <p id="issue-preview-title"></p><p id="issue-preview-version" class="ci-report-meta"></p><p id="issue-dialog-notice" class="settings-notice" role="status" hidden></p>
