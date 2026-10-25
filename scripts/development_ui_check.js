@@ -150,5 +150,71 @@ context.requestedParameters=new URL("http://localhost/development.html?repositor
   assert.match(activityResult.textContent, /所选日期范围内没有匹配的活动记录/);
   assert.doesNotMatch(activityResult.textContent, /读取缺口/);
   console.log("Development activity report passed: dated generation, source links, local report reopen, gaps, history and Markdown export");
+  // W1：操作草稿——依据加载、生成、未执行标识、修订保存与 409、丢弃、PR 依据的标签限制与安全文本。
+  const draftFixture = { id: "d1", repositoryId: "repo", repository: "acme/service", kind: "COMMENT",
+    target: { objectType: "ISSUE", number: 7, title: "Slow request", url: "https://github.com/acme/service/issues/7", headSha: null, updatedAt: "2026-10-13T12:00:00Z" },
+    basis: { type: "ISSUE_REPORT", reportId: "r1", title: "Issue 分诊 #7 <img src=x onerror=alert(1)>", createdAt: "2026-10-13T06:00:00Z" },
+    body: "草稿正文 <img src=x onerror=alert(1)>", addLabels: [], removeLabels: [], state: "DRAFT", revision: 1,
+    createdAt: "2026-10-24T00:00:00Z", updatedAt: "2026-10-24T00:00:00Z" };
+  const labelDraftFixture = { ...draftFixture, id: "d2", kind: "LABEL", body: "标签说明", addLabels: ["BUG"], removeLabels: [] };
+  calls.length = 0;
+  context.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.includes("/issue/reports")) return { ok: true, json: async () => [{ id: "basis-1", issue: { number: 7, title: "Slow request" } }] };
+    if (url.includes("/pr/reports")) return { ok: true, json: async () => [{ id: "basis-2", pull: { number: 8, title: "Fix" } }] };
+    if (url.endsWith("/drafts") && options.method === "POST") return { ok: true, json: async () => draftFixture };
+    if (url.endsWith("/drafts")) return { ok: true, json: async () => [draftFixture, labelDraftFixture] };
+    if (/\/drafts\/d1$/.test(url) && options.method === "PUT") return { ok: true, json: async () => ({ ...draftFixture, revision: 2, body: "更新后的草稿正文" }) };
+    if (/\/drafts\/d2$/.test(url) && options.method === "PUT") return { ok: false, status: 409, json: async () => ({ detail: "草稿已被其他修改更新，请刷新后重试。" }) };
+    if (url.endsWith("/discard")) return { ok: true, json: async () => ({ ...draftFixture, state: "DISCARDED" }) };
+    return { ok: true, json: async () => ({}) };
+  };
+  document.querySelector("#repository-select").events.change();
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  const basisSelect = document.querySelector("#draft-basis");
+  assert.match(basisSelect.children.map(child => child.textContent).join("|"), /Issue 分诊 #7 Slow request\|PR 审查 #8 Fix/);
+  const draftList = document.querySelector("#draft-list");
+  assert.equal(draftList.children.length, 2);
+  assert.match(draftList.textContent, /评论草稿 · Issue #7/);
+  assert.match(draftList.textContent, /标签草稿 · Issue #7/);
+  assert.match(draftList.textContent, /草稿 · 未执行/);
+  assert.match(draftList.textContent, /依据：Issue 分诊 #7 <img src=x onerror=alert\(1\)>/);
+  assert.match(draftList.children[0].children[4].children[0].value, /草稿正文 <img src=x onerror=alert\(1\)>/, "Body stays a plain value, never innerHTML");
+  assert.match(draftList.textContent, /目标版本：更新于/);
+  assert.match(draftList.textContent, /修订 1/);
+  basisSelect.value = "ISSUE_REPORT:basis-1";
+  document.querySelector("#draft-kind").value = "COMMENT";
+  document.querySelector("#draft-create").disabled = false;
+  await vm.runInContext("createDraft({ preventDefault() {} })", context);
+  await new Promise(resolve => setImmediate(resolve));
+  const draftPost = calls.filter(call => call.url.endsWith("/drafts") && call.options?.method === "POST");
+  assert.equal(draftPost.length, 1, "Draft creation must not repeat");
+  assert.equal(draftPost[0].options.body, JSON.stringify({ kind: "COMMENT", basisReportId: "basis-1" }));
+  assert.equal(draftPost[0].options.headers["X-Triage-Development"], "1");
+  assert.match(document.querySelector("#development-notice").textContent, /不会发布到 GitHub/);
+  const commentCard = draftList.children[0];
+  const commentControls = commentCard.children[5];
+  await commentControls.children[0].events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  const draftPut = calls.find(call => /\/drafts\/d1$/.test(call.url) && call.options?.method === "PUT");
+  assert.ok(draftPut, "Draft save must call the update endpoint");
+  assert.equal(draftPut.options.body, JSON.stringify({ revision: 1, body: draftFixture.body }));
+  assert.match(commentControls.children[2].textContent, /已保存（修订 2）；草稿仍未执行。/);
+  const labelCard = draftList.children[1];
+  const labelControls = labelCard.children[7];
+  await labelControls.children[0].events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(labelControls.children[2].textContent, /刷新后重试/);
+  await commentControls.children[1].events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  const discardCall = calls.find(call => call.url.endsWith("/drafts/d1/discard"));
+  assert.ok(discardCall, "Discard must call the discard endpoint");
+  assert.match(document.querySelector("#development-notice").textContent, /未对 GitHub 执行任何操作/);
+  vm.runInContext("draftBasis.push({ type: 'PR_REPORT', id: 'p1', label: 'PR' }); $('#draft-basis').value = 'PR_REPORT:p1'; $('#draft-kind').value = 'LABEL'; syncDraftKind()", context);
+  assert.equal(vm.runInContext("$('#draft-kind').value", context), "COMMENT", "PR basis must not offer label drafts");
+  assert.match(document.querySelector("#draft-kind-note").textContent, /标签草稿仅支持 Issue 分诊报告/);
+  console.log("Development drafts passed: basis loading, dated creation, revision save with 409 handling, discard and safe text");
 })().catch(error=>{console.error(error);process.exitCode=1;});
 

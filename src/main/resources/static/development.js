@@ -89,7 +89,7 @@ async function generateHealthSummary() {
   finally { if (current === selectionVersion) setHealthBusy(false); }
 }
 $("#health-generate").addEventListener("click", generateHealthSummary);
-$("#repository-select").addEventListener("change", () => { setHealthBusy(!$("#repository-select").value); setActivityBusy(!$("#repository-select").value); });
+$("#repository-select").addEventListener("change", () => { setHealthBusy(!$("#repository-select").value); setActivityBusy(!$("#repository-select").value); setDraftBusy(!$("#repository-select").value); });
 const ACTIVITY_KINDS = { COMMIT: "提交", ISSUE: "Issue", PULL_REQUEST: "PR", WORKFLOW: "工作流",
   CI_REPORT: "CI 排障报告", PR_REPORT: "PR 审查报告", ISSUE_REPORT: "Issue 分诊报告" };
 const ACTION_KINDS = { FAILING_WORKFLOW: "失败工作流", OPEN_ISSUE: "开放 Issue", OPEN_PULL_REQUEST: "开放 PR" };
@@ -208,6 +208,135 @@ $("#activity-today").addEventListener("click", () => { const today = localIso(ne
 $("#activity-week").addEventListener("click", () => {
   const now = new Date(); $("#activity-to").value = localIso(now); $("#activity-from").value = localIso(new Date(now.getTime() - 6 * 86400000));
 });
+const DRAFT_KINDS = { COMMENT: "评论草稿", LABEL: "标签草稿" };
+let draftBasis = [];
+function setDraftBusy(value) {
+  $("#draft-create").disabled = value || !$("#repository-select").value || !$("#draft-basis").value;
+}
+function selectedBasis() { return draftBasis.find(basis => $("#draft-basis").value === basis.type + ":" + basis.id) || null; }
+function syncDraftKind() {
+  const basis = selectedBasis();
+  if (basis && basis.type === "PR_REPORT" && $("#draft-kind").value === "LABEL") $("#draft-kind").value = "COMMENT";
+  $("#draft-kind-note").textContent = basis && basis.type === "PR_REPORT" ? "标签草稿仅支持 Issue 分诊报告作为依据（提交时服务端同样校验）。" : "";
+}
+async function loadDraftBasisOptions(id, current) {
+  const target = $("#draft-basis");
+  try {
+    const [issues, pulls] = await Promise.all([
+      request("/api/development/repositories/" + encodeURIComponent(id) + "/issue/reports"),
+      request("/api/development/repositories/" + encodeURIComponent(id) + "/pr/reports")]);
+    if (current !== selectionVersion) return;
+    draftBasis = [
+      ...issues.map(report => ({ type: "ISSUE_REPORT", id: report.id, label: "Issue 分诊 #" + report.issue.number + " " + report.issue.title })),
+      ...pulls.map(report => ({ type: "PR_REPORT", id: report.id, label: "PR 审查 #" + report.pull.number + " " + report.pull.title }))];
+    target.replaceChildren();
+    const empty = element("option", draftBasis.length ? "选择依据报告" : "本仓库暂无已保存的 Issue / PR 报告");
+    empty.value = ""; target.append(empty);
+    for (const basis of draftBasis) {
+      const option = element("option", basis.label);
+      option.value = basis.type + ":" + basis.id;
+      target.append(option);
+    }
+  } catch (error) {
+    if (current === selectionVersion) { draftBasis = []; target.replaceChildren(element("option", "依据报告读取失败")); }
+  } finally { if (current === selectionVersion) { syncDraftKind(); setDraftBusy(false); } }
+}
+function draftCard(draft) {
+  const card = element("article", null, "management-card");
+  const heading = element("div", null, "repository-heading");
+  heading.append(element("h4", (DRAFT_KINDS[draft.kind] || draft.kind) + " · " + (draft.target.objectType === "ISSUE" ? "Issue" : "PR") + " #" + draft.target.number),
+    element("span", "草稿 · 未执行", "repository-label"));
+  card.append(heading);
+  const targetRow = element("p");
+  targetRow.append(element("span", "目标：", "repository-label"), link(draft.target.title, draft.target.url));
+  card.append(targetRow);
+  const basisRow = element("p", null, "management-caption");
+  basisRow.append(element("span", "依据：" + draft.basis.title + "（" + time(draft.basis.createdAt) + " 保存）"));
+  const basisOpen = element("button", "查看依据报告", "secondary ci-open-button"); basisOpen.type = "button";
+  basisOpen.addEventListener("click", () => {
+    window.location.href = "/development.html?repository=" + encodeURIComponent(draft.repositoryId)
+      + "&reportType=" + (draft.basis.type === "ISSUE_REPORT" ? "issue" : "pr") + "&report=" + encodeURIComponent(draft.basis.reportId);
+  });
+  basisRow.append(basisOpen);
+  card.append(basisRow);
+  card.append(element("p", "目标版本：" + (draft.target.headSha ? "head " + draft.target.headSha.substring(0, 7) : "更新于 " + time(draft.target.updatedAt))
+    + " · 修订 " + draft.revision + " · 更新 " + time(draft.updatedAt), "management-caption"));
+  const bodyLabel = element("label", draft.kind === "LABEL" ? "标签说明（可选）" : "评论正文", "management-caption");
+  const bodyInput = element("textarea");
+  bodyInput.value = draft.body; bodyInput.rows = draft.kind === "LABEL" ? 2 : 6;
+  bodyLabel.append(bodyInput); card.append(bodyLabel);
+  let addInput = null, removeInput = null;
+  if (draft.kind === "LABEL") {
+    const addRow = element("label", "添加标签（逗号分隔，最多 10 个）", "management-caption");
+    addInput = element("input"); addInput.value = draft.addLabels.join(", ");
+    addRow.append(addInput); card.append(addRow);
+    const removeRow = element("label", "移除标签（逗号分隔，最多 10 个）", "management-caption");
+    removeInput = element("input"); removeInput.value = draft.removeLabels.join(", ");
+    removeRow.append(removeInput); card.append(removeRow);
+  }
+  const controls = element("div", null, "workflow-controls");
+  const save = element("button", "保存修改", "primary"); save.type = "button";
+  const discardButton = element("button", "丢弃草稿", "secondary"); discardButton.type = "button";
+  const note = element("span", "", "management-caption");
+  controls.append(save, discardButton, note); card.append(controls);
+  const labelValues = value => value.split(",").map(item => item.trim()).filter(Boolean);
+  save.addEventListener("click", async () => {
+    save.disabled = true;
+    try {
+      const updated = await request("/api/development/drafts/" + encodeURIComponent(draft.id), {
+        method: "PUT", headers: writeHeaders,
+        body: JSON.stringify(draft.kind === "COMMENT"
+          ? { revision: draft.revision, body: bodyInput.value }
+          : { revision: draft.revision, body: bodyInput.value, addLabels: labelValues(addInput.value), removeLabels: labelValues(removeInput.value) }) });
+      draft = updated; bodyInput.value = updated.body;
+      if (updated.kind === "LABEL") { addInput.value = updated.addLabels.join(", "); removeInput.value = updated.removeLabels.join(", "); }
+      note.textContent = "已保存（修订 " + updated.revision + "）；草稿仍未执行。";
+      refreshDraftsQuietly();
+    } catch (error) { note.textContent = error.message; }
+    finally { save.disabled = false; }
+  });
+  discardButton.addEventListener("click", async () => {
+    discardButton.disabled = true;
+    try {
+      await request("/api/development/drafts/" + encodeURIComponent(draft.id) + "/discard", { method: "POST", headers: writeHeaders });
+      notice("草稿已丢弃；未对 GitHub 执行任何操作。");
+      await refreshDraftsQuietly();
+    } catch (error) { notice(error.message, true); discardButton.disabled = false; }
+  });
+  return card;
+}
+async function loadDrafts(id, current) {
+  try {
+    const values = await request("/api/development/repositories/" + encodeURIComponent(id) + "/drafts");
+    if (current !== selectionVersion) return;
+    const target = $("#draft-list"); target.replaceChildren();
+    if (!values.length) { target.append(element("p", "暂无未丢弃的草稿。可从一份已保存的分诊或审查报告生成第一条草稿。")); return; }
+    for (const draft of values) target.append(draftCard(draft));
+  } catch (error) { if (current === selectionVersion) notice("草稿列表读取失败：" + error.message, true); }
+}
+async function refreshDraftsQuietly() {
+  const id = $("#repository-select").value; if (!id) return;
+  await loadDrafts(id, selectionVersion);
+}
+async function createDraft(event) {
+  event.preventDefault();
+  if (busy) return;
+  const id = $("#repository-select").value; if (!id) return;
+  const basis = selectedBasis();
+  if (!basis) { notice("请选择依据报告。", true); return; }
+  const current = selectionVersion; setDraftBusy(true); notice("正在从本机报告生成草稿…");
+  try {
+    await request("/api/development/repositories/" + encodeURIComponent(id) + "/drafts",
+      { method: "POST", headers: writeHeaders, body: JSON.stringify({ kind: $("#draft-kind").value, basisReportId: basis.id }) });
+    if (current !== selectionVersion) return;
+    notice("草稿已生成（未执行）：保存在本机，不会发布到 GitHub。");
+    await loadDrafts(id, current);
+  } catch (error) { if (current === selectionVersion) notice(error.message, true); }
+  finally { if (current === selectionVersion) setDraftBusy(false); }
+}
+$("#draft-form").addEventListener("submit", createDraft);
+$("#draft-basis").addEventListener("change", () => { syncDraftKind(); setDraftBusy(false); });
+$("#draft-kind").addEventListener("change", syncDraftKind);
 function workflowState(run) {
   if (run.status !== "completed") return [run.status === "in_progress" ? "执行中" : run.status === "queued" ? "排队中" : "等待执行", "running"];
   if (run.conclusion === "success") return ["通过", "success"];
@@ -276,7 +405,8 @@ async function loadHealth() {
   window.prPanel?.selectRepository(id);
   setHealthBusy(!!id); $("#health-summary-result").hidden = true; $("#health-summary-history").replaceChildren(); $("#health-summary-history-box").hidden = true;
   activityReport = null; setActivityBusy(!!id); $("#activity-result").hidden = true; $("#activity-history").replaceChildren(); $("#activity-history-box").hidden = true;
-  if (id) { loadHealthSummaries(id, version); loadActivityReports(id, version); }
+  draftBasis = []; $("#draft-basis").replaceChildren(element("option", id ? "正在加载依据报告…" : "选择仓库后加载")); $("#draft-basis").value = ""; $("#draft-list").replaceChildren(); setDraftBusy(true);
+  if (id) { loadHealthSummaries(id, version); loadActivityReports(id, version); loadDrafts(id, version); loadDraftBasisOptions(id, version); }
   if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; window.ciPanel?.selectRepository(""); setBusy(false); return; }
   setBusy(true);
   try { const snapshot = await request("/api/development/repositories/" + id + "/health"); if (version === selectionVersion) renderHealth(snapshot); }

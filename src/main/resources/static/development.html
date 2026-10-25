@@ -56,6 +56,17 @@
           <div id="activity-result" hidden></div>
           <details id="activity-history-box" hidden><summary>本仓库的活动报告历史（最近 20 份）</summary><div id="activity-history"></div></details>
         </section>
+        <section class="management-card" aria-labelledby="drafts-heading">
+          <div class="management-heading"><h2 id="drafts-heading">GitHub 操作草稿</h2><span class="repository-label">草稿 · 未执行</span></div>
+          <p class="management-caption">从已保存的 Issue 分诊 / PR 审查报告生成本机草稿（评论或标签）：可编辑、保存或丢弃；依据报告与目标版本随草稿保存，编辑不改变来源关系。草稿不会发布到 GitHub，生成与编辑不调用任何写接口；执行需待受限写入与执行审计（W2）上线。创建 / 关闭 Issue 草稿为后续扩展。</p>
+          <form id="draft-form" class="workflow-form">
+            <label>依据报告<select id="draft-basis"><option value="">选择仓库后加载</option></select></label>
+            <label>草稿类型<select id="draft-kind"><option value="COMMENT">评论草稿</option><option value="LABEL">标签草稿</option></select></label>
+            <button id="draft-create" class="primary" type="submit" disabled>生成草稿</button>
+          </form>
+          <p class="management-caption" id="draft-kind-note"></p>
+          <div id="draft-list"></div>
+        </section>
         <section class="management-card workflow-setup" aria-labelledby="workflow-heading"><div class="management-heading"><h2 id="workflow-heading">PR 协同检查</h2><span class="repository-label">依赖任务与综合报告</span></div><p class="management-caption">组合仓库、PR、Issue 和 CI 分析，先确认计划再执行。已有报告保留原版本，不发起新的模型调用。</p>
           <p id="workflow-notice" class="settings-notice" role="status" hidden></p>
           <form id="workflow-plan-form" class="workflow-form"><label>PR 编号<input id="workflow-pr-number" type="number" min="1" max="2147483647" required placeholder="例如 7" /></label><label>Issue 编号（可选）<input id="workflow-issue-number" type="number" min="1" max="2147483647" placeholder="留空使用 PR 明确引用" /></label><label>Issue 材料<select id="workflow-issue-report"></select></label><label>CI 材料<select id="workflow-ci-report"></select></label><button id="workflow-plan-button" class="primary" type="submit">生成执行计划</button></form>
