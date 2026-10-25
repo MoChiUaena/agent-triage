@@ -13,7 +13,7 @@
 | 协同工作流 | 已有固定 PR 模板、依赖与状态、失败跳过、版本核验、一次补查、综合报告、取消和重启恢复；尚无任意任务图或自主修复 |
 | 对话与长期记忆 | 有执行历史，没有追问上下文或经确认的项目记忆 |
 | 研发周报 | 已实现按仓库与日期范围生成的研发活动报告（R1：提交／Issue／PR／CI 与本机分析记录按日分组、来源跳转、待处理事项、读取缺口与 Markdown 导出，规则汇总）；可选模型摘要、回写知识库与更长范围的有界活动缓存仍在后续计划 |
-| 操作草稿 | 服务排查只读，没有 GitHub 操作草稿和执行审计 |
+| 操作草稿 | 已实现本机操作草稿（W1 首轮）：从已保存 Issue 分诊 / PR 审查报告生成评论与标签草稿，可编辑（修订校验）、丢弃，明确「草稿 · 未执行」；创建/关闭 Issue 草稿与受限写入、执行审计（W2）待后续 |
 | 知识检索 | 已有项目知识导入、版本管理、关键词检索与可选向量混合检索（K1/K2/K3）；研发分析消费知识资料仍在后续计划中 |
 
 现有模型配置、工具限额、SSE、证据引用、历史和本机源码检索可以复用。GitHub 的当前状态与代码版本须直接读取，历史资料和经验再进入知识检索。
@@ -97,3 +97,13 @@ API：`GET /api/development/pr/model-option`、`POST /api/development/pr/reports
 3. **Markdown 导出与边界。** 单条报告可导出为 Markdown（本机下载，内容按保存的 payload 确定性渲染，含来源链接、缺口与说明）；报告不自动发送邮件、评论或任何 GitHub 写操作。「回写知识库」选项未启用：后续版本将按 K1 版本机制显式导入为项目知识，默认关闭，不覆盖已有知识版本。可选模型摘要为后续增强；覆盖更长日期范围的有界活动缓存（记录读取时间、范围与分页位置）亦为后续按需实现，不做持续全量同步。
 
 API：`POST /api/development/repositories/{id}/activity-reports`（body `fromDate`/`toDate`）、`GET …/activity-reports`（最近 20 份）、`GET /api/development/activity-reports/{id}`、`GET /api/development/activity-reports/{id}/markdown`（`text/markdown`）。报告存于 V21 `repository_activity_reports`（payload JSON，随仓库登记 `ON DELETE CASCADE` 清理）。
+
+## GitHub 操作草稿（W1 首轮）
+
+研发协作页仓库卡片可将已保存的分析报告转换为本机草稿。首轮支持评论草稿与标签草稿；创建 / 关闭 Issue 草稿为后续扩展。
+
+1. **依据与目标版本。** 草稿必须以同一仓库已保存的 Issue 分诊报告（评论 / 标签）或 PR 审查报告（评论）为依据：目标对象（Issue / PR 编号、标题、链接）、依据报告 ID 与标题快照、目标版本（PR 为 head SHA，Issue 为更新时间）随草稿保存；编辑正文或标签不改变来源关系。评论正文由报告内容生成模板（含“未执行任何 GitHub 操作”边界句），标签草稿默认取分诊结论的类别标签，均可在页面上继续编辑。
+2. **本机生命周期。** 草稿可编辑（正文最长 20,000 字符；标签每次添加 / 移除各最多 10 个、单个最长 64 字符，不允许重复或同时添加又移除）与丢弃；编辑采用修订号乐观校验，过期修订返回 409。草稿保存在 V22 `operation_drafts`（payload JSON，随仓库登记级联删除），丢弃后不再出现在列表但记录保留可查。
+3. **边界。** 生成与编辑草稿只读本机报告与登记，不发起任何 GitHub 请求（有回归断言 fixture 侧只有 GET），页面与 API 响应均标注「草稿 · 未执行」；发布、执行与审计属于 W2，当前不存在任何 GitHub 写客户端。模型建议不会自动成为草稿或发布；跨仓库依据被拒绝。
+
+API：`POST /api/development/repositories/{id}/drafts`（body `kind`/`basisReportId`）、`GET …/drafts`（未丢弃草稿，最近 50 条）、`GET /api/development/drafts/{id}`、`PUT /api/development/drafts/{id}`（body `revision`/`body`/`addLabels`/`removeLabels`）、`POST /api/development/drafts/{id}/discard`。

@@ -195,3 +195,5 @@ Issue 上下文补全（A3）：见[研发协作说明](docs/DEVELOPMENT_COLLABO
 仓库健康摘要（R0）：见[研发协作说明](docs/DEVELOPMENT_COLLABORATION.md)。按规则汇总概览快照与本机分析记录——来源、抽样范围与缺口逐项标注，快照过期提示更新，可保存与重开；生成不访问 GitHub、不调用模型。
 
 研发活动报告（R1）：见[研发协作说明](docs/DEVELOPMENT_COLLABORATION.md)。按日期范围（日报/周报）整理提交、Issue、PR、CI 与本机分析记录——按日分组、每项活动可跳转来源或重开本机报告，待处理事项与读取缺口逐条标注，空范围与读取失败区分；支持历史重开与 Markdown 本机导出，不自动发送邮件或评论，回写知识库选项未启用。
+
+GitHub 操作草稿（W1 首轮）：见[研发协作说明](docs/DEVELOPMENT_COLLABORATION.md)。从已保存的 Issue 分诊 / PR 审查报告生成本机评论与标签草稿——依据与目标版本随草稿保存，可编辑（修订校验）可丢弃；草稿明确「未执行」，生成与编辑不调用任何 GitHub 接口，执行与审计待 W2。
