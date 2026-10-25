@@ -16,7 +16,7 @@ public class IssueReportStore {
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     public IssueReportStore(JdbcTemplate jdbc, ObjectMapper json) { this.jdbc = jdbc; this.json = json; }
-    void insert(Report report) {
+    public void insert(Report report) {
         try { jdbc.update("INSERT INTO issue_reports (id, repository_id, created_at, payload) VALUES (?, ?, ?, ?)",
             report.id().toString(), report.repositoryId().toString(), report.createdAt().atOffset(ZoneOffset.UTC), json.writeValueAsString(report)); }
         catch (java.io.IOException error) { throw new IllegalStateException("Cannot encode Issue report", error); }
