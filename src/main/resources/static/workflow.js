@@ -3,7 +3,7 @@
   const $=selector=>document.querySelector(selector);
   const node=(tag,text,className)=>{const value=document.createElement(tag);if(text!=null)value.textContent=text;if(className)value.className=className;return value;};
   const date=value=>new Date(value).toLocaleString("zh-CN",{hour12:false});
-  const labels={PENDING:"等待前置任务",RUNNING:"执行中",SUCCEEDED:"已完成",PARTIAL:"完成但有缺口",FAILED:"失败",SKIPPED:"已跳过",CANCELLED:"已取消",PLANNED:"等待执行",COMPLETED:"任务已结束",COMPLETED_WITH_GAPS:"已结束，有缺口",TIMED_OUT:"执行超时",INTERRUPTED:"已中断"};
+  const labels={PENDING:"等待前置任务",RUNNING:"执行中",SUCCEEDED:"已完成",PARTIAL:"完成但有缺口",FAILED:"失败",SKIPPED:"已跳过",CANCELLED:"已取消",PLANNED:"等待执行",WAITING:"等待人工处理",COMPLETED:"任务已结束",COMPLETED_WITH_GAPS:"已结束，有缺口",TIMED_OUT:"执行超时",INTERRUPTED:"已中断"};
   const verdicts={REPLAN_REQUIRED:"需要重新生成计划",INCOMPLETE:"材料不完整",ATTENTION_REQUIRED:"有待核对的失败或提醒",REVIEW_REMAINING:"继续人工核查"};
   let repository="",version=0,watch=0,selectedRun="",pollTimer=null,plan=null,busy=false,issueReports=[];
   async function request(path,options={}){const response=await fetch(path,{cache:"no-store",...options});if(!response.ok){const problem=await response.json().catch(()=>({}));throw new Error(problem.detail||"读取工作流失败 ("+response.status+")");}return response.json();}
@@ -25,9 +25,17 @@
     const followup=node("a","继续追问");followup.href="/workspace.html?type=WORKFLOW&report="+encodeURIComponent(snapshot.id)+"#conversations";$("#workflow-result-meta").append(node("span"," · "),followup);
     const materialLink=node("a","材料 / 发送预览");materialLink.href="/workspace.html?type=WORKFLOW&repository="+encodeURIComponent(snapshot.repositoryId)+"&report="+encodeURIComponent(snapshot.id)+"#materials";$("#workflow-result-meta").append(node("span"," · "),materialLink);
     $("#workflow-state").textContent=labels[snapshot.state]||snapshot.state;$("#workflow-result-message").textContent=snapshot.message;
-    const ended=snapshot.tasks.filter(task=>!["PENDING","RUNNING"].includes(task.state)).length;
+    const ended=snapshot.tasks.filter(task=>!["PENDING","RUNNING","WAITING"].includes(task.state)).length;
     $("#workflow-progress").textContent="已结束 "+ended+" / "+snapshot.tasks.length+" 个任务";
-    $("#workflow-cancel").disabled=!["PLANNED","RUNNING"].includes(snapshot.state);
+    $("#workflow-cancel").disabled=!["PLANNED","RUNNING","WAITING"].includes(snapshot.state);
+    const waiting=snapshot.state==="WAITING";
+    $("#workflow-resume-box").hidden=!waiting;
+    if(waiting){
+      const material=snapshot.tasks.some(task=>task.state==="WAITING"&&task.errorCode==="WAIT_MATERIAL");
+      $("#workflow-resume-issue-row").hidden=!material;
+      $("#workflow-resume-issue").value="";
+      $("#workflow-resume-hint").textContent=(material?"该工作流在等待 Issue 材料，请填写 Issue 编号后恢复；":"该工作流在等待人工核对，可直接恢复重试；")+"已完成任务的结果保留原版本，恢复前会重新核对 PR base/head，最多可恢复两次。";
+    }
     $("#workflow-tasks").replaceChildren(...snapshot.tasks.map(task=>{
       const card=node("li",null,"workflow-task "+task.state.toLowerCase()),heading=node("div",null,"workflow-task-heading");heading.append(node("strong",task.title),node("span",labels[task.state]||task.state,"workflow-task-state"));
       card.append(heading,node("p",dependencies(task),"management-caption"),node("p",task.message));
@@ -57,6 +65,16 @@
   $("#workflow-plan-dialog").addEventListener("cancel",event=>{if(busy)event.preventDefault();else{plan=null;ready();}});
   $("#workflow-issue-report").addEventListener("change",()=>{const report=issueReports.find(value=>value.id===$("#workflow-issue-report").value);if(report)$("#workflow-issue-number").value=String(report.issue.number);});
   $("#workflow-cancel").addEventListener("click",async()=>{if(!selectedRun)return;const current=version,id=selectedRun;$("#workflow-cancel").disabled=true;try{const result=await post("/api/development/workflows/"+encodeURIComponent(id)+"/cancel");if(current!==version||id!==selectedRun)return;watchRun(result);await loadHistory();}catch(error){if(current===version)message(error.message,true);}});
+  $("#workflow-resume").addEventListener("click",async()=>{
+    if(!selectedRun)return;const current=version,id=selectedRun;$("#workflow-resume").disabled=true;
+    const issue=$("#workflow-resume-issue").value;
+    try{
+      const result=await post("/api/development/workflows/"+encodeURIComponent(id)+"/resume",issue?{issueNumber:Number(issue)}:{});
+      if(current!==version||id!==selectedRun)return;
+      watchRun(result);await loadHistory();message("已恢复执行：恢复前已重新核对 PR 版本；已完成结果保留原版本。");
+    }catch(error){if(current===version)message(error.message,true);}
+    finally{if(current===version)$("#workflow-resume").disabled=false;}
+  });
   $("#workflow-refresh-state").addEventListener("click",()=>{if(selectedRun)openRun(selectedRun);});
   $("#workflow-refresh-history").addEventListener("click",()=>{loadHistory();loadMaterials();});
   window.workflowPanel={selectRepository(id){if(id===repository)return;stopPolling();repository=id;version++;selectedRun="";plan=null;busy=false;$("#workflow-result").hidden=true;$("#workflow-plan-dialog").close();message("");ready();loadHistory();loadMaterials();},openRun,render};
