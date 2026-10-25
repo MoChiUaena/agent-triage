@@ -37,8 +37,10 @@ public final class GithubModels {
     public record PullRequest(long number, String title, String url, Instant updatedAt, boolean draft, String headSha) {}
     public record Workflow(long id, String name, String url, String status, String conclusion,
                            String branch, String headSha, Instant updatedAt) {}
+    public record Commit(String sha, String message, String author, String url, Instant committedAt) {}
     public record Section<T>(boolean available, List<T> items, boolean truncated, String message) {}
+    /** Snapshots written before the commits section exists decode it as null; consumers must treat that as a gap. */
     public record Health(RepositoryInfo repository, Section<Issue> issues, Section<PullRequest> pullRequests,
-                         Section<Workflow> workflows, Instant checkedAt) {}
+                         Section<Workflow> workflows, Section<Commit> commits, Instant checkedAt) {}
     public record Snapshot(Registration registration, Health health, boolean stale, String error) {}
 }

@@ -136,7 +136,18 @@ public class GithubClient {
                     text(node, "status", 40), text(node, "conclusion", 40), text(node, "head_branch", 160),
                     text(node, "head_sha", 64), timestamp(node));
             });
-        return new Health(repository, issues, pulls, workflows, Instant.now());
+        var commits = section(path + "/commits?per_page=20&sha=" + URLEncoder.encode(branch, StandardCharsets.UTF_8),
+            "", node -> {
+                String sha = text(node, "sha", 64);
+                if (!sha.matches("[a-f0-9]{40}")) throw invalid();
+                JsonNode meta = node.path("commit");
+                Instant committedAt = optionalTime(meta.path("author"), "date");
+                if (committedAt == null) committedAt = optionalTime(meta.path("committer"), "date");
+                if (committedAt == null) throw invalid();
+                return new Commit(sha, text(meta, "message", 400), text(meta.path("author"), "name", 100),
+                    key.url() + "/commit/" + sha, committedAt);
+            });
+        return new Health(repository, issues, pulls, workflows, commits, Instant.now());
     }
 
     private <T> Section<T> section(String path, String field, Function<JsonNode,T> convert) {
