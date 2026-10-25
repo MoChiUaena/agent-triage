@@ -6,6 +6,9 @@ import java.util.*;
 public final class WorkflowModels {
     private WorkflowModels() {}
     public record Spec(String id, String title, List<String> requires, List<String> after) {}
+    /** Saved custom template; tasks are frozen snapshots, so later edits never affect running workflows. */
+    public record Template(UUID id, UUID repositoryId, String repository, String name, List<Spec> tasks,
+                           int revision, Instant createdAt, Instant updatedAt) {}
     public record Plan(UUID id, UUID repositoryId, String repository, PrModels.Context pull, Long issueNumber,
                        String issueRelation, UUID issueReportId, UUID ciReportId, Instant createdAt, Instant expiresAt,
                        List<Spec> tasks, String notice) {}
