@@ -13,7 +13,7 @@
 | 协同工作流 | 已有固定 PR 模板、依赖与状态、失败跳过、版本核验、一次补查、综合报告、取消和重启恢复；尚无任意任务图或自主修复 |
 | 对话与长期记忆 | 有执行历史，没有追问上下文或经确认的项目记忆 |
 | 研发周报 | 已实现按仓库与日期范围生成的研发活动报告（R1：提交／Issue／PR／CI 与本机分析记录按日分组、来源跳转、待处理事项、读取缺口与 Markdown 导出，规则汇总）；可选模型摘要、回写知识库与更长范围的有界活动缓存仍在后续计划 |
-| 操作草稿 | 已实现本机操作草稿（W1 首轮）：从已保存 Issue 分诊 / PR 审查报告生成评论与标签草稿，可编辑（修订校验）、丢弃，明确「草稿 · 未执行」；创建/关闭 Issue 草稿与受限写入、执行审计（W2）待后续 |
+| 操作草稿 | 已实现本机操作草稿（W1 首轮）：从已保存 Issue 分诊 / PR 审查报告生成评论与标签草稿，可编辑（修订校验）、丢弃，明确「草稿 · 未执行」；评论与标签草稿已可经页面确认执行（W2：独立写入凭据、执行预览与二次核对、防重复提交、超时先核对远端、本机审计）；创建/关闭 Issue 草稿为后续扩展 |
 | 知识检索 | 已有项目知识导入、版本管理、关键词检索与可选向量混合检索（K1/K2/K3）；研发分析消费知识资料仍在后续计划中 |
 
 现有模型配置、工具限额、SSE、证据引用、历史和本机源码检索可以复用。GitHub 的当前状态与代码版本须直接读取，历史资料和经验再进入知识检索。
@@ -107,3 +107,13 @@ API：`POST /api/development/repositories/{id}/activity-reports`（body `fromDat
 3. **边界。** 生成与编辑草稿只读本机报告与登记，不发起任何 GitHub 请求（有回归断言 fixture 侧只有 GET），页面与 API 响应均标注「草稿 · 未执行」；发布、执行与审计属于 W2，当前不存在任何 GitHub 写客户端。模型建议不会自动成为草稿或发布；跨仓库依据被拒绝。
 
 API：`POST /api/development/repositories/{id}/drafts`（body `kind`/`basisReportId`）、`GET …/drafts`（未丢弃草稿，最近 50 条）、`GET /api/development/drafts/{id}`、`PUT /api/development/drafts/{id}`（body `revision`/`body`/`addLabels`/`removeLabels`）、`POST /api/development/drafts/{id}/discard`。
+
+## 确认执行与审计（W2 首轮）
+
+评论与标签草稿可经页面确认后执行。执行使用与读取 Token 相互独立的写入凭据（启动配置 `triage.github.write-token`，默认不配置即全部执行端点拒绝；超时默认 8 秒，可用 `triage.github.write-timeout-seconds` 调整），页面通过 `GET /api/development/drafts/write-option` 展示可用性。
+
+1. **执行预览与二次核对。** `POST /api/development/drafts/{id}/execution-previews` 用写入凭据读取仓库推送权限与目标当前状态：无推送权限 403；Issue 已关闭或更新时间与草稿保存的目标版本不同、PR head 变化均 409（提示目标已变化）。预览展示操作、目标、内容（标签草稿显示当前标签 → 执行后标签）、影响与边界说明，十分钟内有效且只能使用一次。执行时重新核对目标状态，预览后被修改（草稿修订变化）或目标再次变化都会拒绝。
+2. **防重复与不确定结果。** 执行前把草稿原子占位为 EXECUTING（已执行 / 丢弃 / 占位中的草稿均拒绝执行），成功后置 EXECUTED 并锁定编辑；失败或结果不确定则回退为 DRAFT。写入超时不自动重试：先读回远端评论（按正文精确匹配）或标签核对——一致按成功处理（不重复发送），不一致记录 UNCERTAIN 并提示人工到 GitHub 核对后再决定。
+3. **本机审计。** 每次执行尝试写入 V23 `draft_executions`（随仓库登记与草稿级联删除）：确认时间、执行时间、执行的目标 / 依据 / 正文或标签快照、结果状态（SUCCESS / FAILED / UNCERTAIN）、外部链接与说明；payload 不保存任何凭据，响应与审计均校验不泄漏 Token。仅开放评论与标签两类操作；不提供任意请求、Shell 或自动合并 PR 工具。
+
+API：`GET /api/development/drafts/write-option`、`POST /api/development/drafts/{id}/execution-previews`、`POST /api/development/drafts/{id}/executions`（body `previewId`/`confirmed`，未确认 400）、`GET /api/development/repositories/{id}/draft-executions`（最近 20 条）、`GET /api/development/draft-executions/{id}`。
