@@ -10,7 +10,7 @@
 | CI 排障 | 已实现失败作业、日志读取或粘贴、脱敏证据、本机规则报告，以及用户显式启用的模型建议（独立预览确认、引用校验、失败保留规则报告）；不自动重跑 CI 或修改代码 |
 | PR 风险审查 | 已实现固定 SHA 差异、行级规则提醒、对应提交 CI、正文 Issue 引用、本机报告历史，以及用户显式启用的模型建议（差异范围预览、源码单独授权、文件行号与 SHA 校验、失败保留规则报告），并可选附带受限本机源码上下文（S1：变更行版本核对、静态调用候选与多实现候选、歧义明确标识）；完整调用链分析仍在既有源码索引能力范围内 |
 | Issue 分诊 | 已有版本化上下文（含最近五条评论）、基础分类与可选模型建议、优先级、待补充信息、带引用行动项，以及受贡献者与 CODEOWNERS 范围限制的负责人候选和可选本机符号候选（S1）；尚不自动处理 GitHub 或复现问题 |
-| 协同工作流 | 已有固定 PR 模板、依赖与状态、失败跳过、版本核验、一次补查、综合报告、取消和重启恢复；尚无任意任务图或自主修复 |
+| 协同工作流 | 已有固定 PR 模板、依赖与状态、失败跳过、版本核验、一次补查、综合报告、取消和重启恢复；并支持可配置的受限工作流模板（F1 首轮：受控任务目录勾选组合、服务端校验依赖与材料约束、按创建计划时冻结的任务快照执行，模板修改不影响在途任务）；尚无任意任务图或自主修复 |
 | 对话与长期记忆 | 有执行历史，没有追问上下文或经确认的项目记忆 |
 | 研发周报 | 已实现按仓库与日期范围生成的研发活动报告（R1：提交／Issue／PR／CI 与本机分析记录按日分组、来源跳转、待处理事项、读取缺口与 Markdown 导出，规则汇总）；可选模型摘要、回写知识库与更长范围的有界活动缓存仍在后续计划 |
 | 操作草稿 | 已实现本机操作草稿（W1 首轮）：从已保存 Issue 分诊 / PR 审查报告生成评论与标签草稿，可编辑（修订校验）、丢弃，明确「草稿 · 未执行」；评论与标签草稿已可经页面确认执行（W2：独立写入凭据、执行预览与二次核对、防重复提交、超时先核对远端、本机审计）；创建/关闭 Issue 草稿为后续扩展 |
@@ -117,3 +117,13 @@ API：`POST /api/development/repositories/{id}/drafts`（body `kind`/`basisRepor
 3. **本机审计。** 每次执行尝试写入 V23 `draft_executions`（随仓库登记与草稿级联删除）：确认时间、执行时间、执行的目标 / 依据 / 正文或标签快照、结果状态（SUCCESS / FAILED / UNCERTAIN）、外部链接与说明；payload 不保存任何凭据，响应与审计均校验不泄漏 Token。仅开放评论与标签两类操作；不提供任意请求、Shell 或自动合并 PR 工具。
 
 API：`GET /api/development/drafts/write-option`、`POST /api/development/drafts/{id}/execution-previews`、`POST /api/development/drafts/{id}/executions`（body `previewId`/`confirmed`，未确认 400）、`GET /api/development/repositories/{id}/draft-executions`（最近 20 条）、`GET /api/development/draft-executions/{id}`。
+
+## 可配置的工作流模板（F1 首轮）
+
+固定 PR 模板之外，可按仓库保存自定义任务组合。首轮采用任务目录 + 表单勾选（不做拖拽编辑器）；执行沿用固定模板的并发（两个）、时限（三分钟）、一次补查与只读边界。
+
+1. **受控任务目录。** 服务端定义七个只读任务（读取仓库概览、审查固定 PR 版本、Issue 分诊、排查同一提交 CI、核对证据与版本、一次有界补查、生成综合报告）及其材料约束：PR／ISSUE 需要先读取仓库概览，CI 消费 PR head 提交（必须依赖 PR），补查跟在核对之后，综合报告固定在末尾且必须包含。未提供依赖时按目录默认推导（勾选顺序即执行顺序）。
+2. **服务端校验。** 保存与创建计划时都校验：未知或重复任务、引用模板中不存在的任务（缺失引用）、自依赖与顺序矛盾（含依赖环）、硬性材料约束不满足、名称与任务数（2–7）、每仓库最多 10 个模板；携带与任务不匹配的材料（如模板无 CI 任务却传入 CI 报告）同样拒绝。显式依赖可经 API 调整，仍受全部规则约束。
+3. **快照执行。** 从模板创建计划时把任务列表冻结进计划（沿用固定计划的五分钟有效期与既有执行入口）；模板后续修改或删除不影响已创建计划与在途任务。执行结果、缺口与证据核验沿用固定模板的综合报告机制；固定 PR 模板端点保持原样可用。
+
+API：`GET /api/development/workflow-task-catalog`、`POST/GET /api/development/repositories/{id}/workflow-templates`、`GET/PUT/DELETE /api/development/workflow-templates/{id}`（PUT 带 `revision` 乐观校验）、`POST /api/development/repositories/{id}/workflow-templates/{templateId}/plans`（body `prNumber`，可选 `issueNumber`/`issueReportId`/`ciReportId`）。模板存于 V24 `workflow_templates`（payload JSON，随仓库登记级联删除）。
