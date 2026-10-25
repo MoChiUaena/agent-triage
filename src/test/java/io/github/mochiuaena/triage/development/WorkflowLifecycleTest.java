@@ -39,7 +39,7 @@ class WorkflowLifecycleTest {
             try { gate.await(10, TimeUnit.SECONDS); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
             return new Result("SUCCEEDED","late upstream result",Data.empty(),List.of());
         });
-        service = new WorkflowService(planner,tasks,store,mock(GithubRepositoryStore.class),deadline); return service;
+        service = new WorkflowService(planner,tasks,store,mock(GithubRepositoryStore.class),mock(PrReviewService.class),mock(IssueTriageService.class),deadline); return service;
     }
     @Test void deadlinePersistsATerminalSnapshotAndReleasesAdmissionForNewWork() {
         var gate = new CountDownLatch(1); var engine = service(Duration.ofMillis(100),gate);
@@ -61,12 +61,25 @@ class WorkflowLifecycleTest {
         Plan plan = plan(); Instant time = Instant.now(); UUID id = UUID.randomUUID();
         var evidence = Data.empty().repository(new RepositoryContext("acme/service","main",time,1,2,0,List.of()));
         store.insert(new Snapshot(id,repository,"acme/service",plan,"RUNNING","working",time,time,
-            List.of(new Task("REPOSITORY","Repository",List.of(),List.of(),"RUNNING","reading","",time,null,List.of())),evidence));
+            List.of(new Task("REPOSITORY","Repository",List.of(),List.of(),"RUNNING","reading","",time,null,List.of())),evidence,0));
         assertThat(store.recover()).isEqualTo(1);
         var recovered = store.require(id); assertThat(recovered.state()).isEqualTo("INTERRUPTED");
         assertThat(recovered.data().repository().openIssueSample()).isEqualTo(1);
         assertThat(recovered.tasks().getFirst().state()).isEqualTo("FAILED");
         assertThat(store.recover()).isZero();
+    }
+    @Test void waitingWorkflowsSurviveRestartWithoutReplayingAnything() {
+        Plan plan = plan(); Instant time = Instant.now(); UUID id = UUID.randomUUID();
+        var evidence = Data.empty().repository(new RepositoryContext("acme/service","main",time,1,2,0,List.of()));
+        store.insert(new Snapshot(id,repository,"acme/service",plan,"WAITING","等待人工处理",time,time,
+            List.of(new Task("REPOSITORY","Repository",List.of(),List.of(),"SUCCEEDED","done","",time,time,List.of()),
+                new Task("ISSUE","Issue",List.of(),List.of(),"WAITING","缺少材料","WAIT_MATERIAL",null,null,List.of())),evidence,1));
+        assertThat(store.recover()).isZero();
+        var waiting = store.require(id);
+        assertThat(waiting.state()).isEqualTo("WAITING");
+        assertThat(waiting.resumes()).isEqualTo(1);
+        assertThat(waiting.tasks().getFirst().state()).isEqualTo("SUCCEEDED");
+        assertThat(waiting.tasks().get(1).state()).isEqualTo("WAITING");
     }
     @AfterEach void close() { if (service != null) service.close(); }
 }

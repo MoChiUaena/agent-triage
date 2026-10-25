@@ -32,7 +32,8 @@ public final class WorkflowModels {
         Data summary(Summary value) { return new Data(repository, pr, issue, ci, priorCi, checks, value); }
     }
     public record Snapshot(UUID id, UUID repositoryId, String repository, Plan plan, String state, String message,
-                           Instant createdAt, Instant updatedAt, List<Task> tasks, Data data) {}
+                           Instant createdAt, Instant updatedAt, List<Task> tasks, Data data, int resumes) {}
     record Result(String state, String message, Data data, List<Reference> references) {}
-    static boolean terminal(String state) { return !Set.of("PLANNED", "RUNNING").contains(state); }
+    /** WAITING is not terminal: the workflow persists, frees its worker and can be resumed by the user. */
+    static boolean terminal(String state) { return !Set.of("PLANNED", "RUNNING", "WAITING").contains(state); }
 }

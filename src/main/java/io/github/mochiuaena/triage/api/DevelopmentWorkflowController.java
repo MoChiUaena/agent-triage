@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 public class DevelopmentWorkflowController {
     public record PlanInput(@Min(1) @Max(Integer.MAX_VALUE) long prNumber, @Min(1) @Max(Integer.MAX_VALUE) Long issueNumber, UUID issueReportId, UUID ciReportId) {}
     public record Input(@NotNull UUID planId) {}
+    public record ResumeInput(@Min(1) @Max(Integer.MAX_VALUE) Long issueNumber) {}
     public record TemplateTaskInput(@NotBlank String id, List<String> requires, List<String> after) {}
     public record TemplateInput(@NotBlank String name, @NotNull List<TemplateTaskInput> tasks) {}
     public record TemplateUpdateInput(@NotNull Integer revision, String name, List<TemplateTaskInput> tasks) {}
@@ -28,6 +29,10 @@ public class DevelopmentWorkflowController {
     @GetMapping("/repositories/{repository}/workflows") public List<Snapshot> list(@PathVariable UUID repository) { return workflows.list(repository); }
     @GetMapping("/workflows/{id}") public Snapshot get(@PathVariable UUID id) { return workflows.get(id); }
     @PostMapping("/workflows/{id}/cancel") public Snapshot cancel(@PathVariable UUID id) { return workflows.cancel(id); }
+    /** Resumes a WAITING workflow; a material wait requires the Issue number, and the PR version is re-checked first. */
+    @PostMapping("/workflows/{id}/resume") public Snapshot resume(@PathVariable UUID id, @Valid @RequestBody(required = false) ResumeInput input) {
+        return workflows.resume(id, input == null ? null : input.issueNumber());
+    }
 
     /** Configurable workflow templates (F1): form-driven task lists over the fixed read-only catalog. */
     @GetMapping("/workflow-task-catalog") public List<Map<String, Object>> catalog() { return templates.catalog(); }

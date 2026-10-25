@@ -38,7 +38,7 @@ public class WorkflowTasks {
                 yield new Result("SUCCEEDED", "已保存固定版本的 PR 审查报告。", data.pr(report), List.of(WorkflowPolicy.pr(report)));
             }
             case "ISSUE" -> {
-                if (plan.issueNumber() == null) yield result("SKIPPED", "没有所选或明确引用的同仓库 Issue。", data);
+                if (plan.issueNumber() == null) yield new Result("WAIT_MATERIAL", "缺少 Issue 材料：没有所选或明确引用的同仓库 Issue。恢复时请补充 Issue 编号，或取消本次工作流。", data, List.of());
                 if (plan.issueRelation().equals("PR_REFERENCE") && !data.pr().pull().issueNumbers().contains(plan.issueNumber())) yield result("SKIPPED", "执行时的 PR 正文不再引用该 Issue，未将其自动关联。", data);
                 var report = plan.issueReportId() == null ? issues.create(plan.repositoryId(), issues.preview(plan.repositoryId(), plan.issueNumber(), List.of(), null).id(), false) : issues.get(plan.issueReportId());
                 if (!report.repositoryId().equals(plan.repositoryId())) throw new IllegalArgumentException("Foreign Issue report");
@@ -50,6 +50,8 @@ public class WorkflowTasks {
                     var report = ci.get(plan.ciReportId()); if (!report.repositoryId().equals(plan.repositoryId())) throw new IllegalArgumentException("Foreign CI report");
                     observation = new CiObservation("REUSED", report, "SAVED_REPORT", 0, false, List.of());
                 } else observation = ciReader.read(plan.repositoryId(), key, plan.pull().headSha());
+                if (observation.state().equals("PENDING"))
+                    yield new Result("WAIT_RETRY", "CI 还有运行未结束，暂不能给出完整 CI 判断。等待运行结束后可恢复重读；恢复前会重新核对 PR 版本。", data.ci(observation), observation.report() == null ? List.of() : List.of(WorkflowPolicy.ci(observation.report())));
                 yield new Result(Set.of("ANALYZED", "NO_FAILED_RUNS", "REUSED").contains(observation.state()) ? "SUCCEEDED" : "PARTIAL", ciMessage(observation), data.ci(observation), observation.report() == null ? List.of() : List.of(WorkflowPolicy.ci(observation.report())));
             }
             case "CHECK" -> {

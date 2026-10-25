@@ -22,8 +22,8 @@ public class WorkflowStore {
     int recover() {
         var values = jdbc.query("SELECT payload FROM development_workflows WHERE state IN ('PLANNED','RUNNING')", (row,n) -> decode(row.getString(1)));
         for (var value : values) {
-            Instant now = Instant.now(); var tasks = value.tasks().stream().map(task -> Set.of("PENDING", "RUNNING").contains(task.state()) ? new Task(task.id(), task.title(), task.requires(), task.after(), task.state().equals("RUNNING") ? "FAILED" : "SKIPPED", "应用重启，任务已中断，没有自动重跑。", "RESTART", task.startedAt(), now, task.references()) : task).toList();
-            update(new Snapshot(value.id(), value.repositoryId(), value.repository(), value.plan(), "INTERRUPTED", "应用重启，保留已完成结果与证据，需重新创建工作流。", value.createdAt(), now, tasks, value.data()));
+            Instant now = Instant.now(); var tasks = value.tasks().stream().map(task -> Set.of("PENDING", "RUNNING").contains(task.state()) ? new Task(task.id(),task.title(),task.requires(),task.after(), task.state().equals("RUNNING") ? "FAILED" : "SKIPPED", "应用重启，任务已中断，没有自动重跑。", "RESTART", task.startedAt(), now, task.references()) : task).toList();
+            update(new Snapshot(value.id(), value.repositoryId(), value.repository(), value.plan(), "INTERRUPTED", "应用重启，保留已完成结果与证据，需重新创建工作流。", value.createdAt(), now, tasks, value.data(), value.resumes()));
         }
         return values.size();
     }
