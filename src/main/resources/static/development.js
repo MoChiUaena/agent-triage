@@ -279,6 +279,21 @@ function draftCard(draft) {
   const discardButton = element("button", "丢弃草稿", "secondary"); discardButton.type = "button";
   const note = element("span", "", "management-caption");
   controls.append(save, discardButton, note); card.append(controls);
+  const executionBox = element("div", null, "draft-execution-box");
+  card.append(executionBox);
+  if (draftWriteEnabled) {
+    const previewButton = element("button", "预览执行", "secondary"); previewButton.type = "button";
+    previewButton.addEventListener("click", () => loadExecutionPreview(draft, executionBox, record => {
+      if (record.state === "SUCCESS") {
+        previewButton.hidden = true; save.hidden = true; discardButton.hidden = true; bodyInput.disabled = true;
+        if (addInput) { addInput.disabled = true; removeInput.disabled = true; }
+        heading.children[1].textContent = "已执行";
+      }
+      const current = $("#repository-select").value;
+      if (current) loadDraftExecutions(current, selectionVersion);
+    }));
+    controls.append(previewButton);
+  }
   const labelValues = value => value.split(",").map(item => item.trim()).filter(Boolean);
   save.addEventListener("click", async () => {
     save.disabled = true;
@@ -337,6 +352,88 @@ async function createDraft(event) {
 $("#draft-form").addEventListener("submit", createDraft);
 $("#draft-basis").addEventListener("change", () => { syncDraftKind(); setDraftBusy(false); });
 $("#draft-kind").addEventListener("change", syncDraftKind);
+let draftWriteEnabled = false;
+const EXECUTION_STATES = { SUCCESS: "执行成功", FAILED: "执行失败", UNCERTAIN: "结果不确定" };
+async function loadDraftWriteOption() {
+  try {
+    const option = await request("/api/development/drafts/write-option");
+    draftWriteEnabled = !!option.enabled;
+    $("#draft-write-option").textContent = option.message;
+  } catch (error) { draftWriteEnabled = false; $("#draft-write-option").textContent = "写入配置读取失败：" + error.message; }
+}
+async function loadDraftExecutions(id, current) {
+  try {
+    const values = await request("/api/development/repositories/" + encodeURIComponent(id) + "/draft-executions");
+    if (current !== selectionVersion) return;
+    const target = $("#draft-executions"); target.replaceChildren();
+    $("#draft-executions-box").hidden = !values.length;
+    for (const record of values) target.append(executionRow(record));
+  } catch (error) { if (current === selectionVersion) $("#draft-executions-box").hidden = true; }
+}
+function executionRow(record) {
+  const row = element("li");
+  row.append(element("span", (EXECUTION_STATES[record.state] || record.state) + " · " + time(record.executedAt)
+    + " · " + (record.kind === "LABEL" ? "标签" : "评论") + " #" + record.target.number, "repository-label"));
+  if (record.resultUrl) row.append(link("查看结果", record.resultUrl));
+  if (record.resultSummary) row.append(element("span", " " + record.resultSummary, "management-caption"));
+  if (record.message) row.append(element("span", " " + record.message, "repository-error"));
+  return row;
+}
+async function loadExecutionPreview(draft, box, onExecuted) {
+  box.replaceChildren(element("p", "正在核对目标、权限与版本…", "management-caption"));
+  try {
+    const preview = await request("/api/development/drafts/" + encodeURIComponent(draft.id) + "/execution-previews",
+      { method: "POST", headers: writeHeaders });
+    renderExecutionPreview(draft, preview, box, onExecuted);
+  } catch (error) { box.replaceChildren(element("p", "执行预览失败：" + error.message, "repository-error")); }
+}
+function renderExecutionPreview(draft, preview, box, onExecuted) {
+  box.replaceChildren();
+  box.append(element("h4", "执行预览 · " + preview.operation));
+  const meta = element("ul");
+  const targetLine = element("li"); targetLine.append(element("span", "目标：", "repository-label"),
+    link((preview.target.objectType === "ISSUE" ? "Issue #" : "PR #") + preview.target.number + " " + preview.target.title, preview.target.url));
+  meta.append(targetLine);
+  meta.append(element("li", "权限：" + (preview.permitted ? preview.permissionMessage : "写入凭据没有推送权限。")));
+  if (preview.kind === "LABEL") {
+    const labelTexts = values => (values || []).join("、") || "（无）";
+    meta.append(element("li", "当前标签：" + labelTexts(preview.currentLabels)));
+    meta.append(element("li", "执行后标签：" + labelTexts(preview.resultingLabels)));
+  } else meta.append(element("li", "将发布以上草稿正文为一条评论。"));
+  meta.append(element("li", "读取时间：" + time(preview.readAt) + " · 十分钟内有效且只能使用一次；执行前会再次核对目标状态。"));
+  box.append(meta);
+  const consent = element("label", null, "management-caption");
+  const checkbox = element("input"); checkbox.type = "checkbox";
+  consent.append(checkbox, element("span", "我已核对以上目标、内容与影响，确认对该 GitHub 对象执行此操作。"));
+  const executeButton = element("button", "确认执行", "primary"); executeButton.type = "button"; executeButton.disabled = true;
+  checkbox.addEventListener("change", () => { executeButton.disabled = !checkbox.checked; });
+  executeButton.addEventListener("click", async () => {
+    executeButton.disabled = true;
+    box.append(element("p", "正在执行并等待 GitHub 响应…", "management-caption"));
+    try {
+      const record = await request("/api/development/drafts/" + encodeURIComponent(draft.id) + "/executions",
+        { method: "POST", headers: writeHeaders, body: JSON.stringify({ previewId: preview.id, confirmed: true }) });
+      renderExecutionResult(record, box, draft);
+      if (onExecuted) onExecuted(record);
+    } catch (error) {
+      box.append(element("p", "执行失败：" + error.message, "repository-error"));
+      executeButton.disabled = false;
+    }
+  });
+  box.append(consent, executeButton);
+  const notes = element("ul");
+  for (const note of preview.notes || []) notes.append(element("li", note, "management-caption"));
+  box.append(notes);
+}
+function renderExecutionResult(record, box, draft) {
+  box.replaceChildren();
+  const heading = element("h4", (EXECUTION_STATES[record.state] || record.state) + " · " + time(record.executedAt));
+  box.append(heading);
+  if (record.resultUrl) { const row = element("p"); row.append(link("在 GitHub 查看结果", record.resultUrl)); box.append(row); }
+  if (record.resultSummary) box.append(element("p", record.resultSummary, "management-caption"));
+  if (record.message) box.append(element("p", record.message, record.state === "SUCCESS" ? "management-caption" : "repository-error"));
+  box.append(element("p", "已写入本机执行审计（不保存凭据）；本次确认时间 " + time(record.confirmedAt) + "。", "management-caption"));
+}
 function workflowState(run) {
   if (run.status !== "completed") return [run.status === "in_progress" ? "执行中" : run.status === "queued" ? "排队中" : "等待执行", "running"];
   if (run.conclusion === "success") return ["通过", "success"];
@@ -406,7 +503,8 @@ async function loadHealth() {
   setHealthBusy(!!id); $("#health-summary-result").hidden = true; $("#health-summary-history").replaceChildren(); $("#health-summary-history-box").hidden = true;
   activityReport = null; setActivityBusy(!!id); $("#activity-result").hidden = true; $("#activity-history").replaceChildren(); $("#activity-history-box").hidden = true;
   draftBasis = []; $("#draft-basis").replaceChildren(element("option", id ? "正在加载依据报告…" : "选择仓库后加载")); $("#draft-basis").value = ""; $("#draft-list").replaceChildren(); setDraftBusy(true);
-  if (id) { loadHealthSummaries(id, version); loadActivityReports(id, version); loadDrafts(id, version); loadDraftBasisOptions(id, version); }
+  $("#draft-executions").replaceChildren(); $("#draft-executions-box").hidden = true; loadDraftWriteOption();
+  if (id) { loadHealthSummaries(id, version); loadActivityReports(id, version); loadDrafts(id, version); loadDraftBasisOptions(id, version); loadDraftExecutions(id, version); }
   if (!id) { $("#repository-health").hidden = true; $("#repository-empty").hidden = false; window.ciPanel?.selectRepository(""); setBusy(false); return; }
   setBusy(true);
   try { const snapshot = await request("/api/development/repositories/" + id + "/health"); if (version === selectionVersion) renderHealth(snapshot); }

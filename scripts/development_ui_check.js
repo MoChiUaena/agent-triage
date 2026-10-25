@@ -216,5 +216,79 @@ context.requestedParameters=new URL("http://localhost/development.html?repositor
   assert.equal(vm.runInContext("$('#draft-kind').value", context), "COMMENT", "PR basis must not offer label drafts");
   assert.match(document.querySelector("#draft-kind-note").textContent, /标签草稿仅支持 Issue 分诊报告/);
   console.log("Development drafts passed: basis loading, dated creation, revision save with 409 handling, discard and safe text");
+  // W2：受限执行——写入配置、执行预览、确认门控、执行结果与审计刷新、不确定结果可重新预览。
+  const executionPreviewFixture = { id: "p1", draftId: "d1", draftRevision: 1, kind: "COMMENT",
+    target: { objectType: "ISSUE", number: 7, title: "Slow request", url: "https://github.com/acme/service/issues/7", headSha: null, updatedAt: "2026-10-13T12:00:00Z" },
+    operation: "发布评论", body: draftFixture.body, currentLabels: [], resultingLabels: [],
+    permitted: true, permissionMessage: "写入凭据具备该仓库推送权限。", readAt: "2026-10-25T00:00:00Z", expiresAt: "2026-10-25T00:10:00Z",
+    notes: ["执行前会再次核对目标状态与内容；预览十分钟内有效且只能使用一次。"] };
+  const executionRecordFixture = { id: "e1", draftId: "d1", repositoryId: "repo", repository: "acme/service", kind: "COMMENT",
+    target: executionPreviewFixture.target, basis: draftFixture.basis, body: draftFixture.body, addLabels: [], removeLabels: [], resultingLabels: [],
+    state: "SUCCESS", confirmedAt: "2026-10-25T00:05:00Z", executedAt: "2026-10-25T00:05:01Z",
+    resultUrl: "https://github.com/acme/service/issues/7#issuecomment-501", resultSummary: "已发布评论（评论 501）。", message: "", confirmedVia: "LOCAL_PAGE" };
+  let executionOutcome = executionRecordFixture;
+  calls.length = 0;
+  context.fetch = async (url, options = {}) => {
+    calls.push({ url, options });
+    if (url.endsWith("/drafts/write-option")) return { ok: true, json: async () => ({ enabled: true, message: "已配置独立写入凭据；每次执行仍需预览核对与显式确认。" }) };
+    if (url.endsWith("/execution-previews")) return { ok: true, json: async () => executionPreviewFixture };
+    if (url.endsWith("/executions")) return { ok: true, json: async () => executionOutcome };
+    if (url.endsWith("/draft-executions")) return { ok: true, json: async () => [executionRecordFixture] };
+    if (url.endsWith("/discard")) return { ok: true, json: async () => ({ ...draftFixture, state: "DISCARDED" }) };
+    if (url.endsWith("/drafts") && options.method === "POST") return { ok: true, json: async () => draftFixture };
+    if (url.endsWith("/drafts")) return { ok: true, json: async () => [draftFixture] };
+    if (url.includes("/issue/reports")) return { ok: true, json: async () => [{ id: "basis-1", issue: { number: 7, title: "Slow request" } }] };
+    if (url.includes("/pr/reports")) return { ok: true, json: async () => [] };
+    return { ok: true, json: async () => ({}) };
+  };
+  document.querySelector("#repository-select").events.change();
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(document.querySelector("#draft-write-option").textContent, /已配置独立写入凭据/);
+  assert.equal(document.querySelector("#draft-executions-box").hidden, false);
+  assert.match(document.querySelector("#draft-executions").textContent, /执行成功 · .+ · 评论 #7/);
+  assert.match(document.querySelector("#draft-executions").textContent, /查看结果/);
+  const card = document.querySelector("#draft-list").children[0];
+  const cardControls = card.children[5];
+  const cardExecutionBox = card.children[6];
+  assert.equal(cardControls.children.length, 4, "Executed-capable drafts must offer preview execution");
+  await cardControls.children[3].events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(cardExecutionBox.textContent, /执行预览 · 发布评论/);
+  assert.match(cardExecutionBox.textContent, /写入凭据具备该仓库推送权限/);
+  assert.match(cardExecutionBox.textContent, /十分钟内有效且只能使用一次/);
+  const executeButton = cardExecutionBox.children[3];
+  assert.equal(executeButton.disabled, true, "Execution must stay gated until explicitly confirmed");
+  const consentCheckbox = cardExecutionBox.children[2].children[0];
+  consentCheckbox.checked = true; consentCheckbox.events.change();
+  assert.equal(executeButton.disabled, false);
+  await executeButton.events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  const executionPosts = calls.filter(call => call.url.endsWith("/executions"));
+  assert.equal(executionPosts.length, 1, "Execution must fire exactly once");
+  assert.equal(executionPosts[0].options.body, JSON.stringify({ previewId: "p1", confirmed: true }));
+  assert.equal(executionPosts[0].options.headers["X-Triage-Development"], "1");
+  assert.match(cardExecutionBox.textContent, /执行成功/);
+  assert.match(cardExecutionBox.textContent, /在 GitHub 查看结果/);
+  assert.match(cardExecutionBox.textContent, /已写入本机执行审计/);
+  assert.equal(card.children[0].children[1].textContent, "已执行");
+  assert.equal(cardControls.children[0].hidden, true, "Executed drafts must not stay editable");
+  assert.equal(cardControls.children[3].hidden, true, "Executed drafts must not offer re-execution");
+  executionOutcome = { ...executionRecordFixture, state: "UNCERTAIN", resultUrl: "", resultSummary: "", message: "写入超时且远端未找到该评论；请到 GitHub 核对。" };
+  await vm.runInContext("loadDrafts('repo', selectionVersion)", context);
+  await new Promise(resolve => setImmediate(resolve));
+  const retryCard = document.querySelector("#draft-list").children[0];
+  const retryControls = retryCard.children[5];
+  await retryControls.children[3].events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  const retryConsent = retryCard.children[6].children[2].children[0];
+  retryConsent.checked = true; retryConsent.events.change();
+  await retryCard.children[6].children[3].events.click();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(retryCard.children[6].textContent, /结果不确定/);
+  assert.match(retryCard.children[6].textContent, /写入超时且远端未找到该评论/);
+  assert.equal(retryControls.children[3].hidden, false, "Uncertain drafts must allow re-previewing");
+  assert.equal(retryControls.children[0].hidden, false, "Uncertain drafts must stay editable");
+  console.log("Development draft execution passed: write option, preview gate, one-shot confirm, audit refresh and uncertain recovery");
 })().catch(error=>{console.error(error);process.exitCode=1;});
 

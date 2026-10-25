@@ -58,7 +58,8 @@
         </section>
         <section class="management-card" aria-labelledby="drafts-heading">
           <div class="management-heading"><h2 id="drafts-heading">GitHub 操作草稿</h2><span class="repository-label">草稿 · 未执行</span></div>
-          <p class="management-caption">从已保存的 Issue 分诊 / PR 审查报告生成本机草稿（评论或标签）：可编辑、保存或丢弃；依据报告与目标版本随草稿保存，编辑不改变来源关系。草稿不会发布到 GitHub，生成与编辑不调用任何写接口；执行需待受限写入与执行审计（W2）上线。创建 / 关闭 Issue 草稿为后续扩展。</p>
+          <p class="management-caption">从已保存的 Issue 分诊 / PR 审查报告生成本机草稿（评论或标签）：可编辑、保存或丢弃；依据报告与目标版本随草稿保存，编辑不改变来源关系。执行需要独立写入凭据，且每次都要预览核对（目标、内容、影响、权限与版本）并显式确认；执行结果只写入本机审计，不保存凭据；超时不自动重试，先核对远端状态。创建 / 关闭 Issue 草稿为后续扩展。</p>
+          <p class="management-caption" id="draft-write-option"></p>
           <form id="draft-form" class="workflow-form">
             <label>依据报告<select id="draft-basis"><option value="">选择仓库后加载</option></select></label>
             <label>草稿类型<select id="draft-kind"><option value="COMMENT">评论草稿</option><option value="LABEL">标签草稿</option></select></label>
@@ -66,6 +67,7 @@
           </form>
           <p class="management-caption" id="draft-kind-note"></p>
           <div id="draft-list"></div>
+          <details id="draft-executions-box" hidden><summary>执行审计（最近 20 条）</summary><div id="draft-executions"></div></details>
         </section>
         <section class="management-card workflow-setup" aria-labelledby="workflow-heading"><div class="management-heading"><h2 id="workflow-heading">PR 协同检查</h2><span class="repository-label">依赖任务与综合报告</span></div><p class="management-caption">组合仓库、PR、Issue 和 CI 分析，先确认计划再执行。已有报告保留原版本，不发起新的模型调用。</p>
           <p id="workflow-notice" class="settings-notice" role="status" hidden></p>
